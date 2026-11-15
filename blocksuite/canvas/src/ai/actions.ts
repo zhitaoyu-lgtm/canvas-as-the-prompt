@@ -99,10 +99,11 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const step = (from: Box, dir: string, gap: number): Box => {
       // stay on the anchor's line: share its top (rows) or its left (columns)
       switch (dir) {
-        case 'right': return { x: from.x + from.w + gap, y: from.y + (from.h - h) / 2, w, h };
-        case 'left': return { x: from.x - gap - w, y: from.y + (from.h - h) / 2, w, h };
-        case 'below': return { x: from.x + (from.w - w) / 2, y: from.y + from.h + gap, w, h };
-        default: return { x: from.x + (from.w - w) / 2, y: from.y - gap - h, w, h };
+        // same-size things centre on the anchor's line; bigger things align to its edge (top / left)
+        case 'right': return { x: from.x + from.w + gap, y: h <= from.h ? from.y + (from.h - h) / 2 : from.y, w, h };
+        case 'left': return { x: from.x - gap - w, y: h <= from.h ? from.y + (from.h - h) / 2 : from.y, w, h };
+        case 'below': return { x: w <= from.w ? from.x + (from.w - w) / 2 : from.x, y: from.y + from.h + gap, w, h };
+        default: return { x: w <= from.w ? from.x + (from.w - w) / 2 : from.x, y: from.y - gap - h, w, h };
       }
     };
     const walk = (anchor: Box, dir: string, gap: number, strict = true) => {
@@ -358,6 +359,27 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     } else box = place(a.place, w, h);
     addText({ ...a, text }, size, '#8a8984', box);
   }
+  // a small label pill on a thing, bottom-left inside its edge (FigJam-style tag)
+  function tag(a: Action) {
+    const refs: string[] = a.refs ?? (a.ref ? [a.ref] : a.on ? [a.on] : []);
+    for (const ref of refs) {
+      const b = boxOfRef(ref); if (!b) { errors.push(`tag: unknown ${ref}`); continue; }
+      const label = String(a.text ?? a.label ?? ''); const size = 12;
+      const w = Math.ceil(textWidth(label, size) * 1.12) + 26, h = 24;
+      const c = a.colour ? base(a.colour) : 'gray';
+      const fill = c === 'gray' || c === 'grey' || c === 'white' ? '#ffffff' : (TAGFILL[c] ?? '#ffffff');
+      // stack after existing tags on the same thing
+      const already = newBoxes.filter(nb => nb.h === h && nb.y === b.y + b.h - h - 10 && nb.x >= b.x && nb.x < b.x + b.w).length;
+      const x = b.x + 10 + newBoxes.filter(nb => nb.h === h && nb.y === b.y + b.h - h - 10 && nb.x >= b.x && nb.x < b.x + b.w).reduce((s, nb) => s + nb.w + 6, 0);
+      const t = new Y.Text(); t.insert(0, label);
+      const id = surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.5, xywh: xywh({ x, y: b.y + b.h - h - 10, w, h }), filled: true, fillColor: fill,
+        strokeColor: '#e3e2dd', strokeWidth: fill === '#ffffff' ? 1 : 0, color: '#3a3a3c', fontSize: size, fontFamily: 'blocksuite:surface:Inter', fontWeight: '500',
+        textAlign: 'center', textHorizontalAlign: 'center', textVerticalAlign: 'center', padding: [2, 4], maxWidth: false, text: t });
+      void already; created.push(id); newBoxes.push({ x, y: b.y + b.h - h - 10, w, h });
+    }
+  }
+  const TAGFILL: Record<string, string> = { red: '#ffe1de', orange: '#ffe7cf', yellow: '#fff1c2', green: '#d9f2df', teal: '#d4f0ee', blue: '#dcebff', purple: '#e8e0fd', violet: '#e8e0fd', pink: '#fde0ef' };
+
   function legend(a: Action) {
     const entries: { colour: string; label: string }[] = a.entries ?? [];
     if (!entries.length) return;
@@ -376,7 +398,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       const pill = surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.5, xywh: xywh({ x, y: box.y, w: widths[i], h: chipH }), filled: true, fillColor: '#ffffff', strokeColor: '#e3e2dd', strokeWidth: 1, text: new Y.Text() });
       const d = surf.addElement({ type: 'shape', shapeType: 'ellipse', xywh: xywh({ x: x + 12, y: box.y + 9, w: 10, h: 10 }), filled: true, fillColor: dot, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() });
       const t = new Y.Text(); t.insert(0, e.label);
-      const lbl = surf.addElement({ type: 'text', xywh: xywh({ x: x + 28, y: box.y + 5, w: widths[i] - 34, h: 18 }), text: t, color: '#2a2926', fontSize: size, fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' });
+      const lbl = surf.addElement({ type: 'text', xywh: xywh({ x: x + 28, y: box.y + 5, w: widths[i] - 34, h: 18 }), text: t, color: '#3a3a3c', fontSize: size, fontWeight: '500', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' });
       ids.push(pill, d, lbl); x += widths[i] + gap;
     });
     const gid = surf.addElement({ type: 'group', children: Object.fromEntries(ids.map(i => [i, true])), title: new Y.Text('Legend') });
@@ -388,9 +410,10 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   // ── Sections: a titled container holding cards, link cards, stickies, text or more sections ──
   // Built like a FigJam board: size from content outward, white cards inside tinted containers,
   // one grid per container with even gaps, a real heading. Words are measured after they render.
+  // One quiet palette for everything the AI makes (Apple-like: white cards on soft system tints)
   const TINT: Record<string, string> = {
-    white: '#ffffff', gray: '#eeeeec', grey: '#eeeeec', blue: '#eaf3ff', teal: '#e2f6f3', green: '#e6f6e9',
-    yellow: '#fff5d6', orange: '#ffeedd', red: '#ffe8e5', pink: '#ffe9f5', purple: '#efe9ff', violet: '#efe9ff',
+    white: '#ffffff', gray: '#f2f2f7', grey: '#f2f2f7', blue: '#eaf2ff', teal: '#e6f6f5', green: '#e8f7ec',
+    yellow: '#fff6dc', orange: '#fff0e0', red: '#ffecea', pink: '#fdebf4', purple: '#f1edfd', violet: '#f1edfd',
   };
   const SEC = { padX: 40, padTop: 36, padBottom: 44, headGap: 24, gap: 32, subGap: 6, title: 28, sub: 15 };
   type N = { kind: string; id?: string; w: number; h: number; spec: any; kids?: N[]; head?: { title?: string; sub?: string; tw: number; th: number } };
@@ -422,6 +445,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
         textAlign: 'left', textHorizontalAlign: 'left', textVerticalAlign: 'top', padding: [16, 16], shadow: { blur: 12, offsetX: 0, offsetY: 4, color: 'rgba(0,0,0,0.12)' }, text: t });
       created.push(id); return { kind: k, id, w: stickySize, h: stickySize, spec: it };
     }
+    if (k === 'summary') { it = { ...it, title: it.title ?? '', body: it.body ?? it.text }; }
     if (k === 'text') {
       const size = it.size === 'large' ? 22 : 15; const m = measure(it.text ?? '', size, 400, 440);
       const t = new Y.Text(); t.insert(0, String(it.text ?? ''));
@@ -446,7 +470,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       created.push(id); return { kind: k, id, w: 300, h: 330, spec: it };
     }
     // card (also a link card without a picture): a white note with meta, title, body
-    const w = it.wide ? 420 : 300;
+    const w = it.kind === 'summary' || it.span === 'full' ? (it._fullW ?? 632) : it.wide ? 420 : 300;
     const id = store.addBlock('affine:note', { xywh: xywh({ x: 0, y: 0, w, h: 80 }), background: '#ffffff', index: gfx.layer.generateIndex(false),
       edgeless: { style: { borderRadius: 16, borderSize: 0, borderStyle: 'none', shadowType: '--affine-note-shadow-box' } } } as any, store.root.id);
     const meta = it.meta ?? it.source ?? (it.url ? domain(it.url) : '');
@@ -458,13 +482,18 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       const li = line.match(/^[-•]\s+(.*)$/);
       store.addBlock(li ? 'affine:list' : 'affine:paragraph', li ? { type: 'bulleted', text: P(li[1]) } : { text: P(line) }, id);
     }
-    if (it.tag) store.addBlock('affine:paragraph', { text: P(String(it.tag), { color: 'var(--affine-text-secondary-color)', code: false }) }, id);
-    created.push(id); return { kind: 'card', id, w, h: 80, spec: it };
+    const tags = [...(Array.isArray(it.tags) ? it.tags : []), ...(it.tag ? [it.tag] : [])];
+    if (tags.length) store.addBlock('affine:paragraph', { text: P(tags.map((t: string) => '#' + String(t).replace(/^#/, '')).join('   '), { color: 'var(--affine-text-secondary-color)' }) }, id);
+    created.push(id); return { kind: it.kind === 'summary' || it.span === 'full' ? 'full' : 'card', id, w, h: 80, spec: it };
   }
 
   async function buildSection(spec: any, links: Map<string, any>): Promise<N> {
     const kids: N[] = [];
-    for (const it of spec.items ?? []) { const n = await buildItem(it, links); if (n) kids.push(n); }
+    const regular = (spec.items ?? []).filter((it: any) => it.kind !== 'summary' && it.span !== 'full');
+    const cols = spec.layout === 'column' ? 1 : spec.layout === 'row' ? Math.max(1, regular.length) : Math.max(1, Math.min(regular.length, spec.cols ?? (regular.length <= 4 ? regular.length : regular.length <= 6 ? 3 : 4)));
+    const unit = regular.some((it: any) => it.kind === 'section') ? 0 : regular.some((it: any) => it.kind === 'sticky') ? stickySize : 300;
+    const fullW = unit ? cols * unit + (cols - 1) * SEC.gap : 632;
+    for (const it of spec.items ?? []) { const n = await buildItem(it.kind === 'summary' || it.span === 'full' ? { ...it, _fullW: fullW } : it, links); if (n) kids.push(n); }
     const title = spec.title ? String(spec.title) : undefined, sub = spec.subtitle ? String(spec.subtitle) : undefined;
     const tm = title ? measure(title, SEC.title, 700) : { w: 0, h: 0 }, sm = sub ? measure(sub, SEC.sub, 400, 640) : { w: 0, h: 0 };
     return { kind: 'section', w: 0, h: 0, spec, kids, head: { title, sub, tw: Math.max(tm.w, sm.w), th: tm.h + (sub ? SEC.subGap + sm.h : 0) } };
@@ -479,23 +508,33 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   const pos: Pos = new Map();
   function layoutSection(n: N) {
     const kids = n.kids!; kids.forEach(sizeOf);
-    const sp = n.spec, cnt = kids.length;
+    const sp = n.spec;
+    const regular = kids.filter(k => k.kind !== 'full'), cnt = regular.length;
     const cols = sp.layout === 'column' ? 1 : sp.layout === 'row' ? Math.max(1, cnt) : Math.max(1, Math.min(cnt, sp.cols ?? (cnt <= 4 ? cnt : cnt <= 6 ? 3 : 4)));
     const gap = kids.some(k => k.kind === 'section') ? SEC.gap + 16 : SEC.gap;
-    const colW: number[] = [], rowH: number[] = [];
-    kids.forEach((k, i) => { const c = i % cols, r = Math.floor(i / cols); colW[c] = Math.max(colW[c] ?? 0, k.w); rowH[r] = Math.max(rowH[r] ?? 0, k.h); });
-    // equal card heights within a row when they share a pattern (FigJam reflow rule)
-    kids.forEach((k, i) => { if (k.kind === 'card' && k.id) { const r = Math.floor(i / cols); const el: any = gfx.getElementById(k.id); if (el && el.elementBound.h < rowH[r]) { setBox(k.id, { ...el.elementBound, h: rowH[r] }); k.h = rowH[r]; } } });
-    const contentW = colW.reduce((a, b) => a + b, 0) + gap * Math.max(0, colW.length - 1);
-    const contentH = rowH.reduce((a, b) => a + b, 0) + gap * Math.max(0, rowH.length - 1);
+    // rows: a full-width item is its own row; regular items fill rows of `cols`
+    const rows: N[][] = []; let cur: N[] = [];
+    for (const k of kids) {
+      if (k.kind === 'full') { if (cur.length) rows.push(cur); rows.push([k]); cur = []; continue; }
+      cur.push(k); if (cur.length === cols) { rows.push(cur); cur = []; }
+    }
+    if (cur.length) rows.push(cur);
+    const colW: number[] = [];
+    rows.forEach(r => { if (r[0].kind !== 'full') r.forEach((k, c) => (colW[c] = Math.max(colW[c] ?? 0, k.w))); });
+    const gridW = colW.reduce((a, b) => a + b, 0) + gap * Math.max(0, colW.length - 1);
+    const rowH = rows.map(r => Math.max(...r.map(k => k.h)));
+    // equal card heights within a row (FigJam reflow rule)
+    rows.forEach((r, ri) => r.forEach(k => { if ((k.kind === 'card') && k.id) { const el: any = gfx.getElementById(k.id); if (el && el.elementBound.h < rowH[ri] - 1) { const b = el.elementBound; store.updateBlock(el, { xywh: xywh({ x: b.x, y: b.y, w: b.w, h: rowH[ri] }), edgeless: { ...el.props.edgeless, collapse: true, collapsedHeight: rowH[ri] } }); k.h = rowH[ri]; } } }));
+    const contentW = Math.max(gridW, ...kids.filter(k => k.kind === 'full').map(k => k.w));
     const headH = n.head!.th ? n.head!.th + SEC.headGap : 0;
     const top = SEC.padTop + headH;
-    kids.forEach((k, i) => {
-      const c = i % cols, r = Math.floor(i / cols);
-      const x = SEC.padX + colW.slice(0, c).reduce((a, b) => a + b, 0) + gap * c;
-      const y = top + rowH.slice(0, r).reduce((a, b) => a + b, 0) + gap * r;
-      pos.set(k, { x, y });
+    let y = top;
+    rows.forEach((r, ri) => {
+      let x = SEC.padX;
+      r.forEach((k, c) => { pos.set(k, { x, y }); x += (k.kind === 'full' ? k.w : colW[c]) + gap; });
+      y += rowH[ri] + gap;
     });
+    const contentH = rowH.reduce((a, b) => a + b, 0) + gap * Math.max(0, rowH.length - 1);
     n.w = Math.max(contentW, n.head!.tw) + SEC.padX * 2;
     n.h = top + contentH + SEC.padBottom;
   }
@@ -584,6 +623,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
         case 'note': note(a); break;
         case 'legend': legend(a); break;
         case 'section': await section(a); break;
+        case 'tag': tag(a); break;
         default: errors.push(`unknown part "${a.do}"`);
       }
     } catch (e: any) { errors.push(`${a.do}: ${e?.message ?? e}`); }

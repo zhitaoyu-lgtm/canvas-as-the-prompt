@@ -209,3 +209,8 @@ affine-drag-handle-widget { display: none !important; }
 .affine-bookmark-card.vertical.edgeless .affine-bookmark-content-description { font-size: 13px; line-height: 18px; color: #5f5e5a; white-space: pre-line; -webkit-line-clamp: 4; }
 .affine-bookmark-card.vertical.edgeless .affine-bookmark-content-url { font-size: 12px; color: #9a9994; }
 affine-link-preview-details { display: none !important; }
+
+/* quiet bullets in cards and docs */
+.affine-list-block__prefix { color: #8a8984 !important; }
+/* equal-height cards keep their height quietly: no collapse chevron */
+[data-testid="edgeless-note-collapse-button"] { display: none !important; }

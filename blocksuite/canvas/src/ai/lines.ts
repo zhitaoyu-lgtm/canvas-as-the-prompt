@@ -116,7 +116,10 @@ export function structuresOf(segs: Seg[], items: Item[]): Structure[] {
     const hdiv = g.filter(s => s.dir === 'h' && s.arrow === 'none');
     if (hdiv.length) notes.push(`${hdiv.length} ${hdiv.some(d => d.dashed) ? 'dashed ' : ''}horizontal divider${hdiv.length > 1 ? 's' : ''}`);
     if (axes.x && rows.length === 2) notes.push('the horizontal axis splits it into above (row 1) and below (row 2)');
-    notes.push(...labelsOf(items, segRefs, { x: x0, y: y0, w: W, h: H }, cols, rows, g, axes));
+    const lab = labelsOf(items, segRefs, { x: x0, y: y0, w: W, h: H }, cols, rows, g, axes);
+    notes.push(...lab);
+    const labelRefs = new Set(lab.join(' ').match(/\bt\d+\b/g) ?? []);
+    for (const c of cells) c.holds = c.holds.filter(h => !labelRefs.has(h));
     out.push({ ref: '', kind, box: { x: Math.round(x0), y: Math.round(y0), w: Math.round(W), h: Math.round(H) }, segs: [...segRefs], cols, rows, axes: Object.keys(axes).length ? axes : undefined, cells, notes });
   }
   out.push(...tiledTables(items));
@@ -125,7 +128,7 @@ export function structuresOf(segs: Seg[], items: Item[]): Structure[] {
 }
 
 const words = (it: Item) => `${it.ref}${it.text ? ' "' + it.text.slice(0, 40).replace(/\n/g, ' ') + '"' : ''}`;
-const isLabel = (it: Item) => ['text', 'sticky', 'shape', 'sticker'].includes(it.kind);
+const isLabel = (it: Item) => ['text', 'tag'].includes(it.kind);
 
 /** Column headers above, row labels to the left, axis labels at the arrow tips. */
 function labelsOf(items: Item[], segRefs: Set<string>, b: Box, cols: [number, number][], rows: [number, number][], g: Seg[], axes: Structure['axes']): string[] {
@@ -137,7 +140,7 @@ function labelsOf(items: Item[], segRefs: Set<string>, b: Box, cols: [number, nu
     if (h.length) out.push(`col ${i + 1} headed by ${h.map(words).join(', ')}`);
   });
   rows.forEach(([a, z], i) => {
-    const h = cands.filter(it => cy(it) > a && cy(it) < z && it.box.x + it.box.w <= b.x + 8 && it.box.x + it.box.w >= b.x - 200);
+    const h = cands.filter(it => cy(it) > a && cy(it) < z && it.box.x + it.box.w <= b.x + 8 && it.box.x + it.box.w >= b.x - 160);
     if (h.length) out.push(`row ${i + 1} labelled by ${h.map(words).join(', ')}`);
   });
   const used = new Set(out.join(' ').match(/\b[a-z]+\d+\b/g) ?? []);

@@ -10,11 +10,13 @@
 
 import { segmentsOf, structuresOf, structuresPrompt, type Structure } from './lines';
 import { authorOf } from './provenance';
+import { attachmentsOf, relationsOf, type Relations } from './relations';
 
 // ── Types ───────────────────────────────────────────────────────────────────────────
 export type Kind =
   | 'sticky' | 'shape' | 'text' | 'doc' | 'table' | 'image' | 'sticker' | 'frame'
-  | 'group' | 'connector' | 'drawing' | 'highlight' | 'mindmap' | 'embed' | 'item';
+  | 'group' | 'connector' | 'drawing' | 'highlight' | 'mindmap' | 'embed' | 'item'
+  | 'tag' | 'dot' | 'badge' | 'card';
 
 export type Box = { x: number; y: number; w: number; h: number };
 
@@ -67,6 +69,7 @@ export type Reading = {
   groups: Group[];
   chains: Chain[];
   structures: Structure[];
+  relations: Relations;
   colours: { colour: string; refs: string[]; hex?: string[] }[];
   selection: string[];
   focus: string[];        // selection plus what sits with it
@@ -189,7 +192,14 @@ const r0 = (n: number) => Math.round(n);
 function kindOf(e: any): Kind {
   const f = e.flavour ?? e.type;
   switch (f) {
-    case 'shape': return e.filled && (e.strokeWidth ?? 0) === 0 && e.shapeType === 'rect' ? 'sticky' : 'shape';
+    case 'shape': {
+      const b = boxOf(e), t = str(e.text).trim(), r = e.radius ?? 0, asp = b.w / Math.max(1, b.h);
+      if (e.shapeType === 'rect' && e.filled && (e.strokeWidth ?? 0) === 0 && asp > 0.6 && asp < 1.7 && Math.min(b.w, b.h) >= 80 && r <= 0.12) return 'sticky';
+      if (t && b.h <= 56 && asp >= 1.4 && (r >= 0.25 || e.shapeType === 'ellipse')) return 'tag';          // pill / capsule label
+      if (e.shapeType === 'ellipse' && !t && Math.max(b.w, b.h) <= 40) return 'dot';                         // vote, bullet, marker
+      if (e.shapeType === 'ellipse' && t && t.length <= 3 && Math.max(b.w, b.h) <= 72) return 'badge';      // number / letter marker
+      return 'shape';
+    }
     case 'affine:note': {
       const kids = e.children ?? [];
       return kids.length === 1 && kids[0].flavour === 'affine:table' ? 'table' : 'doc';
@@ -208,12 +218,14 @@ function kindOf(e: any): Kind {
 const PREFIX: Record<Kind, string> = {
   sticky: 's', shape: 'sh', text: 't', doc: 'n', table: 'tb', image: 'i', sticker: 'k', frame: 'f',
   group: 'g', connector: 'c', drawing: 'd', highlight: 'h', mindmap: 'm', embed: 'e', item: 'x',
+  tag: 'tg', dot: 'dt', badge: 'b', card: 'cd',
 };
 const NOUN: Record<Kind, [string, string]> = {
   sticky: ['sticky', 'stickies'], shape: ['shape', 'shapes'], text: ['text', 'texts'], doc: ['doc', 'docs'],
   table: ['table', 'tables'], image: ['image', 'images'], sticker: ['sticker', 'stickers'], frame: ['frame', 'frames'],
   group: ['group', 'groups'], connector: ['line', 'lines'], drawing: ['drawing', 'drawings'], highlight: ['marker stroke', 'marker strokes'],
   mindmap: ['mind map', 'mind maps'], embed: ['embed', 'embeds'], item: ['item', 'items'],
+  tag: ['tag', 'tags'], dot: ['dot', 'dots'], badge: ['badge', 'badges'], card: ['card', 'cards'],
 };
 export const noun = (k: Kind, n = 1) => NOUN[k][n === 1 ? 0 : 1];
 
@@ -229,11 +241,11 @@ export function readBoard(gfx: any, opts: { selection?: string[] } = {}): Readin
     const it: Item = { ref: '', id: e.id, kind, box: boxOf(e), text: '', author: authorOf(store, e.id) };
     const p = e.props ?? e;
     switch (kind) {
-      case 'sticky': case 'shape': {
+      case 'sticky': case 'shape': case 'tag': case 'dot': case 'badge': {
         it.text = str(e.text).trim();
         it.hex = paint(e.fillColor); if (!e.filled) it.hex = paint(e.strokeColor);
         it.shape = e.shapeType === 'rect' && (e.radius ?? 0) > 0.05 ? 'rounded rect' : e.shapeType;
-        if (!it.text) it.empty = true;
+        if (!it.text && kind === 'sticky') it.empty = true;
         it.marks = marksOf(e.text);
         break;
       }
@@ -294,6 +306,9 @@ export function readBoard(gfx: any, opts: { selection?: string[] } = {}): Readin
     }
   }
 
+  // A plain box holding words is a card (title + body made of separate texts)
+  for (const it of items) if (it.kind === 'shape' && !it.text && items.some(o => ownerOf.get(o.id) === it && (o.kind === 'text' || o.kind === 'tag'))) it.kind = 'card';
+
   // Size, relative to things of the same kind.
   const byKind = new Map<Kind, Item[]>();
   for (const it of items) { const l = byKind.get(it.kind) ?? []; l.push(it); byKind.set(it.kind, l); }
@@ -306,7 +321,9 @@ export function readBoard(gfx: any, opts: { selection?: string[] } = {}): Readin
   if (texts.length >= 2) { const m = median(texts.map(t => t.fontSize ?? 16)); for (const t of texts) if ((t.fontSize ?? 16) >= m * 1.5) t.size = 'large'; }
 
   // ── L2: spatial groups, per container ──────────────────────────────────────────────
-  const placeable = (it: Item) => !['connector', 'frame', 'group'].includes(it.kind) && !(ownerOf.get(it.id)?.kind === 'mindmap');
+  // small marks riding on a bigger thing (tags, votes, badges) travel with it and are not grouped on their own
+  const attachedIds = attachmentsOf(items, ownerOf);
+  const placeable = (it: Item) => !['connector', 'frame', 'group'].includes(it.kind) && !(ownerOf.get(it.id)?.kind === 'mindmap') && !attachedIds.has(it.id) && ownerOf.get(it.id)?.kind !== 'card';
   const scopes = new Map<string, Item[]>();       // container id ('' = board) → items
   for (const it of items) {
     if (!placeable(it)) continue;
@@ -404,10 +421,13 @@ export function readBoard(gfx: any, opts: { selection?: string[] } = {}): Readin
     for (const c of items) if (c.arrow && (c.arrow.from === r || c.arrow.to === r)) { focus.add(c.ref); c.arrow.from && focus.add(c.arrow.from); c.arrow.to && focus.add(c.arrow.to); }
   }
   const structures = structuresOf(segmentsOf(gfx, items), items);
+  const attachedRefs = new Map([...attachedIds].map(([a, b]) => [refOf(a), refOf(b)]));
+  const relations = relationsOf(items, finalGroups, byRef, attachedRefs);
+  for (const [a, b] of relations.attached) { if (focus.has(b)) focus.add(a); if (focus.has(a)) focus.add(b); }
   for (const st of structures) if (st.segs.some(r => focus.has(r))) { focus.add(st.ref); st.cells.forEach(c => c.holds.forEach(h => focus.add(h))); st.segs.forEach(r => focus.add(r)); }
   const vb = gfx.viewport?.viewportBounds;
   return {
-    items, groups: finalGroups, chains: finalChains, structures,
+    items, groups: finalGroups, chains: finalChains, structures, relations,
     colours: [...colours].map(([colour, refs]) => ({ colour, refs, hex: hexes.has(colour) ? [...hexes.get(colour)!] : undefined })),
     selection, focus: [...focus], viewport: vb ? { x: vb.x, y: vb.y, w: vb.w, h: vb.h } : { x: 0, y: 0, w: 0, h: 0 },
     byRef, byId, groupOf,
@@ -441,6 +461,7 @@ function styleOf(e: any, kind: Kind, b: Box): string {
   const rot = Math.round(e.rotate ?? 0); if (rot) bits.push(`rot ${rot}°`);
   switch (kind) {
     case 'sticky': bits.push(`fill ${hx(e.fillColor)}`); break;
+    case 'tag': case 'dot': case 'badge': bits.push(`fill ${e.filled ? hx(e.fillColor) : 'none'}`); if (e.strokeWidth) bits.push(`stroke ${hx(e.strokeColor)}`); break;
     case 'shape':
       bits.push(`fill ${e.filled ? hx(e.fillColor) : 'none'}`, `stroke ${hx(e.strokeColor)}${e.strokeWidth ? ' ' + e.strokeWidth + 'px' : ''}${e.strokeStyle === 'dash' ? ' dashed' : ''}`);
       if (e.radius) bits.push(`radius ${e.radius}`);
@@ -623,23 +644,28 @@ export function toPrompt(r: Reading, opts: { maxItems?: number; textLimit?: numb
   L.push(`BOARD ${r.items.length} things${note}. Coordinates are board units (x→right, y↓down).`);
   L.push(`SELECTED ${r.selection.length ? r.selection.join(' ') : 'nothing'}`);
   L.push('');
-  L.push('THINGS  (ref kind [colour] [size] @x,y w×h [in parent] [by ai] — text)');
-  for (const i of shown) {
-    if (i.kind === 'connector') continue;
-    const bits = [i.ref, i.shape && i.kind === 'shape' ? i.shape : i.kind];
+  L.push('THINGS  (nested by containment, in reading order: ref kind [colour] [size] @x,y w×h [by ai] [exact look] — words)');
+  const shownSet = new Set(shown.map(i => i.ref));
+  const lineOf = (i: Item, depth: number) => {
+    const pad = '  '.repeat(depth);
+    const bits = [pad + i.ref, i.shape && i.kind === 'shape' ? i.shape : i.kind];
     if (i.colour) bits.push(i.colour);
     if (i.size) bits.push(i.size);
     bits.push(`@${r0(i.box.x)},${r0(i.box.y)} ${r0(i.box.w)}×${r0(i.box.h)}`);
-    if (i.parent) bits.push(`in ${i.parent}`);
     if (i.author === 'ai') bits.push('by ai');
+    const on = r.relations.attached.get(i.ref); if (on) bits.push(`(on ${on})`);
     if (i.style) bits.push(`[${i.style}]`);
     let line = bits.join(' ');
-    if (i.kind === 'table' && i.table) line += '\n' + i.table.map(row => '    | ' + row.map(c => clip(c, 60) || '·').join(' | ') + ' |').join('\n');
-    else if (i.text) line += i.text.includes('\n') ? '\n' + clip(i.text, tl).split('\n').map(s => '    ' + s).join('\n') : ' — ' + q(clip(i.text, tl));
+    const ind = pad + '    ';
+    if (i.kind === 'table' && i.table) line += '\n' + i.table.map(row => ind + '| ' + row.map(c => clip(c, 60) || '·').join(' | ') + ' |').join('\n');
+    else if (i.text) line += i.text.includes('\n') ? '\n' + clip(i.text, tl).split('\n').map(x => ind + x).join('\n') : ' — ' + q(clip(i.text, tl));
     else if (i.empty) line += ' — (empty)';
-    if (i.marks?.length) line += '\n    marked: ' + i.marks.map(m => `${m.colour} ${q(clip(m.text, 140))}`).join('; ');
+    if (i.marks?.length) line += '\n' + ind + 'marked: ' + i.marks.map(m => `${m.colour} ${q(clip(m.text, 140))}`).join('; ');
     L.push(line);
-  }
+    for (const c of shown) if (c.parent === i.ref && c.kind !== 'connector' && !r.relations.attached.has(c.ref)) lineOf(c, depth + 1);
+    for (const c of shown) if (r.relations.attached.get(c.ref) === i.ref) lineOf(c, depth + 1);
+  };
+  for (const i of shown) if (i.kind !== 'connector' && (!i.parent || !shownSet.has(i.parent)) && !(r.relations.attached.has(i.ref) && shownSet.has(r.relations.attached.get(i.ref)!))) lineOf(i, 0);
   const lines = shown.filter(i => i.kind === 'connector');
   if (lines.length) {
     L.push('');
@@ -675,6 +701,7 @@ export function toPrompt(r: Reading, opts: { maxItems?: number; textLimit?: numb
     }
   }
   L.push(...structuresPrompt(r.structures));
+  if (r.relations.lines.length) { L.push('', 'MARKS AND LABELS (attached tags, votes, badges, titles, legends, timelines)'); L.push(...r.relations.lines); }
   const cs = r.colours.filter(c => c.refs.length);
   if (cs.length) {
     L.push('');
