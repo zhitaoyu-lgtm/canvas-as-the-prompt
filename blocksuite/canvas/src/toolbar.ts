@@ -70,72 +70,108 @@ export async function mountToolbar(rootEl: any) {
   wrap.append(trayEl, bar);
   document.body.append(wrap);
 
+  // Exact geometry of the Figma toolbar (node 2052:2316, 664 × 55). Every slot is placed where Figma has it.
+  // [id, label, x, y, w, h, kind]; kind: flat icon (24px), dim (dimensional art), more (round + button)
+  const LAYOUT: [string, string, number, number, number, number, 'flat' | 'dim' | 'more', string][] = [
+    ['select', 'Select · V', 15, 15, 24, 24, 'flat', ICON.cursor],
+    ['hand', 'Hand · H', 59, 15, 24, 24, 'flat', ICON.hand],
+    ['pen', 'Pen · P', 117.5, 7.5, 39, 48, 'dim', PEN_3D],
+    ['sticky', 'Sticky note · S', 170.63, 5.7, 75, 50, 'dim', STICKY_3D],
+    ['shape', 'Shapes & connectors · O', 259.5, 9, 67, 46, 'dim', SHAPES_FLAT],
+    ['text', 'Text · T', 352, 15.5, 24, 24, 'flat', ICON.text],
+    ['frame', 'Frame · F', 397.8, 15.5, 24, 24, 'flat', ICON.section],
+    ['table', 'Table', 443, 15.5, 24, 24, 'flat', ICON.table],
+    ['stamp', 'Stamp', 488.8, 15.5, 24, 24, 'flat', ICON.stamp],
+    ['comment', 'Comment', 534.8, 15.5, 24, 24, 'flat', ICON.comment],
+    ['templates', 'Templates', 579, 15.5, 24, 24, 'flat', ICON.templates],
+    ['more', 'More', 622, 13.5, 28, 28, 'more', ICON.plus],
+  ];
+  // Highlight areas for the dimensional tools (light column behind them when picked).
+  const DIM_BG: Record<string, [number, number]> = { pen: [108, 58], sticky: [168, 78], shape: [254, 78] };
   const slots: Record<string, El> = {};
-  const btn = (id: string, label: string, inner: string, cls = 'cx-t', onclick: () => void) => {
-    const b = h('button', { class: cls, 'data-id': id, 'aria-label': label, 'data-tip': label, html: inner, onclick });
-    slots[id] = b; return b;
-  };
-  const divider = () => h('span', { class: 'cx-div' });
+  for (const [id, label, x, y, w, hh, kind, svg] of LAYOUT) {
+    if (kind === 'dim') {
+      const [bx, bw] = DIM_BG[id];
+      bar.append(h('span', { class: 'cx-dimbg', 'data-for': id, style: `left:${bx}px;width:${bw}px` }));
+    }
+    const b = h('button', {
+      class: `cx-s cx-${kind}`, 'data-id': id, 'aria-label': label, 'data-tip': label,
+      style: kind === 'flat' ? `left:${x - 6}px;top:${y - 6}px` : `left:${x}px;top:${y}px;width:${w}px;height:${hh}px`,
+      html: kind === 'more' ? `<span>${svg}</span>` : svg,
+      onclick: () => pick(id),
+    });
+    slots[id] = b; bar.append(b);
+  }
+  bar.append(h('span', { class: 'cx-div', style: 'left:100px' }), h('span', { class: 'cx-div', style: 'left:337px' }));
 
-  bar.append(
-    btn('select', 'Select · V', ICON.cursor, 'cx-t', () => pick('select')),
-    btn('hand', 'Hand · H', ICON.hand, 'cx-t', () => pick('hand')),
-    divider(),
-    btn('pen', 'Pen · P', PEN_3D, 'cx-3d cx-pen', () => pick('pen')),
-    btn('sticky', 'Sticky note · S', STICKY_3D, 'cx-3d cx-sticky', () => pick('sticky')),
-    btn('shape', 'Shapes & connectors · O', SHAPES_FLAT, 'cx-3d cx-shapes', () => pick('shape')),
-    divider(),
-    btn('text', 'Text · T', ICON.text, 'cx-t', () => pick('text')),
-    btn('frame', 'Frame · F', ICON.frame, 'cx-t', () => pick('frame')),
-    btn('templates', 'Templates', ICON.templates, 'cx-t', () => pick('templates')),
-    btn('more', 'More', ICON.plus, 'cx-more', () => pick('more')),
-  );
+  // Tooltip (Figma "Tooltip": dark, 9px above the hovered tool). Drawn outside the bar, which clips.
+  const tipEl = h('div', { class: 'cx-tip', hidden: true });
+  wrap.append(tipEl);
+  let noteT = 0;
+  function showTip(target: El, text: string) {
+    tipEl.textContent = text; tipEl.hidden = false;
+    const d = wrap.getBoundingClientRect(), r = target.getBoundingClientRect();
+    const top = target.closest('.cx-tray') ? r.top : d.top;
+    tipEl.style.left = `${r.left + r.width / 2 - d.left - tipEl.offsetWidth / 2}px`;
+    tipEl.style.top = `${top - d.top - tipEl.offsetHeight - 9}px`;
+  }
+  wrap.addEventListener('pointerover', e => {
+    const t = (e.target as El).closest?.('[data-tip]') as El | null;
+    if (t && !(tray && t.closest('.cx-bar'))) showTip(t, t.dataset.tip!);
+  });
+  wrap.addEventListener('pointerdown', () => { if (!noteT) tipEl.hidden = true; }, true);
+  wrap.addEventListener('pointerout', e => { if (!(e.relatedTarget as El)?.closest?.('[data-tip]')) tipEl.hidden = true; });
+  function note(id: string, text: string) {
+    clearTimeout(noteT); noteT = 0; requestAnimationFrame(() => { showTip(slots[id], text); });
+    noteT = window.setTimeout(() => { tipEl.hidden = true; noteT = 0; }, 1600);
+  }
 
   // ── trays ────────────────────────────────────────────────────────────
   function openTray(id: string | null) {
-    tray = id; trayEl.textContent = '';
+    tray = id; trayEl.textContent = ''; trayEl.className = 'cx-tray';
     if (!id) { trayEl.hidden = true; paint(); return; }
     trayEl.hidden = false;
     if (id === 'sticky') {
+      trayEl.classList.add('cx-tray-sticky');
       for (const [name, c] of STICKY) trayEl.append(swatch(name, c, c === sticky, () => { sticky = c; armSticky(); render(); }));
     } else if (id === 'pen') {
+      trayEl.classList.add('cx-tray-shape');
       trayEl.append(
         icon('Pen', ICON.pen, penKind === 'brush', () => { penKind = 'brush'; armPen(); render(); }),
         icon('Highlighter', ICON.highlighter, penKind === 'highlighter', () => { penKind = 'highlighter'; armPen(); render(); }),
         icon('Eraser · E', ICON.eraser, penKind === 'eraser', () => { penKind = 'eraser'; armPen(); render(); }),
-        h('span', { class: 'cx-tdiv' }),
+        h('span', { class: 'cx-tdiv' }, h('i')),
       );
-      for (const [name, c] of INK) trayEl.append(swatch(name, c, c === ink && penKind !== 'eraser', () => { ink = c; if (penKind === 'eraser') penKind = 'brush'; armPen(); render(); }, true));
+      for (const [name, c] of INK) trayEl.append(swatch(name, c, c === ink && penKind !== 'eraser', () => { ink = c; if (penKind === 'eraser') penKind = 'brush'; armPen(); render(); }));
     } else if (id === 'shape') {
-      const fillBtn = h('button', { class: 'cx-fillbtn', 'aria-label': filled ? 'Filled shapes' : 'Outline shapes', 'data-tip': filled ? 'Filled' : 'Outline', html: (filled ? ICON.fillSolid : ICON.fill) + ICON.chevron,
-        onclick: () => { filled = !filled; armShape(); render(); } });
-      trayEl.append(fillBtn, h('span', { class: 'cx-tdiv' }));
-      const C: [string, string, string, number][] = [['elbow', 'Elbow connector', ICON.elbow, 1], ['curve', 'Curved connector', ICON.curve, 2], ['arrow', 'Arrow', ICON.arrow, 0], ['line', 'Line', ICON.line, 0]];
+      trayEl.classList.add('cx-tray-shape');
+      trayEl.append(h('button', { class: 'cx-fillbtn', 'aria-label': filled ? 'Filled shapes' : 'Outline shapes', 'data-tip': filled ? 'Filled' : 'Outline', html: (filled ? ICON.fillSolid : ICON.fill) + ICON.chevron,
+        onclick: () => { filled = !filled; armShape(); render(); } }), h('span', { class: 'cx-tdiv' }, h('i')));
+      const C: [string, string, string][] = [['elbow', 'Elbow connector', ICON.elbow], ['curve', 'Curved connector', ICON.curve], ['arrow', 'Arrow', ICON.arrow], ['line', 'Line', ICON.line]];
       for (const [n, label, ic] of C) trayEl.append(icon(label, ic, shape.kind === 'connector' && shape.name === n, () => { shape = { kind: 'connector', name: n }; armShape(); render(); }));
-      const S: [string, string, string][] = [['rect', 'Rectangle', ICON.rect], ['ellipse', 'Ellipse', ICON.ellipse], ['diamond', 'Diamond', ICON.diamond], ['triangle', 'Triangle', ICON.triangle], ['roundedRect', 'Rounded', ICON.rounded]];
+      const S: [string, string, string][] = [['rect', 'Square', ICON.rect], ['ellipse', 'Ellipse', ICON.ellipse], ['diamond', 'Diamond', ICON.diamond], ['triangle', 'Triangle', ICON.triangle], ['triangleDown', 'Triangle down', ICON.triangleDown], ['roundedRect', 'Rounded', ICON.rounded], ['cylinder', 'Cylinder', ICON.cylinder]];
       for (const [n, label, ic] of S) trayEl.append(icon(label, ic, shape.kind === 'shape' && shape.name === n, () => { shape = { kind: 'shape', name: n }; armShape(); render(); }));
       trayEl.append(icon('Mind map', ICON.mindmap, false, () => { insertMindmap(); }));
     } else if (id === 'more') {
+      trayEl.classList.add('cx-tray-shape');
       trayEl.append(icon('Image', ICON.image, false, () => pickImage()), icon('Mind map', ICON.mindmap, false, () => insertMindmap()));
     }
     placeTray();
     paint();
   }
   const render = () => openTray(tray);
-  function swatch(name: string, c: string, on: boolean, f: () => void, small = false) {
-    return h('button', { class: 'cx-sw' + (on ? ' on' : '') + (small ? ' sm' : ''), 'aria-label': name, 'data-tip': name, onclick: f }, h('i', { style: `background:${c}` }));
+  function swatch(name: string, c: string, on: boolean, f: () => void) {
+    const ring = on ? '<circle cx="16" cy="16" r="14" stroke="#9747FF" stroke-width="2"/>' : '';
+    return h('button', { class: 'cx-sw', 'aria-label': name, 'aria-pressed': String(on), 'data-tip': name, onclick: f,
+      html: `<svg width="32" height="32" viewBox="0 0 32 32" fill="none">${ring}<circle cx="16" cy="16" r="11" fill="${c}"/><circle cx="16" cy="16" r="10.5" stroke="black" stroke-opacity="0.08"/></svg>` });
   }
   function icon(label: string, svg: string, on: boolean, f: () => void) {
     return h('button', { class: 'cx-ti' + (on ? ' on' : ''), 'aria-label': label, 'data-tip': label, html: svg, onclick: f });
   }
   function placeTray() {
-    const anchor = slots[tray === 'more' ? 'more' : tray!]; if (!anchor) return;
-    const b = bar.getBoundingClientRect(), a = anchor.getBoundingClientRect();
-    trayEl.style.left = '0px';
     const w = trayEl.offsetWidth;
-    let x = a.left + a.width / 2 - b.left - w / 2;
-    x = Math.max(-(b.left - 12), Math.min(x, window.innerWidth - b.left - w - 12));
-    trayEl.style.left = `${x}px`;
+    trayEl.style.left = `${(bar.offsetWidth - w) / 2}px`;
+    trayEl.style.bottom = `${55 + (tray === 'sticky' ? 13 : 10)}px`;
   }
 
   // ── tools ────────────────────────────────────────────────────────────
@@ -151,17 +187,14 @@ export async function mountToolbar(rootEl: any) {
       const mode = shape.name === 'elbow' ? 1 : shape.name === 'curve' ? 2 : 0;
       try { props.recordLastProps('connector' as any, { mode, frontEndpointStyle: 'None', rearEndpointStyle: shape.name === 'line' ? 'None' : 'Arrow' } as any); } catch {}
       setTool('connector', { mode });
+    } else if (shape.name === 'cylinder') {
+      note('shape', 'Cylinder · coming soon'); setTool('shape', { shapeName: 'roundedRect' });
     } else {
       shapeDefaults();
-      setTool('shape', { shapeName: shape.name });
+      setTool('shape', { shapeName: shape.name === 'triangleDown' ? 'triangle' : shape.name });
     }
   }
-  function armSticky() { placingSticky = true; setTool('default'); tintSticky(); }
-  function tintSticky() {
-    const face = slots.sticky.querySelector('.face') as SVGPathElement | null;
-    if (face) face.setAttribute('fill', sticky === '#ffffff' ? 'url(#sg)' : sticky);
-  }
-
+  function armSticky() { placingSticky = true; setTool('default'); }
   function pick(id: string) {
     if (id !== 'templates') closeTemplates();
     switch (id) {
@@ -174,6 +207,9 @@ export async function mountToolbar(rootEl: any) {
       case 'shape': mode = id; armShape(); openTray(tray === 'shape' ? null : 'shape'); break;
       case 'more': openTray(tray === 'more' ? null : 'more'); break;
       case 'templates': openTray(null); toggleTemplates(); break;
+      case 'table': note(id, 'Table · coming soon'); return;
+      case 'stamp': note(id, 'Stamp · coming soon'); return;
+      case 'comment': note(id, 'Comment · coming soon'); return;
     }
     paint();
   }
@@ -258,6 +294,14 @@ export async function mountToolbar(rootEl: any) {
     paint();
   });
 
+  // Triangle-down: draw a triangle and flip it.
+  gfx.surface?.elementAdded?.subscribe?.(({ id }: any) => {
+    if (shape.kind === 'shape' && shape.name === 'triangleDown' && gfx.tool.currentToolName$.peek() === 'shape') {
+      const el: any = gfx.getElementById(id);
+      if (el?.type === 'shape' && el.shapeType === 'triangle') crud.updateElement(id, { rotate: 180 });
+    }
+  });
+
   function paint() {
     for (const [id, b] of Object.entries(slots)) {
       const on = id === mode || (id === 'more' && tray === 'more');
@@ -265,9 +309,9 @@ export async function mountToolbar(rootEl: any) {
       b.setAttribute('aria-pressed', String(on));
     }
     bar.classList.toggle('tray-open', !!tray);
+    bar.querySelectorAll<HTMLElement>('.cx-dimbg').forEach(e => e.classList.toggle('on', e.dataset.for === mode));
     const tip = slots.pen.querySelector('.tip') as SVGPathElement | null;
     if (tip) tip.setAttribute('fill', penKind === 'eraser' ? '#c9c9c9' : ink);
   }
-  tintSticky();
   paint();
 }
