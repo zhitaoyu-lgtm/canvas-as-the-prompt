@@ -66,11 +66,13 @@ edgeless-toolbar-widget { display: none !important; }
 }
 .cx-tray[hidden] { display: none; }
 .cx-tray button { position: relative; }
-.cx-tray-sticky { gap: 4px; padding: 0 8px; }
+.cx-tray-sticky { gap: 8px; padding: 0 12px; }
 .cx-tray-shape { gap: 4px; padding: 0 8px; }
-.cx-sw { width: 36px; height: 36px; display: grid !important; place-items: center; border-radius: 8px; }
-.cx-sw:hover { background: #f5f5f5; }
-.cx-sw[aria-pressed='true'] { background: #f2f2f2; }
+.cx-sw { width: 32px; height: 32px; display: block; }
+/* selected: the same ring as Figma's, in light gray; hover: a fainter ring */
+.cx-sw .sel { stroke: transparent; transition: stroke .12s ease; }
+.cx-sw:hover .sel { stroke: #ececec; }
+.cx-sw[aria-pressed='true'] .sel { stroke: #c8c8c8; }
 .cx-sw svg { display: block; }
 .cx-ti { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; color: #757575; }
 .cx-ti:hover { background: #f5f5f5; }

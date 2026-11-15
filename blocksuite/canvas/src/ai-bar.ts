@@ -103,7 +103,7 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   badge.setAttribute('aria-label', 'Working');
   layer.append(badge);
 
-  let open = false, toolbar: El | null = null, ids: string[] = [], busy = false;
+  let open = false, toolbar: El | null = null, ids: string[] = [], busy = false, pivot = 0;
   const OPEN_W = 440;
 
   const toolbarEl = () => deepFind(document, e => e.tagName === 'EDITOR-TOOLBAR' && (e as El).getBoundingClientRect().width > 0);
@@ -131,8 +131,12 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     cap.classList.add('on'); toolbar.style.visibility = 'hidden';
     cap.querySelector('.cx-cap-ring')!.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.12)' }, { transform: 'scale(1)' }], { duration: 160, easing: 'ease-out' });
     await new Promise(res => setTimeout(res, 40));
-    const w = Math.min(OPEN_W, innerWidth - r.left - 16);
-    cap.animate([{ width: `${r.height}px` }, { width: `${w}px` }], { duration: 260, easing: 'cubic-bezier(.2,.9,.25,1.08)', fill: 'forwards' });
+    // grow from the ring into an input centred on the toolbar's centre line (= the selection's)
+    const w = Math.min(OPEN_W, innerWidth - 32);
+    const cx = r.left + r.width / 2;
+    const left = Math.max(16, Math.min(cx - w / 2, innerWidth - 16 - w));
+    pivot = r.left;
+    cap.animate([{ left: `${r.left}px`, width: `${r.height}px` }, { left: `${left}px`, width: `${w}px` }], { duration: 280, easing: 'cubic-bezier(.2,.9,.25,1.06)', fill: 'forwards' });
     cap.classList.add('wide');
     setTimeout(() => input.focus(), 180);
   }
@@ -141,8 +145,8 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     if (!open) return;
     open = false;
     cap.classList.remove('wide');
-    const w = cap.getBoundingClientRect().width, hgt = cap.getBoundingClientRect().height;
-    await cap.animate([{ width: `${w}px` }, { width: `${hgt}px` }], { duration: 180, easing: 'cubic-bezier(.4,0,.6,1)', fill: 'forwards' }).finished;
+    const cr = cap.getBoundingClientRect();
+    await cap.animate([{ left: `${cr.left}px`, width: `${cr.width}px` }, { left: `${pivot}px`, width: `${cr.height}px` }], { duration: 200, easing: 'cubic-bezier(.4,0,.6,1)', fill: 'forwards' }).finished;
     cap.classList.remove('on'); cap.getAnimations().forEach(a => a.cancel());
     const t = toolbar; toolbar = null;
     if (!t) return;
