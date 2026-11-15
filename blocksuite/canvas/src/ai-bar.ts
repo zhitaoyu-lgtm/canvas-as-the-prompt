@@ -87,7 +87,7 @@ function describe(models: any[]): { label: string; kind: string } {
   return { label: n === 1 ? `this ${noun}` : `these ${n} ${plural(noun)}`, kind: same ? kinds[0] : 'mixed' };
 }
 
-export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[]) => Promise<void>) {
+export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[]) => Promise<boolean | void>) {
   const gfx = rootEl.gfx;
   const layer = h('div', 'cx-ai-layer');
   document.body.append(layer);
@@ -188,10 +188,10 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     placeBadge(); pendBox.classList.add('on'); badge.classList.add('on');
     const tick = () => { placeBadge(); follow = requestAnimationFrame(tick); }; follow = requestAnimationFrame(tick);
   }
-  function stopWorking() {
+  function stopWorking(reselect = true) {
     cancelAnimationFrame(follow); pendBox.classList.remove('on'); badge.classList.remove('on');
     const still = ids.filter(id => gfx.getElementById(id));
-    if (still.length) gfx.selection.set({ elements: still });   // hand the selection back
+    if (reselect && still.length) gfx.selection.set({ elements: still });   // hand the selection back
   }
 
   async function submit() {
@@ -200,10 +200,12 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     busy = true;
     await closeBar(false);
     startWorking();
+    let reselect = true;
     try {
-      if (onSubmit) await onSubmit(prompt, ids);
-      else await new Promise(res => setTimeout(res, 2400));   // model not wired yet
-    } finally { stopWorking(); busy = false; }
+      // the handler returns false when it put a proposal on the board: leave the selection off so it shows
+      if (onSubmit) reselect = (await onSubmit(prompt, ids)) !== false;
+      else await new Promise(res => setTimeout(res, 2400));
+    } finally { stopWorking(reselect); busy = false; }
   }
 
   form.addEventListener('submit', e => { e.preventDefault(); submit(); });

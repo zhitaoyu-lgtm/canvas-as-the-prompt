@@ -18,6 +18,7 @@ import './stickers';
 import { aiToolbarExtension, mountAiBar } from './ai-bar';
 import { mountToolbar } from './toolbar';
 import { mountInspector } from './ai/inspect';
+import { createAssistant } from './ai/assistant';
 
 import { editorSetting, parseDocUrl, whiteboardOnly } from './services';
 
@@ -76,7 +77,7 @@ async function main() {
   const waitRoot = async () => { for (let i = 0; i < 200; i++) { const r = document.querySelector('affine-edgeless-root') as any; if (r?.std && r.gfx) return r; await new Promise(r => setTimeout(r, 50)); } throw new Error('edgeless root not ready'); };
   const rootEl = await waitRoot();
   await mountToolbar(rootEl);
-  mountAiBar(rootEl);
+  mountAiBar(rootEl, createAssistant(rootEl));
   mountInspector(rootEl);
   (window as any).editor = editor; (window as any).collection = collection; (window as any).cxDev = { Text, Y: Y.Text, rootEl };
 }
