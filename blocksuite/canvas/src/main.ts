@@ -12,6 +12,8 @@ import { getTestViewManager } from '@blocksuite/integration-test/view';
 
 import './board.css';
 
+import { mountToolbar } from './toolbar';
+
 import { editorSetting, parseDocUrl, whiteboardOnly } from './services';
 
 // Always the light look. A host page (e.g. a dark-mode preview) may set
@@ -66,6 +68,8 @@ async function main() {
   editor.mode = 'edgeless';
   document.getElementById('app')!.append(editor);
   await editor.updateComplete;
+  const waitRoot = async () => { for (let i = 0; i < 200; i++) { const r = document.querySelector('affine-edgeless-root') as any; if (r?.std && r.gfx) return r; await new Promise(r => setTimeout(r, 50)); } throw new Error('edgeless root not ready'); };
+  await mountToolbar(await waitRoot());
   (window as any).editor = editor; (window as any).collection = collection;
 }
 

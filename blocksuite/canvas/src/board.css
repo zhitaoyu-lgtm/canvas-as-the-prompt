@@ -19,3 +19,71 @@ affine-edgeless-zoom-toolbar-widget { display: none !important; }
 :root[data-theme='light'] {
   --affine-background-overlay-panel-color: #ffffff;
 }
+
+/* ── Bottom toolbar (Figma: FigJam · Home toolbar, google-2026 node 2052:2316) ── */
+edgeless-toolbar-widget { display: none !important; }
+
+.cx-dock {
+  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 40;
+  font: 500 12px/1.2 Inter, system-ui, -apple-system, 'Segoe UI', sans-serif; color: #1e1e1e;
+}
+.cx-bar {
+  display: flex; align-items: center; gap: 0; height: 55px; padding: 0 9px;
+  background: #fff; border-radius: 14px; overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.08), 0 0 .5px rgba(0,0,0,.18);
+}
+:where(.cx-bar) button { all: unset; box-sizing: border-box; cursor: pointer; position: relative; display: grid; place-items: center; }
+.cx-t { width: 36px; height: 36px; border-radius: 8px; color: #a1a1a1; margin: 0 5px; transition: background .12s, color .12s; }
+.cx-t:first-child { margin-left: 0; }
+.cx-t:hover { color: #515151; background: #f7f7f7; }
+.cx-t.on { background: #f2f2f2; color: #1e1e1e; box-shadow: 0 0 4px rgba(0,0,0,.05); }
+.cx-div { width: 1px; align-self: stretch; background: #e6e6e6; margin: 0 12px; }
+
+/* dimensional tools: they sit low and rise when picked */
+.cx-3d { height: 55px; align-items: end !important; transition: transform .16s cubic-bezier(.2,.8,.2,1); }
+.cx-3d svg { display: block; }
+.cx-pen { width: 40px; margin: 0 6px; transform: translateY(12px); }
+.cx-sticky { width: 66px; margin: 0 6px; transform: translateY(8px); }
+.cx-sticky svg { width: 66px; height: auto; }
+.cx-shapes { width: 64px; margin: 0 4px; color: #a1a1a1; transform: translateY(2px); align-items: center !important; }
+.cx-shapes svg { width: 58px; height: auto; }
+.cx-pen:hover { transform: translateY(7px); }
+.cx-sticky:hover { transform: translateY(4px); }
+.cx-pen.on { transform: translateY(2px); }
+.cx-sticky.on { transform: translateY(0); }
+.cx-shapes:hover, .cx-shapes.on { color: #1e1e1e; }
+
+.cx-more { width: 28px; height: 28px; border-radius: 14px; background: #f0f0f0; color: #a1a1a1; margin-left: 8px; }
+.cx-more:hover, .cx-more.on { color: #1e1e1e; background: #e9e9e9; }
+
+/* trays (Figma: Tool tray / Sticky, Tool tray / Shape) */
+.cx-tray {
+  position: absolute; bottom: calc(100% + 10px); display: flex; align-items: center; gap: 4px;
+  height: 50px; padding: 0 8px; background: #fff; border-radius: 12px; white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.08), 0 0 .5px rgba(0,0,0,.18);
+}
+.cx-tray[hidden] { display: none; }
+:where(.cx-tray) button { all: unset; box-sizing: border-box; cursor: pointer; position: relative; display: grid; place-items: center; }
+.cx-ti { width: 36px; height: 36px; border-radius: 8px; color: #757575; }
+.cx-ti:hover { background: #f5f5f5; color: #1e1e1e; }
+.cx-ti.on { background: #f0f0f0; color: #1e1e1e; box-shadow: inset 0 0 0 1px #e3e3e3; }
+.cx-tdiv { width: 1px; align-self: stretch; background: #e6e6e6; margin: 0 4px; }
+.cx-fillbtn { display: flex !important; align-items: center; height: 36px; padding: 0 2px 0 4px; border-radius: 8px; color: #757575; }
+.cx-fillbtn:hover { background: #f5f5f5; }
+.cx-sw { width: 32px; height: 32px; border-radius: 50%; }
+.cx-sw i { width: 22px; height: 22px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,.08); }
+.cx-sw.sm i { width: 18px; height: 18px; }
+.cx-sw:hover { background: #f5f5f5; }
+.cx-sw.on { box-shadow: inset 0 0 0 1.5px #7b61ff; }
+
+/* tooltips */
+.cx-dock [data-tip]:hover::after {
+  content: attr(data-tip); position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+  padding: 5px 8px; border-radius: 6px; background: #1e1e1e; color: #fff; font-size: 11px; font-weight: 500;
+  white-space: nowrap; pointer-events: none;
+}
+.cx-bar.tray-open [data-tip]:hover::after, .cx-3d[data-tip]:hover::after { display: none; }
+.cx-tray [data-tip]:hover::after { bottom: calc(100% + 10px); }
+
+/* AFFiNE's template library, opened from the bar */
+.cx-tpl-panel { z-index: 41; }

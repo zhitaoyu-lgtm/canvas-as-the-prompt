@@ -263,6 +263,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@affine/canvas-app@workspace:blocksuite/canvas"
   dependencies:
+    "@affine/templates": "workspace:*"
     "@blocksuite/affine": "workspace:*"
     "@blocksuite/affine-model": "workspace:*"
     "@blocksuite/affine-shared": "workspace:*"
