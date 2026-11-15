@@ -259,6 +259,25 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@affine/canvas-app@workspace:blocksuite/canvas":
+  version: 0.0.0-use.local
+  resolution: "@affine/canvas-app@workspace:blocksuite/canvas"
+  dependencies:
+    "@blocksuite/affine": "workspace:*"
+    "@blocksuite/affine-model": "workspace:*"
+    "@blocksuite/affine-shared": "workspace:*"
+    "@blocksuite/integration-test": "workspace:*"
+    "@preact/signals-core": "npm:^1.8.0"
+    "@toeverything/theme": "npm:^1.1.23"
+    "@vanilla-extract/vite-plugin": "npm:~5.1.5"
+    lit: "npm:^3.2.0"
+    rxjs: "npm:^7.8.2"
+    vite: "npm:^7.3.7"
+    vite-plugin-wasm: "npm:^3.5.0"
+    yjs: "npm:^13.6.27"
+  languageName: unknown
+  linkType: soft
+
 "@affine/changelog@workspace:tools/changelog":
   version: 0.0.0-use.local
   resolution: "@affine/changelog@workspace:tools/changelog"
