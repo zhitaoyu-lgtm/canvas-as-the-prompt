@@ -11,7 +11,10 @@ import {
   type ToolbarPlacement,
 } from '@blocksuite/affine-shared/services';
 import { nextTick } from '@blocksuite/global/utils';
-import { MoreVerticalIcon } from '@blocksuite/icons/lit';
+import { html as lineHtml } from 'lit';
+
+// Canvas: "more" drawn as a line icon (three hollow dots, stroke 1.4) to match the rest of the bar
+const moreLineIcon = lineHtml`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="5.5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18.5" cy="12" r="1.7"/></svg>`;
 import type {
   AutoUpdateOptions,
   ComputePositionConfig,
@@ -276,7 +279,7 @@ export function renderToolbar(
                   .iconContainerPadding=${innerToolbar ? 4 : 2}
                   .iconSize=${innerToolbar ? '16px' : undefined}
                 >
-                  ${MoreVerticalIcon()}
+                  ${moreLineIcon}
                 </editor-icon-button>
               `}
             >
@@ -311,6 +314,8 @@ export function renderToolbar(
   const parts: unknown[] = [];
   let lastRank = -1;
   for (const { action, rank } of ranked) {
+    // Canvas: no lock button on the bar (unlock still appears for locked elements)
+    if (action.id.split('.').pop() === 'lock') continue;
     const item = renderActions([action], context)[0] ?? null;
     if (item === null) continue;
     if (lastRank !== -1 && rank !== lastRank && !innerToolbar) {

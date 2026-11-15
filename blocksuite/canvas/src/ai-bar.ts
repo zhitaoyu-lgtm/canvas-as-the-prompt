@@ -23,17 +23,19 @@ class AiEntry extends HTMLElement {
     const root = this.attachShadow({ mode: 'open' });
     root.innerHTML = `<style>
       :host { display: inline-flex; }
-      button {
-        all: unset; box-sizing: border-box; height: 36px; padding: 0 10px 0 8px; border-radius: 8px;
-        display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
-        color: var(--affine-icon-color, #77757d); font: 500 14px/1 Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
-        transition: background .12s ease, color .12s ease, transform .14s ease;
+      /* same hit area as the bar; the visible hover is a 24px pill with 4px corners, like every other button */
+      button { all: unset; box-sizing: border-box; height: 36px; padding: 0 4px; display: inline-flex; align-items: center; cursor: pointer; }
+      .pill {
+        display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 2px 6px 2px 2px; box-sizing: border-box;
+        border-radius: 4px; color: var(--affine-icon-color, #77757d);
+        font: 500 14px/1 Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+        transition: background .12s ease;
       }
-      button:hover { background: var(--affine-hover-color, rgba(0,0,0,.04)); }
-      button:active { transform: scale(.96); }
-      button:focus-visible { outline: 2px solid #0c8ce9; outline-offset: 1px; }
+      button:hover .pill { background: var(--affine-hover-color, rgba(0,0,0,.04)); }
+      button:active .pill { background: rgba(0,0,0,.07); }
+      button:focus-visible .pill { outline: 2px solid #0c8ce9; outline-offset: 1px; }
       svg { display: block; }
-    </style><button aria-label="Ask">${SPARK_SVG}<span>Ask</span></button>`;
+    </style><button aria-label="Ask"><span class="pill">${SPARK_SVG}<span>Ask</span></span></button>`;
     root.querySelector('button')!.addEventListener('click', e => {
       e.stopPropagation();
       window.dispatchEvent(new CustomEvent('cx-ai-open', { detail: { from: this } }));
