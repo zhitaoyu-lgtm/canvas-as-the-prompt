@@ -47,7 +47,7 @@ export class EdgelessTemplatePanel extends WithDisposable(LitElement) {
     .edgeless-templates-panel {
       width: 472px;
       height: 520px;
-      border-radius: 12px;
+      border-radius: 14px;
       background-color: #ffffff;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.08),
         0 0 0.5px rgba(0, 0, 0, 0.18);

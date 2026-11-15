@@ -11,6 +11,8 @@ export const ICON = {
   text: s('<path d="M4 7V4.5H20V7M12 4.5V20M9 20H15" STROKE/>'),
   frame: s('<rect x="3.2" y="3.2" width="17.6" height="17.6" rx="2" STROKE/><path d="M3.2 9.2H10.2V3.2" STROKE/>'),
   section: s('<path d="M18.8 3.2H5.2a2 2 0 0 0-2 2v13.6a2 2 0 0 0 2 2h13.6a2 2 0 0 0 2-2V5.2a2 2 0 0 0-2-2Z" STROKE/><path d="M3.2 9.2H10.2V3.2" STROKE/>'),
+  // Figma kit icon/doc
+  doc: s('<path d="M17.5 3h-11a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2Z" STROKE/><path d="M8 8h8M8 11.5h8M8 15h5" STROKE/>'),
   table: s('<path d="M20 3.2H4a2 2 0 0 0-2 2v13.6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V5.2a2 2 0 0 0-2-2Z" STROKE/><path d="M2 8.6H22M2 13.6H22M9.4 3.2V20.8" STROKE/>'),
   stamp: s('<path d="M12 9.3a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" STROKE/><path d="M10.6 9.1v3.3M13.4 9.1v3.3M6.6 19.8h10.8M5.2 16.6c0-2.6 1.3-4.2 3.4-4.2h6.8c2.1 0 3.4 1.6 3.4 4.2H5.2Z" STROKE/>'),
   comment: s('<path d="M4.4 19.6V12a7.6 7.6 0 1 1 7.6 7.6H4.4Z" STROKE/>'),

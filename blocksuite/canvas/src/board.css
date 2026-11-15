@@ -60,7 +60,7 @@ edgeless-toolbar-widget { display: none !important; }
 
 /* trays: Tool tray / Sticky (gap 8, px 12) and Tool tray / Shape (gap 4, px 8), h 50, radius 12 */
 .cx-tray {
-  position: absolute; display: flex; align-items: center; height: 50px; background: #fff; border-radius: 12px;
+  position: absolute; display: flex; align-items: center; height: 50px; background: #fff; border-radius: 14px;
   white-space: nowrap;
   box-shadow: 0 4px 12px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.08), 0 0 .5px rgba(0,0,0,.18);
 }
@@ -87,12 +87,28 @@ edgeless-toolbar-widget { display: none !important; }
 .cx-fillbtn { display: flex !important; align-items: center; height: 36px; padding-left: 4px; color: #757575; }
 .cx-fillbtn svg:last-child { width: 16px; height: 16px; }
 
-/* Tooltip (Figma "Tooltip") */
-.cx-tip {
-  position: absolute; padding: 5px 8px; border-radius: 5px; background: #1e1e1e; color: #fff;
-  font: 500 11px/15px Inter, system-ui, sans-serif; white-space: nowrap; pointer-events: none; z-index: 2;
-}
-.cx-tip[hidden] { display: none; }
-
 /* AFFiNE's template library, opened from the bar */
 .cx-tpl-panel { z-index: 41; }
+
+/* No hover labels anywhere (our bar and AFFiNE's own toolbars). */
+affine-tooltip, .affine-tooltip { display: none !important; }
+
+/* Doc note card (Figma scenario "Semantic Representation"): soft drop shadow */
+:root { --affine-note-shadow-box: 0 4px 7px rgba(0, 0, 0, 0.12); }
+
+/* Sticky drag-out ghost */
+.cx-ghost {
+  position: fixed; left: 0; top: 0; z-index: 60; pointer-events: none;
+  width: 40px; height: 40px; border-radius: 3px;
+  box-shadow: 0 2px 4px rgba(0,0,0,.08);
+  transition: width .28s cubic-bezier(.2,.9,.25,1.15), height .28s cubic-bezier(.2,.9,.25,1.15),
+    box-shadow .28s ease, opacity .12s ease, border-radius .28s ease;
+  will-change: transform, width, height;
+}
+.cx-ghost.lift { width: var(--s); height: var(--s); border-radius: 6px; box-shadow: 0 18px 32px rgba(0,0,0,.16), 0 3px 8px rgba(0,0,0,.10); }
+.cx-ghost.over-bar { opacity: .55; }
+.cx-ghost.land { transition: transform .14s cubic-bezier(.3,.7,.3,1), box-shadow .14s ease, width .14s, height .14s; box-shadow: 0 3px 8px rgba(0,0,0,.10); }
+.cx-ghost.back { transition: transform .2s cubic-bezier(.4,0,.6,1), opacity .2s ease; opacity: 0; }
+.cx-ghost.gone { opacity: 0; }
+.cx-dim[data-id='sticky'].pulling { transform: translateY(2px); }
+.cx-dim[data-id='sticky'] { touch-action: none; }
