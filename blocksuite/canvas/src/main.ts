@@ -10,8 +10,6 @@ import { effects as itEffects } from '@blocksuite/integration-test/effects';
 import { getTestStoreManager } from '@blocksuite/integration-test/store';
 import { getTestViewManager } from '@blocksuite/integration-test/view';
 
-import './board.css';
-
 import { editorSetting, parseDocUrl, whiteboardOnly } from './services';
 
 itEffects();
@@ -60,25 +58,5 @@ async function main() {
   await editor.updateComplete;
   (window as any).editor = editor; (window as any).collection = collection;
 }
-
-// White or gray board, remembered per device.
-function boardSwitch() {
-  const KEY = 'cx-board';
-  let cur = 'white';
-  try { cur = localStorage.getItem(KEY) || 'white'; } catch {}
-  const set = (v: string) => {
-    cur = v;
-    document.documentElement.dataset.board = v;
-    try { localStorage.setItem(KEY, v); } catch {}
-    bar.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
-  };
-  const bar = document.createElement('div');
-  bar.className = 'cx-board-switch';
-  bar.innerHTML = `<button data-v="white"><i style="background:#fff"></i>白</button><button data-v="gray"><i style="background:#f4f4f2"></i>灰</button>`;
-  bar.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b) set(b.dataset.v!); });
-  document.body.append(bar);
-  set(cur);
-}
-boardSwitch();
 
 main().catch((e) => { console.error(e); document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;bottom:0;left:0;color:#b00;font:12px monospace;padding:8px">${String(e?.stack ?? e)}</pre>`); });
