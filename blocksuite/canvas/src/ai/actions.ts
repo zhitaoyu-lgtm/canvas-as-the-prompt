@@ -359,26 +359,40 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     } else box = place(a.place, w, h);
     addText({ ...a, text }, size, '#8a8984', box);
   }
-  // a small label pill on a thing, bottom-left inside its edge (FigJam-style tag)
+  // Tags: small quiet pills inside a thing's bottom edge. On a coloured thing the pill is white (one
+  // accent is enough); on a white thing it is soft gray. The tag's own colour is only a small dot.
+  // Pills keep a 12px inset from every edge and wrap upward into a new row when a row is full.
+  const DOT: Record<string, string> = { red: '#ff3b30', orange: '#ff9500', yellow: '#ffcc00', green: '#34c759', teal: '#30b0c7', blue: '#007aff', purple: '#af52de', violet: '#af52de', pink: '#ff2d55', gray: '#8e8e93', grey: '#8e8e93' };
+  const tagRows = new Map<string, { x: number; row: number }>();
   function tag(a: Action) {
     const refs: string[] = a.refs ?? (a.ref ? [a.ref] : a.on ? [a.on] : []);
     for (const ref of refs) {
-      const b = boxOfRef(ref); if (!b) { errors.push(`tag: unknown ${ref}`); continue; }
-      const label = String(a.text ?? a.label ?? ''); const size = 12;
-      const w = Math.ceil(textWidth(label, size) * 1.12) + 26, h = 24;
-      const c = a.colour ? base(a.colour) : 'gray';
-      const fill = c === 'gray' || c === 'grey' || c === 'white' ? '#ffffff' : (TAGFILL[c] ?? '#ffffff');
-      // stack after existing tags on the same thing
-      const already = newBoxes.filter(nb => nb.h === h && nb.y === b.y + b.h - h - 10 && nb.x >= b.x && nb.x < b.x + b.w).length;
-      const x = b.x + 10 + newBoxes.filter(nb => nb.h === h && nb.y === b.y + b.h - h - 10 && nb.x >= b.x && nb.x < b.x + b.w).reduce((s, nb) => s + nb.w + 6, 0);
+      const b = boxOfRef(ref); const host = item(ref) ?? named.get(ref)?.like;
+      if (!b) { errors.push(`tag: unknown ${ref}`); continue; }
+      const hostEl: any = idOf(ref) && gfx.getElementById(idOf(ref)!);
+      const hostFill = String(hostEl?.fillColor ?? hostEl?.props?.background ?? '#ffffff').toLowerCase();
+      const onWhite = hostFill === '#ffffff' || hostFill === 'white' || hostFill.startsWith('--') || host?.kind === 'doc' || host?.kind === 'card';
+      const label = String(a.text ?? a.label ?? '').trim(); if (!label) continue;
+      const size = 11, h = 22, inset = 12, gapX = 6, gapY = 6;
+      const c = a.colour ? base(a.colour) : '';
+      const dot = DOT[c];
+      const w = Math.ceil(textWidth(label, size)) + (dot ? 28 : 20);
+      const st = tagRows.get(ref) ?? { x: 0, row: 0 };
+      if (st.x && st.x + w > b.w - inset * 2) { st.x = 0; st.row++; }
+      if (w > b.w - inset * 2) { errors.push(`tag: "${label}" is wider than ${ref}`); continue; }
+      const x = b.x + inset + st.x, y = b.y + b.h - inset - h - st.row * (h + gapY);
+      st.x += w + gapX; tagRows.set(ref, st);
+      const pill = surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.5, xywh: xywh({ x, y, w, h }), filled: true,
+        fillColor: onWhite ? '#f2f2f7' : '#ffffff', strokeColor: 'transparent', strokeWidth: 0,
+        shadow: onWhite ? undefined : { blur: 2, offsetX: 0, offsetY: 1, color: 'rgba(0,0,0,0.06)' }, text: new Y.Text() });
+      const ids = [pill];
+      if (dot) ids.push(surf.addElement({ type: 'shape', shapeType: 'ellipse', xywh: xywh({ x: x + 9, y: y + 8, w: 6, h: 6 }), filled: true, fillColor: dot, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() }));
       const t = new Y.Text(); t.insert(0, label);
-      const id = surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.5, xywh: xywh({ x, y: b.y + b.h - h - 10, w, h }), filled: true, fillColor: fill,
-        strokeColor: '#e3e2dd', strokeWidth: fill === '#ffffff' ? 1 : 0, color: '#3a3a3c', fontSize: size, fontFamily: 'blocksuite:surface:Inter', fontWeight: '500',
-        textAlign: 'center', textHorizontalAlign: 'center', textVerticalAlign: 'center', padding: [2, 4], maxWidth: false, text: t });
-      void already; created.push(id); newBoxes.push({ x, y: b.y + b.h - h - 10, w, h });
+      ids.push(surf.addElement({ type: 'text', xywh: xywh({ x: x + (dot ? 20 : 10), y: y + 4, w: w - (dot ? 28 : 20), h: 14 }), text: t, color: '#3a3a3c', fontSize: size, fontWeight: '500', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' }));
+      const gid = surf.addElement({ type: 'group', children: Object.fromEntries(ids.map(i => [i, true])), title: new Y.Text(label) });
+      created.push(...ids, gid);
     }
   }
-  const TAGFILL: Record<string, string> = { red: '#ffe1de', orange: '#ffe7cf', yellow: '#fff1c2', green: '#d9f2df', teal: '#d4f0ee', blue: '#dcebff', purple: '#e8e0fd', violet: '#e8e0fd', pink: '#fde0ef' };
 
   function legend(a: Action) {
     const entries: { colour: string; label: string }[] = a.entries ?? [];
