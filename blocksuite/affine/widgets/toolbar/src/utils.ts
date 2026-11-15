@@ -293,13 +293,33 @@ export function renderToolbar(
     }
   }
 
-  render(
-    join(
-      renderActions(primaryActionGroup, context),
-      innerToolbar ? null : renderToolbarSeparator()
-    ),
-    toolbar
+  // Canvas: FigJam-style grouping. Colour first, then style, then arrange, then lock / more,
+  // then Ask. A thin divider only between groups, never between neighbours of the same group.
+  const rankOf = (action: { id: string }) => {
+    const key = action.id.split('.').pop() ?? '';
+    if (key === 'cx-ai') return 4;
+    if (key === 'more' || key === 'lock' || key === 'unlock') return 3;
+    if (/color/.test(key)) return 0;
+    if (/style|switch-type|line-width|font|text|alignment|layout|scale|auto-height|caption|endpoint|connector-shape|slicer/.test(key)) return 1;
+    return 2;
+  };
+  const ranked = orderBy(
+    primaryActionGroup.map((action, index) => ({ action, index, rank: rankOf(action) })),
+    ['rank', 'index'],
+    ['asc', 'asc']
   );
+  const parts: unknown[] = [];
+  let lastRank = -1;
+  for (const { action, rank } of ranked) {
+    const item = renderActions([action], context)[0] ?? null;
+    if (item === null) continue;
+    if (lastRank !== -1 && rank !== lastRank && !innerToolbar) {
+      parts.push(renderToolbarSeparator());
+    }
+    parts.push(item);
+    lastRank = rank;
+  }
+  render(parts, toolbar);
 
   // Avoids shaking
   if (flavour === 'affine:note' && context.std.range.value) {

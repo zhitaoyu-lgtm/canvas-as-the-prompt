@@ -9,11 +9,12 @@ import { ActionPlacement, ToolbarModuleExtension, type ToolbarContext } from '@b
 import { BlockFlavourIdentifier } from '@blocksuite/affine/std';
 import { html } from 'lit';
 
-// The ring, as drawn in Figma: a soft gray band around a pale centre.
-export const RING_SVG = `<svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
-  <circle class="band" cx="11" cy="11" r="7.4" fill="#fafafa" stroke="#b9b9b9" stroke-width="3"/>
-  <circle cx="11" cy="11" r="5.6" stroke="#e9e9e9" stroke-width="1"/>
+// Line icon in the toolbar's own style (24px, stroke 1.4, currentColor): a four-point spark.
+export const SPARK_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
+  <path d="M12 3.8c.55 4.2 2.65 6.35 6.9 6.95-4.25.6-6.35 2.75-6.9 6.95-.55-4.2-2.65-6.35-6.9-6.95 4.25-.6 6.35-2.75 6.9-6.95Z"/>
+  <path d="M18.6 15.6v3.2M17 17.2h3.2" stroke-linecap="round"/>
 </svg>`;
+export const RING_SVG = SPARK_SVG;   // legacy name used by the working badge
 
 // ── The button that lives inside AFFiNE's toolbar ────────────────────────────────
 class AiEntry extends HTMLElement {
@@ -22,13 +23,17 @@ class AiEntry extends HTMLElement {
     const root = this.attachShadow({ mode: 'open' });
     root.innerHTML = `<style>
       :host { display: inline-flex; }
-      button { all: unset; box-sizing: border-box; width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; cursor: pointer; transition: background .12s ease, transform .14s ease; }
-      .band { transition: stroke .12s ease; }
-      button:hover .band { stroke: #8f8f8f; }
-      button:active { transform: scale(.94); }
+      button {
+        all: unset; box-sizing: border-box; height: 36px; padding: 0 10px 0 8px; border-radius: 8px;
+        display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+        color: var(--affine-icon-color, #77757d); font: 500 14px/1 Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+        transition: background .12s ease, color .12s ease, transform .14s ease;
+      }
+      button:hover { background: var(--affine-hover-color, rgba(0,0,0,.04)); }
+      button:active { transform: scale(.96); }
       button:focus-visible { outline: 2px solid #0c8ce9; outline-offset: 1px; }
       svg { display: block; }
-    </style><button aria-label="Open prompt">${RING_SVG}</button>`;
+    </style><button aria-label="Ask">${SPARK_SVG}<span>Ask</span></button>`;
     root.querySelector('button')!.addEventListener('click', e => {
       e.stopPropagation();
       window.dispatchEvent(new CustomEvent('cx-ai-open', { detail: { from: this } }));
@@ -89,7 +94,7 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   const cap = h('div', 'cx-cap');
   cap.setAttribute('role', 'dialog');
   cap.innerHTML = `
-    <span class="cx-cap-ring" aria-hidden="true">${RING_SVG}</span>
+    <span class="cx-cap-pivot" aria-hidden="true">${SPARK_SVG}<span>Ask</span></span>
     <form class="cx-cap-row">
       <input class="cx-cap-input" type="text" autocomplete="off" spellcheck="false" aria-label="Instruction">
       <button type="button" class="cx-cap-mic" aria-label="Dictate"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><rect x="9" y="4" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3"/></svg></button>
@@ -103,7 +108,8 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   badge.setAttribute('aria-label', 'Working');
   layer.append(badge);
 
-  let open = false, toolbar: El | null = null, ids: string[] = [], busy = false, pivot = 0;
+  let open = false, toolbar: El | null = null, ids: string[] = [], busy = false;
+  let pivotL = 0, pivotW = 0, cutL = 0;
   const OPEN_W = 440;
 
   const toolbarEl = () => deepFind(document, e => e.tagName === 'EDITOR-TOOLBAR' && (e as El).getBoundingClientRect().width > 0);
@@ -117,26 +123,27 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     const { label } = describe(sel);
     input.value = ''; input.placeholder = `What should happen to ${label}?`;
     const r = toolbar.getBoundingClientRect();
+    const entry = deepFind(toolbar, e => e.tagName === 'CX-AI-ENTRY') ?? deepFind(document, e => e.tagName === 'CX-AI-ENTRY' && (e as El).getBoundingClientRect().width > 0);
+    const a = entry ? entry.getBoundingClientRect() : r;
+    pivotL = a.left - 4; pivotW = r.right - pivotL; cutL = pivotL - r.left;
     open = true;
 
-    // 1 · fold: the toolbar's other buttons slide into the ring, the bar narrows to the ring
-    toolbarKids(toolbar).forEach((k, i, a) => k.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(-10px)' }], { duration: 120, delay: (a.length - i) * 12, fill: 'forwards', easing: 'ease-in' }));
-    const fold = toolbar.animate([{ clipPath: `inset(0 0 0 0 round 14px)` }, { clipPath: `inset(0 ${r.width - r.height}px 0 0 round 14px)` }], { duration: 170, easing: 'cubic-bezier(.4,0,.6,1)', fill: 'forwards' });
+    // 1 · fold: everything slides right into "Ask", the bar narrows to it
+    const kids = toolbarKids(toolbar);
+    kids.forEach((k, i) => k.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(10px)' }], { duration: 120, delay: i * 12, fill: 'forwards', easing: 'ease-in' }));
+    const fold = toolbar.animate([{ clipPath: 'inset(0 0 0 0 round 14px)' }, { clipPath: `inset(0 0 0 ${cutL}px round 14px)` }], { duration: 180, easing: 'cubic-bezier(.4,0,.6,1)', fill: 'forwards' });
     await fold.finished;
 
-    // 2 · swap to the capsule (same place, same height), breathe once, then grow into an input
-    cap.style.left = `${r.left}px`; cap.style.top = `${r.top}px`; cap.style.height = `${r.height}px`;
-    cap.style.setProperty('--h', `${r.height}px`);
-    cap.style.width = `${r.height}px`;
+    // 2 · swap to the capsule in the same place, then grow it into an input centred on the selection
+    cap.style.left = `${pivotL}px`; cap.style.top = `${r.top}px`; cap.style.height = `${r.height}px`;
+    cap.style.width = `${pivotW}px`;
+    cap.style.setProperty('--h', `${r.height}px`); cap.style.setProperty('--pw', `${pivotW}px`);
     cap.classList.add('on'); toolbar.style.visibility = 'hidden';
-    cap.querySelector('.cx-cap-ring')!.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.12)' }, { transform: 'scale(1)' }], { duration: 160, easing: 'ease-out' });
-    await new Promise(res => setTimeout(res, 40));
-    // grow from the ring into an input centred on the toolbar's centre line (= the selection's)
+    await new Promise(res => setTimeout(res, 30));
     const w = Math.min(OPEN_W, innerWidth - 32);
     const cx = r.left + r.width / 2;
     const left = Math.max(16, Math.min(cx - w / 2, innerWidth - 16 - w));
-    pivot = r.left;
-    cap.animate([{ left: `${r.left}px`, width: `${r.height}px` }, { left: `${left}px`, width: `${w}px` }], { duration: 280, easing: 'cubic-bezier(.2,.9,.25,1.06)', fill: 'forwards' });
+    cap.animate([{ left: `${pivotL}px`, width: `${pivotW}px` }, { left: `${left}px`, width: `${w}px` }], { duration: 300, easing: 'cubic-bezier(.2,.9,.25,1.05)', fill: 'forwards' });
     cap.classList.add('wide');
     setTimeout(() => input.focus(), 180);
   }
@@ -146,15 +153,15 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     open = false;
     cap.classList.remove('wide');
     const cr = cap.getBoundingClientRect();
-    await cap.animate([{ left: `${cr.left}px`, width: `${cr.width}px` }, { left: `${pivot}px`, width: `${cr.height}px` }], { duration: 200, easing: 'cubic-bezier(.4,0,.6,1)', fill: 'forwards' }).finished;
-    cap.classList.remove('on'); cap.getAnimations().forEach(a => a.cancel());
+    await cap.animate([{ left: `${cr.left}px`, width: `${cr.width}px` }, { left: `${pivotL}px`, width: `${pivotW}px` }], { duration: 220, easing: 'cubic-bezier(.4,0,.6,1)', fill: 'forwards' }).finished;
+    cap.classList.remove('on'); cap.getAnimations().forEach(x => x.cancel());
     const t = toolbar; toolbar = null;
     if (!t) return;
     t.style.visibility = '';
-    if (!restore) { t.getAnimations().forEach(a => a.cancel()); toolbarKids(t).forEach(k => k.getAnimations().forEach(a => a.cancel())); return; }
-    const r = t.getBoundingClientRect();
-    t.animate([{ clipPath: `inset(0 ${r.width - r.height}px 0 0 round 14px)` }, { clipPath: `inset(0 0 0 0 round 14px)` }], { duration: 220, easing: 'cubic-bezier(.2,.9,.25,1.05)' }).finished.then(() => t.getAnimations().forEach(a => a.cancel()));
-    toolbarKids(t).forEach((k, i) => { k.getAnimations().forEach(a => a.cancel()); k.animate([{ opacity: 0, transform: 'translateX(-10px)' }, { opacity: 1, transform: 'none' }], { duration: 160, delay: 40 + i * 14, easing: 'ease-out', fill: 'backwards' }); });
+    if (!restore) { t.getAnimations().forEach(x => x.cancel()); toolbarKids(t).forEach(k => k.getAnimations().forEach(x => x.cancel())); return; }
+    t.animate([{ clipPath: `inset(0 0 0 ${cutL}px round 14px)` }, { clipPath: 'inset(0 0 0 0 round 14px)' }], { duration: 230, easing: 'cubic-bezier(.2,.9,.25,1.05)' }).finished.then(() => t.getAnimations().forEach(x => x.cancel()));
+    const kids = toolbarKids(t);
+    kids.forEach((k, i) => { k.getAnimations().forEach(x => x.cancel()); k.animate([{ opacity: 0, transform: 'translateX(10px)' }, { opacity: 1, transform: 'none' }], { duration: 160, delay: 40 + (kids.length - i) * 14, easing: 'ease-out', fill: 'backwards' }); });
   }
 
   // Working indicator: a small ring just outside the selection's top-right corner. It hops, it doesn't spin.
