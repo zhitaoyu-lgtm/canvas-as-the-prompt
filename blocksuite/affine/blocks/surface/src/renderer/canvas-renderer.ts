@@ -228,14 +228,21 @@ export function getCanvasViewportLayout(params: {
   dpr: number;
 }) {
   const { bound, viewportBounds, zoom, viewScale, dpr } = params;
-  const width = bound.w * zoom;
-  const height = bound.h * zoom;
-  const left = (bound.x - viewportBounds.x) * zoom;
-  const top = (bound.y - viewportBounds.y) * zoom;
+  // Snap the canvas to whole device pixels. On fractional screens (e.g. 150%
+  // Windows scaling) a CSS size like 1699px is 2548.5 device px; the backing
+  // store was ceil()ed to 2549 and then resampled into 2548.5, which softens
+  // every stroke and glyph. Deriving the CSS size from the integer backing
+  // store, and snapping the offset, keeps one canvas pixel per screen pixel.
+  const actualWidth = Math.max(0, Math.ceil(bound.w * zoom * dpr));
+  const actualHeight = Math.max(0, Math.ceil(bound.h * zoom * dpr));
+  const width = actualWidth / dpr;
+  const height = actualHeight / dpr;
+  const left = Math.round((bound.x - viewportBounds.x) * zoom * dpr) / dpr;
+  const top = Math.round((bound.y - viewportBounds.y) * zoom * dpr) / dpr;
 
   return {
-    actualHeight: Math.max(0, Math.ceil(height * dpr)),
-    actualWidth: Math.max(0, Math.ceil(width * dpr)),
+    actualHeight,
+    actualWidth,
     height,
     transform: `translate(${left}px, ${top}px) scale(${1 / viewScale})`,
     width,
