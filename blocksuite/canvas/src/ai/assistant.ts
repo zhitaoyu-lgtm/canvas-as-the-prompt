@@ -17,7 +17,7 @@ export function createAssistant(rootEl: any) {
     const text = toPrompt(reading);
     let picture: Blob | null = null;
     if (needsPicture(reading, reading.focus)) {
-      const boxes = reading.focus.map(r => reading.byRef.get(r)!.box);
+      const boxes = [...reading.focus.map(r => reading.byRef.get(r)?.box), ...reading.structures.filter(st => reading.focus.includes(st.ref)).map(st => st.box)].filter(Boolean) as Box[];
       picture = await snapshot(rootEl, unionBox(boxes));
     }
     const entry: any = { at: new Date().toISOString(), request, reading: text, picture: !!picture };

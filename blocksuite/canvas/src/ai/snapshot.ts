@@ -11,7 +11,7 @@ const VISUAL = new Set(['drawing', 'highlight', 'image', 'sticker']);
 
 /** Whether a picture adds anything for these refs (drawings, images, wordless shapes). */
 export function needsPicture(r: Reading, refs: string[]): boolean {
-  return refs.some(ref => { const it = r.byRef.get(ref); return !!it && (VISUAL.has(it.kind) || (it.kind === 'shape' && !it.text)); });
+  return refs.some(ref => { const it = r.byRef.get(ref); return !!it && (VISUAL.has(it.kind) || (it.kind === 'shape' && !it.text) || (it.kind === 'connector' && (!it.arrow?.from || !it.arrow?.to))); });
 }
 
 export async function snapshot(rootEl: any, box: Box, maxSide = 1024): Promise<Blob | null> {

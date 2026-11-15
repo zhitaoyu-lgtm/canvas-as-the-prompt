@@ -13,6 +13,7 @@ import type { Box, Item, Reading } from './reading';
 export type Place = {
   after?: string; before?: string; below?: string; above?: string; right?: string; left?: string;
   slot?: string; n?: number; in?: string; near?: string; at?: [number, number];
+  cell?: string; row?: number; col?: number;
 };
 export type Action = { do: string; [k: string]: any };
 export type Answer = { read?: string; say?: string; actions: Action[] };
@@ -61,6 +62,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const n = named.get(ref); if (n) return n.box;
     const it = item(ref); if (it) { const el = gfx.getElementById(it.id); return el ? { ...el.elementBound } : it.box; }
     const g = reading.groups.find(g => g.ref === ref); if (g) return g.box;
+    const st = reading.structures.find(x => x.ref === ref); if (st) return st.box;
     return undefined;
   };
   const idOf = (ref?: string) => (ref ? named.get(ref)?.id ?? item(ref)?.id : undefined);
@@ -74,6 +76,18 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   ];
   const free = (b: Box, ignore?: Box) => !obstacles().some(o => o !== ignore && overlaps(b, o));
 
+  // a cell of a drawn structure (L1 row 1 col 2), or of a spatial grid group
+  function cellOf(p: Place): Box | undefined {
+    const st = reading.structures.find(x => x.ref === p.cell);
+    const c = st?.cells.find(c => c.row === (p.row ?? 1) && c.col === (p.col ?? 1));
+    return c?.box;
+  }
+  /** Size that fits a cell (stickies shrink to fit, keeping square). */
+  function fitCell(p: Place | undefined, w: number, h: number): [number, number] {
+    const c = p?.cell ? cellOf(p) : undefined; if (!c) return [w, h];
+    const k = Math.min(1, (c.w - 32) / w, (c.h - 32) / h);
+    return [Math.max(48, Math.round(w * k)), Math.max(48, Math.round(h * k))];
+  }
   function place(p: Place | undefined, w: number, h: number, fallbackRef?: string): Box {
     p = p ?? {};
     const dirOf = (ref: string) => {
@@ -100,6 +114,18 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       }
       return b;
     };
+    if (p.cell) {
+      const c = cellOf(p);
+      if (c) {
+        // fill the cell like a person would: rows from its top-left, inside a small margin
+        const pad = 16;
+        const centred = { x: c.x + (c.w - w) / 2, y: c.y + pad, w, h };   // alone in its cell: centred across it
+        if (free(centred) && !reading.items.some(i => i.kind !== 'connector' && overlaps(i.box, c, -8) && !(i.box.w > c.w && i.box.h > c.h))) return centred;
+        for (let y = c.y + pad; y + h <= c.y + c.h - pad / 2 || y === c.y + pad; y += 8)
+          for (let x = c.x + pad; x + w <= c.x + c.w - pad / 2 || x === c.x + pad; x += 8) { const b = { x, y, w, h }; if (free(b)) return b; }
+        return { x: c.x + pad, y: c.y + c.h - pad - h, w, h };
+      }
+    }
     if (p.slot) {
       const g = reading.groups.find(g => g.ref === p!.slot);
       const s = g?.slots?.[(p.n ?? 1) - 1];
@@ -148,7 +174,8 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const like = item(a.like) ?? item(a.place?.after) ?? item(a.place?.before);
     const likeEl = like && gfx.getElementById(like.id);
     const s = a.size === 'small' ? 120 : a.size === 'large' ? 260 : 184;
-    const w = like?.kind === 'sticky' ? like.box.w : s, h = like?.kind === 'sticky' ? like.box.h : s;
+    let w = like?.kind === 'sticky' ? like.box.w : s, h = like?.kind === 'sticky' ? like.box.h : s;
+    if (a.place?.cell) { const c = cellOf(a.place); if (c) { const fit = Math.min(184, Math.floor((c.w - 32 - 12) / 2), c.h - 32); if (fit >= 96) { w = h = fit; } } [w, h] = fitCell(a.place, w, h); }
     const box = place(a.place, w, h, anchorOf(a));
     const fill = fillOf(a.colour) ?? (likeEl?.fillColor && typeof likeEl.fillColor === 'string' ? likeEl.fillColor : STICKY.yellow);
     const t = new Y.Text(); t.insert(0, String(a.text ?? ''));
@@ -284,10 +311,18 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   function move(a: Action) {
     const refs: string[] = a.refs ?? [];
     const boxes = refs.map(boxOfRef).filter(Boolean) as Box[]; if (!boxes.length) return;
-    const u = union(boxes);
-    // the moved things should not block their own new place
     const saved = reading.items.filter(i => refs.includes(i.ref));
     saved.forEach(i => containers.add(i.ref));
+    if (a.place?.cell) {   // into a cell: one by one, shrinking to fit
+      for (const ref of refs) {
+        const id = idOf(ref), b = boxOfRef(ref); if (!id || !b) continue;
+        const [w, h] = fitCell(a.place, b.w, b.h); const t = place(a.place, w, h);
+        setBox(id, t); newBoxes.push(t);
+      }
+      saved.forEach(i => containers.delete(i.ref)); return;
+    }
+    const u = union(boxes);
+    // the moved things should not block their own new place
     const target = place(a.place, u.w, u.h, refs[0]);
     saved.forEach(i => containers.delete(i.ref));
     const dx = target.x - u.x, dy = target.y - u.y;

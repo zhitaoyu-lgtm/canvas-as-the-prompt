@@ -8,6 +8,7 @@
 // Deterministic and fast: no model involved. The model gets `toPrompt(reading)`; code that places
 // answers uses the same `Reading` object, so both sides talk about the same ids.
 
+import { segmentsOf, structuresOf, structuresPrompt, type Structure } from './lines';
 import { authorOf } from './provenance';
 
 // ── Types ───────────────────────────────────────────────────────────────────────────
@@ -64,6 +65,7 @@ export type Reading = {
   items: Item[];
   groups: Group[];
   chains: Chain[];
+  structures: Structure[];
   colours: { colour: string; refs: string[]; hex?: string[] }[];
   selection: string[];
   focus: string[];        // selection plus what sits with it
@@ -399,9 +401,11 @@ export function readBoard(gfx: any, opts: { selection?: string[] } = {}): Readin
     const it = byRef.get(r)!; it.children?.forEach(c => focus.add(c));
     for (const c of items) if (c.arrow && (c.arrow.from === r || c.arrow.to === r)) { focus.add(c.ref); c.arrow.from && focus.add(c.arrow.from); c.arrow.to && focus.add(c.arrow.to); }
   }
+  const structures = structuresOf(segmentsOf(gfx, items), items);
+  for (const st of structures) if (st.segs.some(r => focus.has(r))) { focus.add(st.ref); st.cells.forEach(c => c.holds.forEach(h => focus.add(h))); st.segs.forEach(r => focus.add(r)); }
   const vb = gfx.viewport?.viewportBounds;
   return {
-    items, groups: finalGroups, chains: finalChains,
+    items, groups: finalGroups, chains: finalChains, structures,
     colours: [...colours].map(([colour, refs]) => ({ colour, refs, hex: hexes.has(colour) ? [...hexes.get(colour)!] : undefined })),
     selection, focus: [...focus], viewport: vb ? { x: vb.x, y: vb.y, w: vb.w, h: vb.h } : { x: 0, y: 0, w: 0, h: 0 },
     byRef, byId, groupOf,
@@ -588,7 +592,8 @@ export function toPrompt(r: Reading, opts: { maxItems?: number; textLimit?: numb
     L.push('LINES');
     for (const c of lines) {
       const a = c.arrow!;
-      L.push(`${c.ref} ${a.from ?? '(loose)'} ${a.directed ? '→' : '—'} ${a.to ?? '(loose)'}${a.label ? ' ' + q(a.label) : ''}${c.colour && c.colour !== 'black' ? ' ' + c.colour : ''}${c.author === 'ai' ? ' by ai' : ''}`);
+      const ends = !a.from || !a.to ? ` @${r0(c.box.x)},${r0(c.box.y)} ${r0(c.box.w)}×${r0(c.box.h)}` : '';
+      L.push(`${c.ref} ${a.from ?? '(free end)'} ${a.directed ? '→' : '—'} ${a.to ?? '(free end)'}${ends}${a.label ? ' ' + q(a.label) : ''}${c.colour && c.colour !== 'black' ? ' ' + c.colour : ''}${c.author === 'ai' ? ' by ai' : ''}`);
     }
   }
   if (r.chains.length) {
@@ -615,6 +620,7 @@ export function toPrompt(r: Reading, opts: { maxItems?: number; textLimit?: numb
       for (const s of g.slots ?? []) L.push(`    open slot ${s.where} @${s.box.x},${s.box.y} ${s.box.w}×${s.box.h} (${s.why})`);
     }
   }
+  L.push(...structuresPrompt(r.structures));
   const cs = r.colours.filter(c => c.refs.length);
   if (cs.length) {
     L.push('');
