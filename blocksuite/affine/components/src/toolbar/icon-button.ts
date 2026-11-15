@@ -21,7 +21,7 @@ export class EditorIconButton extends LitElement {
       align-items: center;
       padding: var(--icon-container-padding);
       color: ${unsafeCSSVarV2('icon/primary')};
-      border-radius: 4px;
+      border-radius: 8px;
       cursor: pointer;
       white-space: nowrap;
       box-sizing: border-box;
@@ -79,7 +79,7 @@ export class EditorIconButton extends LitElement {
       height: 100%;
       top: 0;
       left: 0;
-      border-radius: 4px;
+      border-radius: 8px;
     }
   `;
 

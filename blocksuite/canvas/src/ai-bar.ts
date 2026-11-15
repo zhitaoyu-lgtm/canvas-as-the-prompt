@@ -27,7 +27,7 @@ class AiEntry extends HTMLElement {
       button { all: unset; box-sizing: border-box; height: 36px; padding: 0 4px; display: inline-flex; align-items: center; cursor: pointer; }
       .pill {
         display: inline-flex; align-items: center; height: 24px; padding: 0 6px; box-sizing: border-box;
-        border-radius: 4px; color: var(--affine-icon-color, #77757d);
+        border-radius: 8px; color: var(--affine-icon-color, #77757d);
         font: 500 14px/1 Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
         transition: background .12s ease;
       }
