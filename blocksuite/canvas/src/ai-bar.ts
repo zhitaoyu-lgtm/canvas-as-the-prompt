@@ -14,7 +14,6 @@ export const SPARK_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="
   <path d="M12 3.8c.55 4.2 2.65 6.35 6.9 6.95-4.25.6-6.35 2.75-6.9 6.95-.55-4.2-2.65-6.35-6.9-6.95 4.25-.6 6.35-2.75 6.9-6.95Z"/>
   <path d="M18.6 15.6v3.2M17 17.2h3.2" stroke-linecap="round"/>
 </svg>`;
-export const RING_SVG = SPARK_SVG;   // legacy name used by the working badge
 
 // ── The button that lives inside AFFiNE's toolbar ────────────────────────────────
 class AiEntry extends HTMLElement {
@@ -106,9 +105,11 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   const input = cap.querySelector('input') as HTMLInputElement;
   const form = cap.querySelector('form') as HTMLFormElement;
 
-  const badge = h('div', 'cx-working', `<span class="cx-hop">${RING_SVG}</span>`);
-  badge.setAttribute('aria-label', 'Working');
-  layer.append(badge);
+  // Pending: a hairline box around what was selected, and a 2×2 dot mark beside its top-left corner.
+  const pendBox = h('div', 'cx-pend-box');
+  const badge = h('div', 'cx-pend-dots', '<i></i><i></i><i></i><i></i>');
+  badge.setAttribute('role', 'status'); badge.setAttribute('aria-label', 'Working');
+  layer.append(pendBox, badge);
 
   let open = false, toolbar: El | null = null, ids: string[] = [], busy = false;
   let pivotL = 0, pivotW = 0, cutL = 0;
@@ -166,22 +167,32 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     kids.forEach((k, i) => { k.getAnimations().forEach(x => x.cancel()); k.animate([{ opacity: 0, transform: 'translateX(10px)' }, { opacity: 1, transform: 'none' }], { duration: 160, delay: 40 + (kids.length - i) * 14, easing: 'ease-out', fill: 'backwards' }); });
   }
 
-  // Working indicator: a small ring just outside the selection's top-right corner. It hops, it doesn't spin.
+  // Working: the toolbar, handles and group label go away; only a thin, muted box and the dot mark stay.
   let follow = 0;
   function placeBadge() {
     const els = ids.map(id => gfx.getElementById(id)).filter(Boolean) as any[];
     if (!els.length) return;
-    let x1 = -Infinity, y0 = Infinity;
-    for (const e of els) { const b = e.elementBound; x1 = Math.max(x1, b.x + b.w); y0 = Math.min(y0, b.y); }
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const e of els) { const b = e.elementBound; x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h); }
     const rr = rootEl.getBoundingClientRect();
-    const [sx, sy] = gfx.viewport.toViewCoord(x1, y0);
-    badge.style.left = `${rr.left + sx + 10}px`; badge.style.top = `${rr.top + sy - 10}px`;
+    const [ax, ay] = gfx.viewport.toViewCoord(x0, y0);
+    const [bx, by] = gfx.viewport.toViewCoord(x1, y1);
+    const pad = 4;
+    const L = rr.left + ax - pad, T = rr.top + ay - pad;
+    pendBox.style.left = `${L}px`; pendBox.style.top = `${T}px`;
+    pendBox.style.width = `${bx - ax + pad * 2}px`; pendBox.style.height = `${by - ay + pad * 2}px`;
+    badge.style.left = `${L - 22}px`; badge.style.top = `${T + 1}px`;
   }
   function startWorking() {
-    placeBadge(); badge.classList.add('on');
+    gfx.selection.clear?.() ?? gfx.selection.set({ elements: [] });
+    placeBadge(); pendBox.classList.add('on'); badge.classList.add('on');
     const tick = () => { placeBadge(); follow = requestAnimationFrame(tick); }; follow = requestAnimationFrame(tick);
   }
-  function stopWorking() { cancelAnimationFrame(follow); badge.classList.remove('on'); }
+  function stopWorking() {
+    cancelAnimationFrame(follow); pendBox.classList.remove('on'); badge.classList.remove('on');
+    const still = ids.filter(id => gfx.getElementById(id));
+    if (still.length) gfx.selection.set({ elements: still });   // hand the selection back
+  }
 
   async function submit() {
     const prompt = input.value.trim();

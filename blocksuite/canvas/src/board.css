@@ -152,26 +152,24 @@ affine-tooltip, .affine-tooltip { display: none !important; }
 .cx-cap.wide .cx-cap-send { transform: scale(1); opacity: 1; transition-delay: .14s; }
 .cx-cap-mic:focus-visible, .cx-cap-send:focus-visible { outline: 2px solid #0c8ce9; outline-offset: 2px; }
 
-/* ── Working: a small ring beside the selection that hops (squash and stretch), then rests ── */
-.cx-working {
-  position: fixed; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%;
-  background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.10), 0 0 .5px rgba(0,0,0,.2);
-  display: grid; place-items: center; opacity: 0; transform: scale(.6); pointer-events: none;
-  transition: opacity .18s ease, transform .22s cubic-bezier(.2,.9,.25,1.3);
+/* ── Working: hairline box + 2×2 dot mark (diagonals trade places) ── */
+.cx-pend-box {
+  position: fixed; border: 1px solid rgba(30, 136, 229, .42); border-radius: 6px; pointer-events: none;
+  opacity: 0; transition: opacity .2s ease;
 }
-.cx-working.on { opacity: 1; transform: scale(1); }
-.cx-working .cx-hop { display: block; width: 18px; height: 18px; transform-origin: 50% 90%; color: var(--affine-icon-color, #77757d); }
-.cx-working .cx-hop svg { width: 18px; height: 18px; display: block; }
+.cx-pend-box.on { opacity: 1; }
+.cx-pend-dots {
+  position: fixed; display: grid; grid-template-columns: 5px 5px; gap: 4px; pointer-events: none;
+  opacity: 0; transform: scale(.7); transition: opacity .18s ease, transform .22s cubic-bezier(.2,.9,.25,1.3);
+}
+.cx-pend-dots.on { opacity: 1; transform: none; }
+.cx-pend-dots i { width: 5px; height: 5px; border-radius: 50%; background: #c4c4c4; display: block; }
+.cx-pend-dots i:nth-child(1), .cx-pend-dots i:nth-child(4) { background: #6f6f6f; }
 @media (prefers-reduced-motion: no-preference) {
-  .cx-working.on .cx-hop { animation: cx-hop 1.25s cubic-bezier(.3,.6,.3,1) infinite; }
+  .cx-pend-dots.on i:nth-child(1), .cx-pend-dots.on i:nth-child(4) { animation: cx-diag 1.4s cubic-bezier(.45,0,.55,1) infinite; }
+  .cx-pend-dots.on i:nth-child(2), .cx-pend-dots.on i:nth-child(3) { animation: cx-diag 1.4s cubic-bezier(.45,0,.55,1) -.7s infinite; }
 }
-@keyframes cx-hop {
-  0%   { transform: translateY(0) scale(1, 1); }
-  8%   { transform: translateY(0) scale(1.14, .84); }
-  24%  { transform: translateY(-5px) scale(.9, 1.1); }
-  38%  { transform: translateY(0) scale(1.12, .88); }
-  46%  { transform: translateY(0) scale(1, 1); }
-  54%  { transform: translateY(-2.5px) scale(.96, 1.04); }
-  64%  { transform: translateY(0) scale(1.05, .95); }
-  72%, 100% { transform: translateY(0) scale(1, 1); }
+@keyframes cx-diag {
+  0%, 100% { background: #6f6f6f; transform: scale(1); }
+  50% { background: #cdcdcd; transform: scale(.78); }
 }
