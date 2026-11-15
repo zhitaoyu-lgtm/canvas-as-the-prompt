@@ -384,17 +384,11 @@ function renderActionItem(action: ToolbarAction, context: ToolbarContext) {
       aria-label=${ifDefined(label)}
       ?active=${actived}
       ?disabled=${disabled}
-      .tooltip=${action.tooltip}
       .iconContainerPadding=${innerToolbar ? 4 : 2}
       .iconSize=${innerToolbar ? '16px' : undefined}
       @click=${() => action.run?.(context)}
     >
       ${action.icon}
-      ${
-        action.showLabel && action.label
-          ? html`<span class="label">${action.label}</span>`
-          : null
-      }
     </editor-icon-button>
   `;
 }
