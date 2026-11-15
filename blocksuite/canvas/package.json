@@ -1,0 +1,29 @@
+{
+  "name": "@affine/canvas-app",
+  "description": "Canvas as the Prompt: a whiteboard-only app on the AFFiNE editor engine, with a spatial-grammar AI.",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@blocksuite/affine": "workspace:*",
+    "@blocksuite/affine-model": "workspace:*",
+    "@blocksuite/affine-shared": "workspace:*",
+    "@blocksuite/integration-test": "workspace:*",
+    "@preact/signals-core": "^1.8.0",
+    "@toeverything/theme": "^1.1.23",
+    "lit": "^3.2.0",
+    "rxjs": "^7.8.2",
+    "yjs": "^13.6.27"
+  },
+  "devDependencies": {
+    "@vanilla-extract/vite-plugin": "~5.1.5",
+    "vite": "^7.3.7",
+    "vite-plugin-wasm": "^3.5.0"
+  },
+  "license": "MIT"
+}
