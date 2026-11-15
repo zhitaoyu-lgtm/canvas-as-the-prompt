@@ -10,11 +10,14 @@ import { effects as itEffects } from '@blocksuite/integration-test/effects';
 import { getTestStoreManager } from '@blocksuite/integration-test/store';
 import { getTestViewManager } from '@blocksuite/integration-test/view';
 
+import * as Y from 'yjs';
+
 import './board.css';
 
 import './stickers';
 import { aiToolbarExtension, mountAiBar } from './ai-bar';
 import { mountToolbar } from './toolbar';
+import { mountInspector } from './ai/inspect';
 
 import { editorSetting, parseDocUrl, whiteboardOnly } from './services';
 
@@ -74,7 +77,8 @@ async function main() {
   const rootEl = await waitRoot();
   await mountToolbar(rootEl);
   mountAiBar(rootEl);
-  (window as any).editor = editor; (window as any).collection = collection;
+  mountInspector(rootEl);
+  (window as any).editor = editor; (window as any).collection = collection; (window as any).cxDev = { Text, Y: Y.Text, rootEl };
 }
 
 main().catch((e) => { console.error(e); document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;bottom:0;left:0;color:#b00;font:12px monospace;padding:8px">${String(e?.stack ?? e)}</pre>`); });
