@@ -1,10 +1,17 @@
-import { clamp } from '@blocksuite/global/gfx';
-
-import { GRID_GAP_MAX, GRID_GAP_MIN } from '../consts';
+/**
+ * Dot-grid spacing on screen, FigJam style: the world grid is 20 units at 100%,
+ * and when zooming it halves or doubles by powers of two, so the dots on screen
+ * always stay between 14 and 28 px apart (never a dense carpet when zoomed out,
+ * never sparse when zoomed in). Each level is a multiple of the last, so dots
+ * stay anchored to the same world positions as the spacing changes.
+ */
+const BASE = 20;
+const MIN_SCREEN_GAP = 14;
 
 export function getBgGridGap(zoom: number) {
-  const step = zoom < 0.5 ? 2 : 1 / (Math.floor(zoom) || 1);
-  const gap = clamp(20 * step * zoom, GRID_GAP_MIN, GRID_GAP_MAX);
-
-  return Math.round(gap);
+  if (!(zoom > 0)) return BASE;
+  let gap = BASE * zoom;
+  while (gap < MIN_SCREEN_GAP) gap *= 2;
+  while (gap >= MIN_SCREEN_GAP * 2) gap /= 2;
+  return gap;
 }

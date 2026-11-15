@@ -1,0 +1,21 @@
+/* Board ground, FigJam-like: a barely-gray sheet with a very light, fine dot grid.
+   Spacing comes from getBgGridGap (14-28 px on screen at any zoom). */
+:root {
+  --cx-board: #f5f5f5;
+  --cx-dot: #d4d4d4;
+}
+html, body { background: var(--cx-board); }
+
+affine-edgeless-root .edgeless-background {
+  background-color: var(--cx-board) !important;
+  background-image: radial-gradient(circle, var(--cx-dot) 0.7px, transparent 0.9px) !important;
+}
+
+/* Keep the bottom-left corner empty: no zoom bar, no "…" button.
+   Zoom stays on the trackpad / Ctrl+wheel and the keyboard. */
+affine-edgeless-zoom-toolbar-widget { display: none !important; }
+
+/* All floating components pure white (toolbar, menus, popovers, panels). */
+:root[data-theme='light'] {
+  --affine-background-overlay-panel-color: #ffffff;
+}

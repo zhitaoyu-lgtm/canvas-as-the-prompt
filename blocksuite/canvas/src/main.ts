@@ -10,7 +10,17 @@ import { effects as itEffects } from '@blocksuite/integration-test/effects';
 import { getTestStoreManager } from '@blocksuite/integration-test/store';
 import { getTestViewManager } from '@blocksuite/integration-test/view';
 
+import './board.css';
+
 import { editorSetting, parseDocUrl, whiteboardOnly } from './services';
+
+// Always the light look. A host page (e.g. a dark-mode preview) may set
+// data-theme="dark" on <html>; AFFiNE would then turn every component dark.
+const root = document.documentElement;
+const pinLight = () => { if (root.dataset.theme !== 'light') root.dataset.theme = 'light'; };
+pinLight();
+new MutationObserver(pinLight).observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+root.style.colorScheme = 'light';
 
 itEffects();
 const storeManager = getTestStoreManager();

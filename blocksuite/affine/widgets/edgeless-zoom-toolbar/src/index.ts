@@ -29,13 +29,14 @@ export class AffineEdgelessZoomToolbarWidget extends WidgetComponent<RootBlockMo
       pointer-events: auto;
     }
 
-    /* Canvas: always show the full zoom bar; never collapse it into a "…" button. */
-    zoom-bar-toggle-button {
-      display: none;
+    @container viewport (width <= 1200px) {
+      edgeless-zoom-toolbar {
+        display: none;
+      }
     }
 
-    @container viewport (width <= 640px) {
-      edgeless-zoom-toolbar {
+    @container viewport (width > 1200px) {
+      zoom-bar-toggle-button {
         display: none;
       }
     }
