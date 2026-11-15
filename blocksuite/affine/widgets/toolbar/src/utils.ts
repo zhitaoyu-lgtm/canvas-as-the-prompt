@@ -13,8 +13,8 @@ import {
 import { nextTick } from '@blocksuite/global/utils';
 import { html as lineHtml } from 'lit';
 
-// Canvas: "more" drawn as a line icon (three hollow dots, stroke 1.4) to match the rest of the bar
-const moreLineIcon = lineHtml`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="5.5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18.5" cy="12" r="1.7"/></svg>`;
+// Canvas: "more" drawn as a line list icon (stroke 1.4) to match the rest of the bar
+const moreLineIcon = lineHtml`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M9.5 6.5H19M9.5 12H19M9.5 17.5H19"/><circle cx="5.5" cy="6.5" r=".9" fill="currentColor"/><circle cx="5.5" cy="12" r=".9" fill="currentColor"/><circle cx="5.5" cy="17.5" r=".9" fill="currentColor"/></svg>`;
 import type {
   AutoUpdateOptions,
   ComputePositionConfig,

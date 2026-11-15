@@ -26,7 +26,7 @@ class AiEntry extends HTMLElement {
       /* same hit area as the bar; the visible hover is a 24px pill with 4px corners, like every other button */
       button { all: unset; box-sizing: border-box; height: 36px; padding: 0 4px; display: inline-flex; align-items: center; cursor: pointer; }
       .pill {
-        display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 2px 6px 2px 2px; box-sizing: border-box;
+        display: inline-flex; align-items: center; height: 24px; padding: 0 6px; box-sizing: border-box;
         border-radius: 4px; color: var(--affine-icon-color, #77757d);
         font: 500 14px/1 Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
         transition: background .12s ease;
@@ -35,7 +35,7 @@ class AiEntry extends HTMLElement {
       button:active .pill { background: rgba(0,0,0,.07); }
       button:focus-visible .pill { outline: 2px solid #0c8ce9; outline-offset: 1px; }
       svg { display: block; }
-    </style><button aria-label="Ask"><span class="pill">${SPARK_SVG}<span>Ask</span></span></button>`;
+    </style><button aria-label="Ask"><span class="pill">Ask</span></button>`;
     root.querySelector('button')!.addEventListener('click', e => {
       e.stopPropagation();
       window.dispatchEvent(new CustomEvent('cx-ai-open', { detail: { from: this } }));
@@ -96,7 +96,7 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   const cap = h('div', 'cx-cap');
   cap.setAttribute('role', 'dialog');
   cap.innerHTML = `
-    <span class="cx-cap-pivot" aria-hidden="true">${SPARK_SVG}<span>Ask</span></span>
+    <span class="cx-cap-pivot" aria-hidden="true"><span>Ask</span></span>
     <form class="cx-cap-row">
       <input class="cx-cap-input" type="text" autocomplete="off" spellcheck="false" aria-label="Instruction">
       <button type="button" class="cx-cap-mic" aria-label="Dictate"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><rect x="9" y="4" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3"/></svg></button>
