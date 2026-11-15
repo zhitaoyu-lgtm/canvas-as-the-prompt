@@ -262,7 +262,8 @@ export class AffineToolbarWidget extends WidgetComponent {
 
       this.sideOptions$.value = sideOptions;
       ctx.flavour$.value = flavour;
-      ctx.placement$.value = hasLocked ? 'top' : 'top-start';
+      // Canvas: element toolbar always centred over the selection
+      ctx.placement$.value = 'top';
       ctx.flags.refresh(Flag.Surface);
     });
   }
@@ -499,10 +500,7 @@ export class AffineToolbarWidget extends WidgetComponent {
 
           sideOptions$.value = null;
           flavour$.value = flavour;
-          placement$.value = toolbarRegistry.getModulePlacement(
-            flavour,
-            flavour === 'affine:note' ? 'top' : 'top-start'
-          );
+          placement$.value = toolbarRegistry.getModulePlacement(flavour, 'top');
           flags.refresh(Flag.Block);
         });
       })
