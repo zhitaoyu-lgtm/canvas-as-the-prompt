@@ -52,6 +52,8 @@ export class ImageProxyService extends StoreExtension {
   }
 
   buildUrl(imageUrl: string) {
+    // canvas-app: an empty proxy URL means "load images directly"
+    if (!this.imageProxyURL) return imageUrl;
     if (imageUrl.startsWith(this.imageProxyURL) || isImageProxyURL(imageUrl)) {
       return imageUrl;
     }

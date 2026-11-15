@@ -6,6 +6,7 @@ import { TableDataManager } from '@blocksuite/affine/blocks/table';
 import { Text } from '@blocksuite/affine/store';
 import * as Y from 'yjs';
 
+import { lookup, remember as rememberLink } from './links';
 import { markAi } from './provenance';
 import type { Box, Item, Reading } from './reading';
 
@@ -42,7 +43,7 @@ const textWidth = (s: string, size: number) => {
   return Math.max(...s.split('\n').map(l => c.measureText(l).width)) + 8;
 };
 
-export function execute(rootEl: any, reading: Reading, answer: Answer): Result {
+export async function execute(rootEl: any, reading: Reading, answer: Answer): Promise<Result> {
   const gfx = rootEl.gfx, std = rootEl.std, store = std.store, surf = gfx.surface;
   const created: string[] = [], changed = new Set<string>(), errors: string[] = [];
   const named = new Map<string, { id: string; box: Box; like?: Item }>();
@@ -194,7 +195,7 @@ export function execute(rootEl: any, reading: Reading, answer: Answer): Result {
     const lines = String(a.text ?? '').split('\n');
     const h = 60 + lines.length * 28;
     const box = place(a.place, w, h, anchorOf(a));
-    const noteId = store.addBlock('affine:note', { xywh: xywh(box), background: '#ffffff', index: gfx.layer.generateIndex(true) } as any, store.root.id);
+    const noteId = store.addBlock('affine:note', { xywh: xywh(box), background: '#ffffff', index: gfx.layer.generateIndex(false) } as any, store.root.id);
     for (const l of lines) {
       const m = l.match(/^(#{1,3})\s+(.*)$/), li = l.match(/^[-•]\s+(.*)$/);
       if (m) store.addBlock('affine:paragraph', { type: 'h' + (m[1].length + 1), text: new Text(m[2]) }, noteId);
@@ -211,7 +212,7 @@ export function execute(rootEl: any, reading: Reading, answer: Answer): Result {
     const box = { x: u.x - pad, y: u.y - pad, w: u.w + pad * 2, h: u.h + pad * 2 };
     const id = store.addBlock('affine:frame', {
       xywh: xywh(box), title: new Text(title || 'Frame'), background: '#ffffff',
-      childElementIds: Object.fromEntries(ids.map(i => [i, true])), index: gfx.layer.generateIndex(false),
+      childElementIds: Object.fromEntries(ids.map(i => [i, true])), index: gfx.layer.generateIndex(true),
     } as any, surf.id);
     created.push(id); if (a.name) named.set(a.name, { id, box });
   }
@@ -348,6 +349,183 @@ export function execute(rootEl: any, reading: Reading, answer: Answer): Result {
     if (a.name) named.set(a.name, { id: gid, box });
   }
 
+
+  // ── Sections: a titled container holding cards, link cards, stickies, text or more sections ──
+  // Built like a FigJam board: size from content outward, white cards inside tinted containers,
+  // one grid per container with even gaps, a real heading. Words are measured after they render.
+  const TINT: Record<string, string> = {
+    white: '#ffffff', gray: '#eeeeec', grey: '#eeeeec', blue: '#eaf3ff', teal: '#e2f6f3', green: '#e6f6e9',
+    yellow: '#fff5d6', orange: '#ffeedd', red: '#ffe8e5', pink: '#ffe9f5', purple: '#efe9ff', violet: '#efe9ff',
+  };
+  const SEC = { padX: 40, padTop: 36, padBottom: 44, headGap: 24, gap: 32, subGap: 6, title: 28, sub: 15 };
+  type N = { kind: string; id?: string; w: number; h: number; spec: any; kids?: N[]; head?: { title?: string; sub?: string; tw: number; th: number } };
+  const frame2 = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const domain = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
+  const measure = (text: string, size: number, weight = 400, maxW = 1e9) => {
+    const c = document.createElement('canvas').getContext('2d')!; c.font = `${weight} ${size}px Inter, "PingFang SC", "Noto Sans SC", sans-serif`;
+    let lines = 0, widest = 0;
+    for (const para of String(text).split('\n')) {
+      let line = '', n = 1;
+      for (const ch of para.match(/[　-鿿＀-￯]|[^\s　-鿿＀-￯]+\s*|\s+/g) ?? ['']) {
+        const t = line + ch;
+        if (c.measureText(t).width > maxW && line) { widest = Math.max(widest, c.measureText(line).width); line = ch.trimStart(); n++; } else line = t;
+      }
+      widest = Math.max(widest, c.measureText(line).width); lines += n;
+    }
+    return { w: Math.ceil(widest * 1.08) + 4, h: Math.ceil(lines * size * 1.35) };
+  };
+  const stickySize = (() => { const st = reading.items.filter(i => i.kind === 'sticky').map(i => i.box.w).sort((a, b) => a - b); return st.length ? st[st.length >> 1] : 184; })();
+  const P = (text: string, attrs?: any) => new Text(attrs ? [{ insert: text, attributes: attrs }] as any : text);
+
+  async function buildItem(it: any, links: Map<string, any>): Promise<N | null> {
+    const k = it.kind ?? (it.url ? 'link' : it.items ? 'section' : it.title ? 'card' : 'sticky');
+    if (k === 'section') return buildSection(it, links);
+    if (k === 'sticky') {
+      const t = new Y.Text(); t.insert(0, String(it.text ?? it.title ?? ''));
+      const id = surf.addElement({ type: 'shape', shapeType: 'rect', xywh: xywh({ x: 0, y: 0, w: stickySize, h: stickySize }), radius: 0.04, filled: true,
+        fillColor: fillOf(it.colour) ?? STICKY.yellow, strokeColor: 'transparent', strokeWidth: 0, color: '#1e1e1e', fontSize: 16, fontFamily: 'blocksuite:surface:Inter',
+        textAlign: 'left', textHorizontalAlign: 'left', textVerticalAlign: 'top', padding: [16, 16], shadow: { blur: 12, offsetX: 0, offsetY: 4, color: 'rgba(0,0,0,0.12)' }, text: t });
+      created.push(id); return { kind: k, id, w: stickySize, h: stickySize, spec: it };
+    }
+    if (k === 'text') {
+      const size = it.size === 'large' ? 22 : 15; const m = measure(it.text ?? '', size, 400, 440);
+      const t = new Y.Text(); t.insert(0, String(it.text ?? ''));
+      const id = surf.addElement({ type: 'text', xywh: xywh({ x: 0, y: 0, w: m.w, h: m.h }), text: t, color: '#2a2926', fontSize: size, fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', hasMaxWidth: true });
+      created.push(id); return { kind: k, id, w: m.w, h: m.h, spec: it };
+    }
+    if (k === 'image' && it.url) {
+      try {
+        const blob = await (await fetch(it.url)).blob(); if (!blob.type.startsWith('image/')) throw 0;
+        const sourceId = await store.blobSync.set(blob);
+        const bmp = await createImageBitmap(blob); const w = 300, h = Math.round(300 * bmp.height / bmp.width);
+        const id = store.addBlock('affine:image', { sourceId, xywh: xywh({ x: 0, y: 0, w, h }), width: bmp.width, height: bmp.height, caption: it.caption ?? null, index: gfx.layer.generateIndex(false) } as any, surf.id);
+        created.push(id); return { kind: k, id, w, h, spec: it };
+      } catch { errors.push(`image: could not load ${it.url}`); return null; }
+    }
+    if (k === 'link' && it.url && links.get(it.url)?.image) {
+      const pv = links.get(it.url);
+      const desc = [it.meta ?? it.source, it.note ?? it.description ?? pv.description].filter(Boolean).join('\n') || null;
+      rememberLink(it.url, { title: it.title ?? pv.title, description: desc });
+      const id = store.addBlock('affine:bookmark', { url: it.url, style: 'vertical', title: it.title ?? pv.title ?? null, description: desc,
+        image: pv.image, icon: pv.icon ?? null, xywh: xywh({ x: 0, y: 0, w: 300, h: 330 }), index: gfx.layer.generateIndex(false) } as any, surf.id);
+      created.push(id); return { kind: k, id, w: 300, h: 330, spec: it };
+    }
+    // card (also a link card without a picture): a white note with meta, title, body
+    const w = it.wide ? 420 : 300;
+    const id = store.addBlock('affine:note', { xywh: xywh({ x: 0, y: 0, w, h: 80 }), background: '#ffffff', index: gfx.layer.generateIndex(false),
+      edgeless: { style: { borderRadius: 16, borderSize: 0, borderStyle: 'none', shadowType: '--affine-note-shadow-box' } } } as any, store.root.id);
+    const meta = it.meta ?? it.source ?? (it.url ? domain(it.url) : '');
+    if (meta) store.addBlock('affine:paragraph', { text: P(String(meta), { color: 'var(--affine-text-secondary-color)' }) }, id);
+    const title = it.title ?? it.text ?? '';
+    if (title) store.addBlock('affine:paragraph', { type: 'h6', text: P(String(title), it.url ? { link: it.url } : undefined) }, id);
+    const body = it.body ?? it.note ?? it.description;
+    if (body) for (const line of String(body).split('\n')) {
+      const li = line.match(/^[-•]\s+(.*)$/);
+      store.addBlock(li ? 'affine:list' : 'affine:paragraph', li ? { type: 'bulleted', text: P(li[1]) } : { text: P(line) }, id);
+    }
+    if (it.tag) store.addBlock('affine:paragraph', { text: P(String(it.tag), { color: 'var(--affine-text-secondary-color)', code: false }) }, id);
+    created.push(id); return { kind: 'card', id, w, h: 80, spec: it };
+  }
+
+  async function buildSection(spec: any, links: Map<string, any>): Promise<N> {
+    const kids: N[] = [];
+    for (const it of spec.items ?? []) { const n = await buildItem(it, links); if (n) kids.push(n); }
+    const title = spec.title ? String(spec.title) : undefined, sub = spec.subtitle ? String(spec.subtitle) : undefined;
+    const tm = title ? measure(title, SEC.title, 700) : { w: 0, h: 0 }, sm = sub ? measure(sub, SEC.sub, 400, 640) : { w: 0, h: 0 };
+    return { kind: 'section', w: 0, h: 0, spec, kids, head: { title, sub, tw: Math.max(tm.w, sm.w), th: tm.h + (sub ? SEC.subGap + sm.h : 0) } };
+  }
+
+  // real sizes, after the words have rendered
+  function sizeOf(n: N) {
+    if (n.kind === 'section') { layoutSection(n); return; }
+    const el: any = n.id && gfx.getElementById(n.id); if (el) { n.w = el.elementBound.w; n.h = el.elementBound.h; }
+  }
+  type Pos = Map<N, { x: number; y: number }>;
+  const pos: Pos = new Map();
+  function layoutSection(n: N) {
+    const kids = n.kids!; kids.forEach(sizeOf);
+    const sp = n.spec, cnt = kids.length;
+    const cols = sp.layout === 'column' ? 1 : sp.layout === 'row' ? Math.max(1, cnt) : Math.max(1, Math.min(cnt, sp.cols ?? (cnt <= 4 ? cnt : cnt <= 6 ? 3 : 4)));
+    const gap = kids.some(k => k.kind === 'section') ? SEC.gap + 16 : SEC.gap;
+    const colW: number[] = [], rowH: number[] = [];
+    kids.forEach((k, i) => { const c = i % cols, r = Math.floor(i / cols); colW[c] = Math.max(colW[c] ?? 0, k.w); rowH[r] = Math.max(rowH[r] ?? 0, k.h); });
+    // equal card heights within a row when they share a pattern (FigJam reflow rule)
+    kids.forEach((k, i) => { if (k.kind === 'card' && k.id) { const r = Math.floor(i / cols); const el: any = gfx.getElementById(k.id); if (el && el.elementBound.h < rowH[r]) { setBox(k.id, { ...el.elementBound, h: rowH[r] }); k.h = rowH[r]; } } });
+    const contentW = colW.reduce((a, b) => a + b, 0) + gap * Math.max(0, colW.length - 1);
+    const contentH = rowH.reduce((a, b) => a + b, 0) + gap * Math.max(0, rowH.length - 1);
+    const headH = n.head!.th ? n.head!.th + SEC.headGap : 0;
+    const top = SEC.padTop + headH;
+    kids.forEach((k, i) => {
+      const c = i % cols, r = Math.floor(i / cols);
+      const x = SEC.padX + colW.slice(0, c).reduce((a, b) => a + b, 0) + gap * c;
+      const y = top + rowH.slice(0, r).reduce((a, b) => a + b, 0) + gap * r;
+      pos.set(k, { x, y });
+    });
+    n.w = Math.max(contentW, n.head!.tw) + SEC.padX * 2;
+    n.h = top + contentH + SEC.padBottom;
+  }
+  // absolute positions; frames and headings are made last so they sit behind / above correctly
+  function commit(n: N, x: number, y: number, depth: number): string[] {
+    const ids: string[] = [];
+    for (const k of n.kids!) {
+      const p = pos.get(k)!; const ax = x + p.x, ay = y + p.y;
+      if (k.kind === 'section') ids.push(...commit(k, ax, ay, depth + 1));
+      else if (k.id) { const el: any = gfx.getElementById(k.id); if (el) setBox(k.id, { x: ax, y: ay, w: el.elementBound.w, h: el.elementBound.h }); ids.push(k.id); }
+    }
+    const hd = n.head!;
+    if (hd.title) {
+      const t = new Y.Text(); t.insert(0, hd.title);
+      const tid = surf.addElement({ type: 'text', xywh: xywh({ x: x + SEC.padX, y: y + SEC.padTop, w: measure(hd.title, SEC.title, 700).w, h: Math.ceil(SEC.title * 1.35) }),
+        text: t, color: '#1e1e1e', fontSize: depth ? 22 : SEC.title, fontWeight: '700', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' });
+      created.push(tid); ids.push(tid);
+    }
+    if (hd.sub) {
+      const m = measure(hd.sub, SEC.sub, 400, 640); const t = new Y.Text(); t.insert(0, hd.sub);
+      const sid = surf.addElement({ type: 'text', xywh: xywh({ x: x + SEC.padX, y: y + SEC.padTop + Math.ceil(SEC.title * 1.35) + SEC.subGap, w: m.w, h: m.h }),
+        text: t, color: '#8a8984', fontSize: SEC.sub, fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', hasMaxWidth: true });
+      created.push(sid); ids.push(sid);
+    }
+    const tint = TINT[base(n.spec.colour ?? (depth ? 'gray' : 'white'))] ?? (n.spec.colour?.startsWith?.('#') ? n.spec.colour : TINT.white);
+    const fid = store.addBlock('affine:frame', { xywh: xywh({ x, y, w: n.w, h: n.h }), title: new Text(''), background: tint,
+      childElementIds: Object.fromEntries(ids.map(i => [i, true])), index: gfx.layer.generateIndex(true) } as any, surf.id);
+    created.push(fid);
+    return [fid, ...ids];
+  }
+
+  async function section(a: Action) {
+    // pictures for links first (in parallel, a few seconds at most)
+    const urls: string[] = [];
+    const walk = (s: any) => (s.items ?? []).forEach((it: any) => { if (it.url && (it.kind ?? 'link') === 'link') urls.push(it.url); if (it.items) walk(it); });
+    walk(a);
+    const links = new Map<string, any>();
+    await Promise.all(urls.map(async u => {
+      const given = findSpec(a, u);
+      const pv = given?.image ? { image: given.image } : await Promise.race([lookup(u), new Promise<any>(r => setTimeout(() => r({}), 4000))]);
+      links.set(u, pv); rememberLink(u, { title: given?.title, description: given?.note ?? given?.description, image: pv.image ?? null, icon: pv.icon ?? null });
+    }));
+    // all link cards in one section look the same: with pictures only if every one has one
+    const allPics = urls.length > 0 && urls.every(u => links.get(u)?.image);
+    if (!allPics) for (const u of urls) links.set(u, { ...links.get(u), image: null });
+    const root = await buildSection(a, links);
+    await frame2(); await frame2();
+    layoutSection(root);
+    // into an existing frame: grow it to hold the new section
+    const inFrame = a.place?.in && item(a.place.in);
+    const box = place(a.place, root.w, root.h, anchorOf(a) ?? reading.selection[0]);
+    const ids = commit(root, box.x, box.y, 0);
+    newBoxes.push(box);
+    if (inFrame) {
+      const fe: any = gfx.getElementById(inFrame.id);
+      if (fe) {
+        const b = fe.elementBound; const u = union([b, { x: box.x - 40, y: box.y - 40, w: box.w + 80, h: box.h + 80 }]);
+        store.updateBlock(fe, { xywh: xywh(u), childElementIds: { ...(fe.props.childElementIds ?? {}), [ids[0]]: true } });
+        changed.add(fe.id);
+      }
+    }
+    if (a.name) named.set(a.name, { id: ids[0], box });
+  }
+  const findSpec = (s: any, url: string): any => { for (const it of s.items ?? []) { if (it.url === url) return it; if (it.items) { const f = findSpec(it, url); if (f) return f; } } return null; };
+
   // ── Run ───────────────────────────────────────────────────────────────────────────────
   for (const a of answer.actions ?? []) {
     try {
@@ -370,6 +548,7 @@ export function execute(rootEl: any, reading: Reading, answer: Answer): Result {
         case 'frame': addFrame(a, a.refs ?? [], a.title ?? ''); break;
         case 'note': note(a); break;
         case 'legend': legend(a); break;
+        case 'section': await section(a); break;
         default: errors.push(`unknown part "${a.do}"`);
       }
     } catch (e: any) { errors.push(`${a.do}: ${e?.message ?? e}`); }

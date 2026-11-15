@@ -2,14 +2,13 @@
 
 import { execute, type Answer } from './actions';
 import { systemPrompt, userPrompt } from './grammar';
-import { ask, parseAnswer, ModelError } from './model';
-import { mountProposals, toast } from './proposals';
+import { ask, online, parseAnswer, ModelError } from './model';
+import { toast } from './proposals';
 import { readBoard, toPrompt, type Box } from './reading';
 import { needsPicture, snapshot } from './snapshot';
 
 export function createAssistant(rootEl: any) {
   const gfx = rootEl.gfx, store = rootEl.std.store;
-  const proposals = mountProposals(rootEl);
   const log: any[] = [];
   (window as any).cxLog = log;    // last exchanges, for the developer view
 
@@ -25,16 +24,15 @@ export function createAssistant(rootEl: any) {
     log.unshift(entry); log.length = Math.min(log.length, 10);
     try {
       const mock = (window as any).cxMockAnswer;   // tests only: a fixed answer instead of the model
-      const raw = mock ? (typeof mock === 'function' ? await mock(text, request) : mock) : await ask(systemPrompt(), userPrompt(text, request, !!picture), picture);
+      const raw = mock ? (typeof mock === 'function' ? await mock(text, request) : mock) : await ask(systemPrompt(), userPrompt(text, request, !!picture, online()), picture);
       entry.raw = raw;
       const answer: Answer = typeof raw === 'string' ? parseAnswer(raw) : raw;
       store.captureSync();
-      const result = execute(rootEl, reading, answer);
+      const result = await execute(rootEl, reading, answer);
       store.captureSync();
       entry.result = result;
       if (result.errors.length) console.warn('[ai] some parts did not apply:', result.errors);
       if (!result.created.length && !result.changed.length) { toast(answer.say || 'Nothing to change here.', anchor(ids)); return true; }
-      proposals.redraw();
       return false;
     } catch (e: any) {
       entry.error = String(e?.message ?? e);

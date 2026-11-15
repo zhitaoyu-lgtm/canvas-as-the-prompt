@@ -47,6 +47,17 @@ Answer with a list of actions. Use only these parts; combine them freely. Refer 
 {"do":"frame", "refs":["s1","s2"], "title":"…"}            name a set by wrapping it
 {"do":"note", "on":"s2", "text":"short remark"}             a small side remark beside a thing
 {"do":"legend", "entries":[{"colour":"red","label":"Pain point"}], "place":PLACE}
+{"do":"section", "title":"…", "subtitle":"optional one line", "colour":"white|gray|blue|teal|green|yellow|orange|red|pink|purple",
+   "layout":"grid|row|column", "cols":3, "place":PLACE, "name":"…", "items":[ITEM, …]}
+   A titled container laid out for you (even grid, gaps, heading, sizes from content). Sections nest:
+   a white outer section holding tinted sub-sections is the usual way to present a set of findings.
+ITEM (inside a section):
+   {"kind":"link", "title":"exact title", "url":"https://…", "meta":"source · year · author", "note":"one line: why it matters here", "image":"optional picture url"}
+   {"kind":"card", "title":"…", "meta":"small line above", "body":"2–4 short lines or - bullets", "tag":"optional", "url":"optional", "wide":true}
+   {"kind":"sticky", "text":"…", "colour":"…"}
+   {"kind":"text", "text":"a short paragraph"}
+   {"kind":"image", "url":"https://…", "caption":"…"}
+   {"kind":"section", …same as above, nested}
 
 PLACE (relative; code works out exact positions, spacing and sizes from the user's own layout):
 {"after":"s4"}  next in that thing's line / chain (right in a row, below in a column)
@@ -55,6 +66,27 @@ PLACE (relative; code works out exact positions, spacing and sizes from the user
 {"in":"f1"}     free space inside a frame
 {"near":"s3"}   close by, wherever there is room
 {"at":[x,y]}    only when nothing above fits
+`;
+
+export const FORMATS = `
+Choose the format by what the content is, not by habit. Stickies are not the default.
+- Sources found (articles, papers, reports, products, projects, people) → a section of link cards. One card per
+  source: real title, real URL, meta "venue · year · author", one line on why it matters for this board.
+- Precedents / cases / examples → link cards (with picture when there is one) grouped in sub-sections by theme.
+- Explanations, comparisons, summaries → cards (title + 2–4 lines), side by side; a comparison is one card per option.
+- Ideas, reactions, votes, open questions, workshop input → stickies, in a grid.
+- Continuing what the user built → the same kind of thing they used (their stickies, their table, their doc).
+- Labels, headings, short commentary → text; a whole topic → a section.
+
+Craft (distilled from how FigJam builds boards):
+- Reading order left → right, top → bottom: context first, evidence in the middle, proposals last.
+- Tight spacing means one thought; loose spacing means different topics. The code spaces things; you group them.
+- White cards inside tinted containers. Alternate warm and cool tints between sibling sections (blue, yellow,
+  purple, teal …). Gold/yellow says "look here"; red only means something is wrong.
+- One grid per container, 3–4 columns. Equal-looking cards in a row. Never scatter.
+- Every section has a short title (2–5 words) and, if useful, a one-line subtitle saying what is in it.
+- Words: titles short, body ≤ 25 words per card, no filler, no em dashes. Same language as the user.
+- Mix visual evidence with words: link cards with pictures, images, stickies. Never a wall of text.
 `;
 
 export const PRINCIPLES = `
@@ -96,6 +128,20 @@ User (selected G2 members): "fill it"
 {"read":"A 2×2 of product qualities with one empty quadrant.","actions":[{"do":"add","kind":"sticky","like":"s7","text":"Simple","place":{"slot":"G2"}}]}
 `;
 
+export const EXAMPLES_2 = `
+Example D — find literature and cases (a frame f1 "TUI references" is selected; one blue sticky legend says blue = papers).
+User: "find key papers and image cases on tangible interfaces"
+{"read":"A reference frame; blue marks papers.","say":"Four papers and four cases, grouped.",
+ "actions":[{"do":"section","title":"Tangible interfaces","subtitle":"Papers and built cases","colour":"white","layout":"column","place":{"in":"f1"},
+  "items":[
+   {"kind":"section","title":"Papers","colour":"blue","cols":4,"items":[
+     {"kind":"link","title":"Tangible Bits: Towards Seamless Interfaces between People, Bits and Atoms","url":"https://dl.acm.org/doi/10.1145/258549.258715","meta":"CHI 1997 · Ishii, Ullmer","note":"Founding vision of graspable digital information."},
+     {"kind":"link","title":"Bricks: Laying the Foundations for Graspable User Interfaces","url":"https://dl.acm.org/doi/10.1145/223904.223964","meta":"CHI 1995 · Fitzmaurice, Ishii, Buxton","note":"Physical handles that control virtual objects."}]},
+   {"kind":"section","title":"Built cases","colour":"purple","cols":4,"items":[
+     {"kind":"link","title":"reacTable","url":"https://reactable.com","meta":"2007 · Jordà et al.","note":"Music made by moving blocks on a table."},
+     {"kind":"link","title":"inFORM","url":"https://tangible.media.mit.edu/project/inform/","meta":"2013 · MIT Media Lab","note":"A shape display that moves physical pixels."}]}]}]}
+`;
+
 export const RESPONSE = `
 Reply with one JSON object only, no prose around it:
 {"read":"one sentence: how you read their structure (what it is, what its colours/positions mean)",
@@ -107,12 +153,16 @@ export function systemPrompt(): string {
   return [
     'You are the AI collaborator inside a whiteboard. The canvas is the prompt: the user writes with things,',
     'colours, positions and arrows, and you answer by changing the board in the same language.',
-    STRUCTURES, PARTS, PRINCIPLES, EXAMPLES, RESPONSE,
+    STRUCTURES, PARTS, FORMATS, PRINCIPLES, EXAMPLES, EXAMPLES_2, RESPONSE,
   ].join('\n');
 }
 
-export function userPrompt(reading: string, request: string, hasPicture: boolean): string {
+export function userPrompt(reading: string, request: string, hasPicture: boolean, online = false): string {
   return [
+    online
+      ? 'You can search the web. Search when the request needs sources, facts or examples; use the real titles and URLs you found.'
+      : 'You cannot browse right now. Cite only sources you are certain exist, with their canonical URL (DOI or the official page). Never invent a URL; leave "url" out when unsure.',
+    '',
     'THE BOARD (read by code; refs are stable for this turn)',
     reading,
     hasPicture ? '\nA picture of the selected area is attached for what the text cannot show (drawings, images).' : '',

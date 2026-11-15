@@ -19,6 +19,8 @@ import { aiToolbarExtension, mountAiBar } from './ai-bar';
 import { mountToolbar } from './toolbar';
 import { mountInspector } from './ai/inspect';
 import { createAssistant } from './ai/assistant';
+import { linkPreviewExtension } from './ai/links';
+import { ImageProxyService } from '@blocksuite/affine/shared/adapters';
 
 import { editorSetting, parseDocUrl, whiteboardOnly } from './services';
 
@@ -70,12 +72,13 @@ async function main() {
     { setup: (di: any) => { di.override(DocModeProvider, whiteboardOnly()); } },
   ];
   editor.pageSpecs = [...viewManager.get('page'), ...common];
-  editor.edgelessSpecs = [...viewManager.get('edgeless'), ...common, aiToolbarExtension];
+  editor.edgelessSpecs = [...viewManager.get('edgeless'), ...common, aiToolbarExtension, linkPreviewExtension];
   editor.mode = 'edgeless';
   document.getElementById('app')!.append(editor);
   await editor.updateComplete;
   const waitRoot = async () => { for (let i = 0; i < 200; i++) { const r = document.querySelector('affine-edgeless-root') as any; if (r?.std && r.gfx) return r; await new Promise(r => setTimeout(r, 50)); } throw new Error('edgeless root not ready'); };
   const rootEl = await waitRoot();
+  try { rootEl.std.store.get(ImageProxyService).setImageProxyURL(''); } catch { /* older store */ }
   await mountToolbar(rootEl);
   mountAiBar(rootEl, createAssistant(rootEl));
   mountInspector(rootEl);
