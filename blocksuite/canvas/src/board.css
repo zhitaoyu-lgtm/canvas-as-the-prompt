@@ -37,14 +37,14 @@ edgeless-toolbar-widget { display: none !important; }
 :where(.cx-dock) button { all: unset; box-sizing: border-box; cursor: pointer; position: absolute; }
 
 /* flat 24px icons: 36px hit box, icon 6px in (Tool button: Default / Hover / Active) */
-.cx-flat { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; color: #a1a1a1; }
+.cx-flat { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; color: #86868b; }
 .cx-flat[data-id='select'] { color: #515151; }
 .cx-flat:hover { background: #f5f5f5; }
 .cx-flat.on { background: #f2f2f2; box-shadow: 0 0 4px rgba(0,0,0,.05); color: #515151; }
 
 /* dimensional art, exact Figma bounds; clipped by the bar */
 .cx-dim svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.cx-dim[data-id='shape'] { color: #a1a1a1; }
+.cx-dim[data-id='shape'] { color: #86868b; }
 .cx-dim[data-id='shape']:hover, .cx-dim[data-id='shape'].on { color: #757575; }
 .cx-dimbg { position: absolute; top: 0; height: 55px; background: transparent; transition: background .12s; }
 .cx-dimbg.on { background: transparent; }
@@ -54,7 +54,7 @@ edgeless-toolbar-widget { display: none !important; }
 .cx-dim[data-id='sticky']:hover { transform: translateY(-2px); }
 .cx-dim.on { transform: translateY(-5px); }
 
-.cx-more { width: 28px; height: 28px; border-radius: 14px; background: #f0f0f0; color: #a1a1a1; }
+.cx-more { width: 28px; height: 28px; border-radius: 14px; background: #f0f0f0; color: #86868b; }
 .cx-more span { position: absolute; left: 2px; top: 2px; width: 24px; height: 24px; }
 .cx-more:hover, .cx-more.on { background: #e8e8e8; }
 
@@ -144,7 +144,7 @@ affine-tooltip, .affine-tooltip { display: none !important; }
   all: unset; box-sizing: border-box; flex: none; cursor: pointer; display: grid; place-items: center;
   width: calc(var(--h) - 2 * var(--in)); height: calc(var(--h) - 2 * var(--in)); border-radius: calc(14px - var(--in));
 }
-.cx-cap-mic { color: #a1a1a1; }
+.cx-cap-mic { color: #86868b; }
 .cx-cap-mic:hover { color: #757575; background: #f2f2f2; }
 .cx-cap-mic.live { color: #1e1e1e; background: #f2f2f2; }
 .cx-cap-mic[hidden] { display: none; }

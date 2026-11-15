@@ -1,5 +1,5 @@
 // Icons from the Figma "FigJam UI Kit" (file google-2026): 24px, stroke 1.25–1.4.
-// Flat icons use currentColor so the toolbar can tint them (idle #A1A1A1, active #1E1E1E).
+// Flat icons use currentColor so the toolbar can tint them (idle #86868B, active #1E1E1E).
 // Only the pen and the sticky stack are dimensional, exactly as exported from Figma.
 
 const s = (d: string, w = 1.25) =>
