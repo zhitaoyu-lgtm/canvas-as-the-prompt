@@ -53,6 +53,18 @@ Answer with a list of actions. Use only these parts; combine them freely. Refer 
 {"do":"frame", "refs":["s1","s2"], "title":"…"}            name a set by wrapping it
 {"do":"note", "on":"s2", "text":"short remark"}             a small side remark beside a thing
 {"do":"tag", "refs":["s1","s3"], "text":"P1", "colour":"orange"}   a small label pill on things (priority, status, theme, owner)
+{"do":"vote", "refs":["s2"], "n":1}                         add vote dots (in the board's vote colour)
+{"do":"number", "refs":["s3","s1","s2"]}                     number things in this order (small dark circles)
+{"do":"plot", "chart":"L1", "items":[{"ref":"s4","x":0.8,"y":0.2},{"text":"New idea","x":0.3,"y":0.9}]}
+                                                              place by value on a chart/2×2 (x 0→1 right, y 0→1 up)
+{"do":"milestone", "line":"c1", "at":0.4 | "after":"dt2", "label":"May", "callout":"Pilot"}   a new point on a timeline
+{"do":"branch", "on":"sh5", "items":["idea","idea"]}         add child ideas to a mind-map node
+{"do":"curve", "chart":"L1", "points":[[0,0.6],[0.35,0.2],[0.7,0.8],[1,0.6]]} | "through":["s1","s2","s3"]   draw a smooth line (feelings, trend)
+{"do":"circle", "refs":["s3","s4"], "colour":"orange"}       a loose loop around things: "look here"
+{"do":"cluster", "title":"…", "groups":[{"title":"Trust","refs":["s1","s4"]},{"title":"Speed","refs":["s2"]}]}
+                                                              regroup the user's own things into titled clusters (they move; nothing is rewritten)
+{"do":"funnel", "title":"…", "stages":[{"label":"Visit","value":1200},{"label":"Sign up","value":300}], "place":PLACE}
+{"do":"bars", "title":"…", "items":[{"label":"Effort","value":2,"max":5}], "place":PLACE}       scores / ratings as quiet bars
 {"do":"legend", "entries":[{"colour":"red","label":"Pain point"}], "place":PLACE}
 {"do":"section", "title":"…", "subtitle":"optional one line", "colour":"white|gray|blue|teal|green|yellow|orange|red|pink|purple",
    "layout":"grid|row|column", "cols":3, "place":PLACE, "name":"…", "items":[ITEM, …]}
@@ -62,6 +74,11 @@ ITEM (inside a section):
    {"kind":"link", "title":"exact title", "url":"https://…", "meta":"source · year · author", "note":"one line: why it matters here", "image":"optional picture url"}
    {"kind":"card", "title":"…", "meta":"small line above", "body":"2–4 short lines or - bullets", "tags":["short","labels"], "url":"optional", "wide":true}
    {"kind":"summary", "title":"optional", "text":"1–2 sentences: the takeaway"}   full width, first in a section
+   {"kind":"metric", "label":"Weekly active teams", "value":"412", "delta":"+18% vs May", "note":"one line"}
+   {"kind":"quote", "text":"exact words", "who":"P07 · Product designer"}
+   {"kind":"persona", "name":"Lin", "role":"PM · 32 · mobile first", "body":"- goal\n- frustration", "tags":["…"]}
+   {"kind":"checklist", "title":"Next steps", "items":["…","…"]}
+   {"kind":"ref", "ref":"s3"}            one of the user's own things, moved into this section
    {"kind":"sticky", "text":"…", "colour":"…"}
    {"kind":"text", "text":"a short paragraph"}
    {"kind":"image", "url":"https://…", "caption":"…"}
@@ -72,6 +89,7 @@ PLACE (relative; code works out exact positions, spacing and sizes from the user
 {"before":"s1"} {"below":"s2"} {"above":"s2"} {"right":"n1"} {"left":"n1"}
 {"slot":"G2"}   the group's open slot (first one), or {"slot":"G2","n":2}
 {"in":"f1"}     free space inside a frame
+{"venn":["sh1","sh2"]}  inside the overlap of these circles (and outside the others)
 {"cell":"L1","row":1,"col":2}  inside a cell of a drawn structure (things shrink to fit the cell)
 {"near":"s3"}   close by, wherever there is room
 {"at":[x,y]}    only when nothing above fits
@@ -86,6 +104,12 @@ Choose the format by what the content is, not by habit. Stickies are not the def
 - Ideas, reactions, votes, open questions, workshop input → stickies, in a grid.
 - Continuing what the user built → the same kind of thing they used (their stickies, their table, their doc).
 - Labels, headings, short commentary → text; a whole topic → a section.
+- Numbers that matter → metric cards; a voice from research → quote cards; people → persona cards;
+  next steps → a checklist; conversion → a funnel; ratings / scores → bars.
+- Sorting or grouping what the user already has → cluster / move / tag / number / vote their own things;
+  never retype their stickies as new ones.
+- Charts the user drew → plot by value, draw a curve through it, add milestones on their timeline,
+  branch their mind map, circle what matters. Answer in their structure, at their scale.
 
 Granularity: be specific, not generic. A good answer has a clear structure (section → sub-sections → cards),
 each card with a meta line, a precise title, 1–3 concrete lines and 1–2 tags; a summary card first when the set

@@ -121,5 +121,42 @@ export function relationsOf(items: Item[], groups: Group[], byRef: Map<string, I
     const above = (m: Item) => horiz ? items.find(t => t.kind === 'text' && !on.includes(t) && Math.abs(t.box.x + t.box.w / 2 - cxm(m)) < Math.max(40, t.box.w / 2) + 10 && t.box.y + t.box.h <= m.box.y + 2 && m.box.y - (t.box.y + t.box.h) < 70) : undefined;
     lines.push(`TIMELINE along ${ln.ref} (${horiz ? 'left→right' : 'top→bottom'}): ${on.map(m => { const l = m.kind === 'text' ? null : below(m), a = m.kind === 'text' ? null : above(m); return `${m.ref}${m.text ? ' ' + q(m.text) : ''}${l ? ' labelled ' + q(l.text) + ' (' + l.ref + ')' : ''}${a ? ' with callout ' + q(a.text) + ' (' + a.ref + ')' : ''}`; }).join(' → ')}`);
   }
+  // ── venn: big overlapping circles; what sits in each region ──
+  const circles = items.filter(i => (i.kind === 'shape' || i.kind === 'card') && i.shape === 'ellipse' && i.box.w >= 140 && i.box.h >= 140);
+  const inEllipse = (c: Item, x: number, y: number) => { const rx = c.box.w / 2, ry = c.box.h / 2; const dx = (x - c.box.x - rx) / rx, dy = (y - c.box.y - ry) / ry; return dx * dx + dy * dy <= 1; };
+  const vseen = new Set<string>();
+  for (const c of circles) {
+    if (vseen.has(c.ref)) continue;
+    const set = circles.filter(o => o === c || inter(o.box, c.box) > Math.min(area(o.box), area(c.box)) * 0.08);
+    if (set.length < 2) continue;
+    set.forEach(o => vseen.add(o.ref));
+    const regions = new Map<string, string[]>();
+    for (const it of items) {
+      if (set.includes(it) || it.kind === 'connector' || it.kind === 'frame') continue;
+      const cx = it.box.x + it.box.w / 2, cy = it.box.y + it.box.h / 2;
+      const inside = set.filter(o => inEllipse(o, cx, cy)).map(o => o.ref);
+      if (!inside.length) continue;
+      const key = inside.join('+'); (regions.get(key) ?? regions.set(key, []).get(key)!).push(it.ref);
+    }
+    // a circle's name: its own words, or a text just above / inside its top
+    const nameOf = (o: Item) => o.text || items.find(t => t.kind === 'text' && t.box.x + t.box.w / 2 > o.box.x && t.box.x + t.box.w / 2 < o.box.x + o.box.w && t.box.y + t.box.h > o.box.y - 70 && t.box.y < o.box.y + o.box.h * 0.25 && !set.some(c2 => c2 !== o && Math.abs(t.box.x + t.box.w / 2 - (c2.box.x + c2.box.w / 2)) < Math.abs(t.box.x + t.box.w / 2 - (o.box.x + o.box.w / 2))))?.text;
+    const names = set.map(o => { const n = nameOf(o); return `${o.ref}${n ? ' ' + q(n) : ''}`; });
+    lines.push(`VENN of ${names.join(', ')}: ${[...regions].map(([k, v]) => `${k.includes('+') ? 'overlap ' + k : 'only ' + k} holds ${v.join(' ')}`).join('; ') || 'regions empty'} (place into a region with {"venn":[refs]})`);
+  }
+
+  // ── funnel / pyramid: a centred stack of shapes whose widths shrink (or grow) step by step ──
+  const fseen = new Set<string>();
+  for (const a0 of items.filter(i => i.kind === 'shape' || i.kind === 'card')) {
+    if (fseen.has(a0.ref)) continue;
+    const cx = a0.box.x + a0.box.w / 2;
+    const stack = items.filter(i => (i.kind === 'shape' || i.kind === 'card') && Math.abs(i.box.x + i.box.w / 2 - cx) < 12).sort((p, r) => p.box.y - r.box.y);
+    const run: Item[] = [];
+    for (const it of stack) { const last = run[run.length - 1]; if (!last || (it.box.y - (last.box.y + last.box.h) < 40 && it.box.y >= last.box.y + last.box.h - 4)) run.push(it); }
+    if (run.length < 3) continue;
+    const ws = run.map(i => i.box.w), down = ws.every((w, i) => i === 0 || w < ws[i - 1] - 8), up = ws.every((w, i) => i === 0 || w > ws[i - 1] + 8);
+    if (!down && !up) continue;
+    run.forEach(i => fseen.add(i.ref));
+    lines.push(`${down ? 'FUNNEL' : 'PYRAMID'} top→bottom: ${run.map(i => `${i.ref}${i.text ? ' ' + q(i.text) : ''}`).join(' → ')}`);
+  }
   return { lines, attached, titles, legend };
 }

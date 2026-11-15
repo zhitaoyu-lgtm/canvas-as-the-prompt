@@ -13,7 +13,7 @@ import type { Box, Item, Reading } from './reading';
 export type Place = {
   after?: string; before?: string; below?: string; above?: string; right?: string; left?: string;
   slot?: string; n?: number; in?: string; near?: string; at?: [number, number];
-  cell?: string; row?: number; col?: number;
+  cell?: string; row?: number; col?: number; venn?: string[];
 };
 export type Action = { do: string; [k: string]: any };
 export type Answer = { read?: string; say?: string; actions: Action[] };
@@ -70,8 +70,11 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
 
   // obstacles: everything except containers (frames, groups, loops) and lines
   const containers = new Set(reading.items.filter(i => i.children?.length || i.kind === 'frame' || i.kind === 'group').map(i => i.ref));
+  // free lines (axes, dividers, timelines) are drawn structure: nothing may be dropped across them
+  const lineBoxes = reading.items.filter(i => i.kind === 'connector' && (!i.arrow?.from || !i.arrow?.to)).map(i => ({ x: i.box.x - 6, y: i.box.y - 6, w: i.box.w + 12, h: i.box.h + 12 }));
   const obstacles = () => [
     ...reading.items.filter(i => !containers.has(i.ref) && i.kind !== 'connector').map(i => boxOfRef(i.ref)!),
+    ...lineBoxes,
     ...newBoxes,
   ];
   const free = (b: Box, ignore?: Box) => !obstacles().some(o => o !== ignore && overlaps(b, o));
@@ -115,6 +118,19 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       }
       return b;
     };
+    if (p.venn?.length) {   // a free spot inside these circles and outside the others
+      const all = reading.items.filter(i => i.shape === 'ellipse' && i.box.w >= 140);
+      const want = p.venn.map(r => item(r)).filter(Boolean) as Item[];
+      const inE = (c: Item, x: number, y: number) => { const rx = c.box.w / 2, ry = c.box.h / 2; const dx = (x - c.box.x - rx) / rx, dy = (y - c.box.y - ry) / ry; return dx * dx + dy * dy <= 0.92; };
+      if (want.length) {
+        const u = union(want.map(w0 => w0.box));
+        for (let y = u.y; y + h <= u.y + u.h; y += 8) for (let x = u.x; x + w <= u.x + u.w; x += 8) {
+          const corners = [[x, y], [x + w, y], [x, y + h], [x + w, y + h]];
+          const ok = corners.every(([px, py]) => want.every(c => inE(c, px, py)) && all.filter(c => !want.includes(c)).every(c => !inE(c, px, py)));
+          const b = { x, y, w, h }; if (ok && !obstacles().some(o => !all.some(c => { const cb = boxOfRef(c.ref); return cb && cb.x === o.x && cb.y === o.y && cb.w === o.w; }) && overlaps(b, o))) return b;
+        }
+      }
+    }
     if (p.cell) {
       const c = cellOf(p);
       if (c) {
@@ -149,6 +165,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
         return walk({ x: f.x, y: f.y + f.h, w: f.w, h: 0 }, 'below', 24);
       }
     }
+    if (p.at) return { x: p.at[0], y: p.at[1], w, h };
     const near = p.near ?? fallbackRef;
     const nb = boxOfRef(near);
     if (nb) {
@@ -176,6 +193,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const likeEl = like && gfx.getElementById(like.id);
     const s = a.size === 'small' ? 120 : a.size === 'large' ? 260 : 184;
     let w = like?.kind === 'sticky' ? like.box.w : s, h = like?.kind === 'sticky' ? like.box.h : s;
+    if (a.place?.venn) { w = h = 88; }
     if (a.place?.cell) { const c = cellOf(a.place); if (c) { const fit = Math.min(184, Math.floor((c.w - 32 - 12) / 2), c.h - 32); if (fit >= 96) { w = h = fit; } } [w, h] = fitCell(a.place, w, h); }
     const box = place(a.place, w, h, anchorOf(a));
     const fill = fillOf(a.colour) ?? (likeEl?.fillColor && typeof likeEl.fillColor === 'string' ? likeEl.fillColor : STICKY.yellow);
@@ -359,6 +377,142 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     } else box = place(a.place, w, h);
     addText({ ...a, text }, size, '#8a8984', box);
   }
+  // ── More parts: votes, numbers, plotting, timelines, mind maps, curves, circles, funnels, bars, clusters ──
+  const SYS = { blue: '#007aff', orange: '#ff9500', red: '#ff3b30', green: '#34c759', gray: '#8e8e93', ink: '#1d1d1f', fill: '#f2f2f7' };
+  const sysOf = (c?: string) => (c ? DOT[base(c)] ?? (c.startsWith('#') ? c : SYS.blue) : SYS.blue);
+  const groupIds = (ids: string[], title = '') => { const gid = surf.addElement({ type: 'group', children: Object.fromEntries(ids.map(i => [i, true])), title: new Y.Text(title) }); created.push(gid); return gid; };
+
+  // votes: dots along the top-right inside edge, in the board's existing vote colour
+  function vote(a: Action) {
+    const existing = reading.items.find(i => i.kind === 'dot' && reading.relations.attached.has(i.ref));
+    const colour = existing?.hex ?? sysOf(a.colour);
+    for (const ref of a.refs ?? []) {
+      const b = boxOfRef(ref); if (!b) continue;
+      const have = reading.items.filter(i => i.kind === 'dot' && reading.relations.attached.get(i.ref) === ref).length + newBoxes.filter(nb => nb.w === 12 && nb.y === b.y + 12 && nb.x > b.x && nb.x < b.x + b.w).length;
+      for (let i = 0; i < (a.n ?? 1); i++) {
+        const x = b.x + b.w - 12 - 12 - (have + i) * 16, y = b.y + 12;
+        const id = surf.addElement({ type: 'shape', shapeType: 'ellipse', xywh: xywh({ x, y, w: 12, h: 12 }), filled: true, fillColor: colour, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() });
+        created.push(id); newBoxes.push({ x, y, w: 12, h: 12 });
+      }
+    }
+  }
+  // order numbers: a small dark circle on the top-left corner of each thing, in the given order
+  function number(a: Action) {
+    (a.refs ?? []).forEach((ref: string, i: number) => {
+      const b = boxOfRef(ref); if (!b) return;
+      const t = new Y.Text(); t.insert(0, String((a.start ?? 1) + i));
+      const id = surf.addElement({ type: 'shape', shapeType: 'ellipse', xywh: xywh({ x: b.x - 11, y: b.y - 11, w: 26, h: 26 }), filled: true, fillColor: SYS.ink, strokeColor: '#ffffff', strokeWidth: 2,
+        color: '#ffffff', fontSize: 12, fontWeight: '600', fontFamily: 'blocksuite:surface:Inter', textAlign: 'center', textHorizontalAlign: 'center', textVerticalAlign: 'center', padding: [0, 0], text: t });
+      created.push(id);
+    });
+  }
+  // place things by value on a chart / 2×2: x 0→1 left→right, y 0→1 bottom→top
+  function plot(a: Action) {
+    const st = reading.structures.find(x => x.ref === a.chart); if (!st) { errors.push(`plot: unknown ${a.chart}`); return; }
+    const b = st.box, pad = 24;
+    for (const p of a.items ?? []) {
+      const fx = Math.max(0, Math.min(1, +p.x)), fy = Math.max(0, Math.min(1, +p.y));
+      const cx = b.x + pad + fx * (b.w - pad * 2), cy = b.y + b.h - pad - fy * (b.h - pad * 2);
+      if (p.ref) { const id = idOf(p.ref), bb = boxOfRef(p.ref); if (id && bb) { const s0 = Math.min(bb.w, 140) / bb.w; setBox(id, { x: cx - bb.w * s0 / 2, y: cy - bb.h * s0 / 2, w: bb.w * s0, h: bb.h * s0 }); } continue; }
+      const size = 120, fill = fillOf(p.colour) ?? STICKY.yellow;
+      const t = new Y.Text(); t.insert(0, String(p.text ?? ''));
+      const id = surf.addElement({ type: 'shape', shapeType: 'rect', xywh: xywh({ x: cx - size / 2, y: cy - size / 2, w: size, h: size }), radius: 0.04, filled: true, fillColor: fill, strokeColor: 'transparent', strokeWidth: 0,
+        color: '#1d1d1f', fontSize: 14, fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', textHorizontalAlign: 'left', textVerticalAlign: 'top', padding: [12, 12], shadow: { blur: 10, offsetX: 0, offsetY: 3, color: 'rgba(0,0,0,0.10)' }, text: t });
+      created.push(id); newBoxes.push({ x: cx - size / 2, y: cy - size / 2, w: size, h: size });
+    }
+  }
+  // a new point on a timeline: a dot on the line, its label under it, an optional callout above
+  function milestone(a: Action) {
+    const ln = item(a.line); const el: any = ln && gfx.getElementById(ln.id);
+    if (!el) { errors.push(`milestone: unknown line ${a.line}`); return; }
+    const p = el.absolutePath ?? []; if (p.length < 2) return;
+    const [A, Z] = [p[0], p[p.length - 1]];
+    let t = typeof a.at === 'number' ? a.at : 0.5;
+    if (a.after || a.before) {   // halfway to the neighbour
+      const ref = a.after ?? a.before; const bb = boxOfRef(ref);
+      const along = (bx: Box) => Math.abs(Z[0] - A[0]) > Math.abs(Z[1] - A[1]) ? (bx.x + bx.w / 2 - A[0]) / (Z[0] - A[0]) : (bx.y + bx.h / 2 - A[1]) / (Z[1] - A[1]);
+      if (bb) { const t0 = along(bb); const others = reading.items.filter(i => i.kind === 'dot' || i.kind === 'badge').map(i => along(i.box)).filter(v => v > 0 && v < 1).sort((x, y) => x - y);
+        const nb = a.after ? others.find(v => v > t0 + 0.01) ?? Math.min(1, t0 + 0.15) : [...others].reverse().find(v => v < t0 - 0.01) ?? Math.max(0, t0 - 0.15); t = (t0 + nb) / 2; }
+    }
+    const x = A[0] + (Z[0] - A[0]) * t, y = A[1] + (Z[1] - A[1]) * t;
+    const like = reading.items.find(i => i.kind === 'dot' && Math.abs(i.box.y + i.box.h / 2 - y) < 20);
+    const d = like?.box.w ?? 12;
+    const ids = [surf.addElement({ type: 'shape', shapeType: 'ellipse', xywh: xywh({ x: x - d / 2, y: y - d / 2, w: d, h: d }), filled: true, fillColor: like?.hex ?? SYS.ink, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() })];
+    const lab = (txt: string, yy: number, weight: string, colour: string) => { const m = new Y.Text(); m.insert(0, txt); const w = textWidth(txt, 13) + 4; return surf.addElement({ type: 'text', xywh: xywh({ x: x - w / 2, y: yy, w, h: 18 }), text: m, fontSize: 13, fontWeight: weight, color: colour, fontFamily: 'blocksuite:surface:Inter', textAlign: 'center' }); };
+    if (a.label) ids.push(lab(String(a.label), y + d / 2 + 10, '400', '#3a3a3c'));
+    if (a.callout) ids.push(lab(String(a.callout), y - d / 2 - 30, '600', SYS.ink));
+    created.push(...ids);
+  }
+  // mind map: new child ideas under a node
+  function branch(a: Action) {
+    const nodeId = idOf(a.on);
+    const mm: any = reading.items.filter(i => i.kind === 'mindmap').map(i => gfx.getElementById(i.id)).find((m: any) => m?.childIds?.includes?.(nodeId) || m?.tree?.id === nodeId);
+    if (!mm || !nodeId) { errors.push(`branch: ${a.on} is not in a mind map`); return; }
+    for (const t of a.items ?? []) { const id = mm.addNode(nodeId, undefined, 'after', { text: String(t) }); if (id) created.push(id); }
+    try { mm.layout(); } catch { /* layout runs on next render */ }
+  }
+  // a smooth curve: through refs' centres, or through points on a chart (x,y in 0–1, y up)
+  function curve(a: Action) {
+    let pts: number[][] = [];
+    if (a.through) pts = a.through.map((r: string) => boxOfRef(r)).filter(Boolean).map((b: Box) => [b.x + b.w / 2, b.y + b.h / 2]);
+    else if (a.chart && a.points) { const st = reading.structures.find(x => x.ref === a.chart); if (st) { const b = st.box, pad = 24; pts = a.points.map((p: number[]) => [b.x + pad + p[0] * (b.w - pad * 2), b.y + b.h - pad - p[1] * (b.h - pad * 2)]); } }
+    if (pts.length < 2) { errors.push('curve: needs two points'); return; }
+    const out: number[][] = [];   // Catmull–Rom, 12 steps per span
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+      for (let k = 0; k < 12; k++) { const t = k / 12, t2 = t * t, t3 = t2 * t;
+        out.push([0, 1].map(j => 0.5 * (2 * p1[j] + (-p0[j] + p2[j]) * t + (2 * p0[j] - 5 * p1[j] + 4 * p2[j] - p3[j]) * t2 + (-p0[j] + 3 * p1[j] - 3 * p2[j] + p3[j]) * t3))); }
+    }
+    out.push(pts[pts.length - 1]);
+    created.push(surf.addElement({ type: 'brush', points: out, color: sysOf(a.colour), lineWidth: 4 }));
+  }
+  // a loose hand-drawn loop around things to say "look here"
+  function circle(a: Action) {
+    const boxes = (a.refs ?? []).map(boxOfRef).filter(Boolean) as Box[]; if (!boxes.length) return;
+    const u = union(boxes), cx = u.x + u.w / 2, cy = u.y + u.h / 2, rx = u.w / 2 + 22, ry = u.h / 2 + 22;
+    const pts: number[][] = [];
+    for (let t = -0.15; t <= Math.PI * 2 + 0.25; t += 0.08) { const wob = 1 + 0.025 * Math.sin(t * 3.1); pts.push([cx + Math.cos(t) * rx * wob, cy + Math.sin(t) * ry * wob]); }
+    created.push(surf.addElement({ type: 'brush', points: pts, color: sysOf(a.colour ?? 'orange'), lineWidth: 3 }));
+  }
+  // funnel: stages as centred bars, narrowing by value, with the drop between stages
+  function funnel(a: Action) {
+    const st: { label: string; value: number }[] = a.stages ?? []; if (!st.length) return;
+    const max = Math.max(...st.map(s => +s.value || 0)) || 1, W = 560, H = 48, G = 6;
+    const box = place(a.place, W + 140, st.length * (H + G) - G + (a.title ? 48 : 0), anchorOf(a) ?? reading.selection[0]);
+    const ids: string[] = []; let y = box.y;
+    const ramp = ['#cfe2ff', '#dbe9ff', '#e5efff', '#edf4ff', '#f3f8ff'];
+    if (a.title) { const t = new Y.Text(); t.insert(0, String(a.title)); ids.push(surf.addElement({ type: 'text', xywh: xywh({ x: box.x, y, w: textWidth(String(a.title), 20) + 8, h: 28 }), text: t, fontSize: 20, fontWeight: '700', color: SYS.ink, fontFamily: 'blocksuite:surface:Inter' })); y += 48; }
+    st.forEach((s, i) => {
+      const w = Math.max(200, W * Math.sqrt((+s.value || 0) / max)), x = box.x + (W - w) / 2;
+      const t = new Y.Text(); t.insert(0, `${s.label}  ${s.value}`);
+      ids.push(surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.22, xywh: xywh({ x, y, w, h: H }), filled: true, fillColor: ramp[Math.min(i, ramp.length - 1)], strokeColor: 'transparent', strokeWidth: 0,
+        color: SYS.ink, fontSize: 14, fontWeight: '500', fontFamily: 'blocksuite:surface:Inter', textAlign: 'center', textHorizontalAlign: 'center', textVerticalAlign: 'center', text: t }));
+      if (i > 0 && +st[i - 1].value) { const pct = Math.round((1 - (+s.value) / (+st[i - 1].value)) * 100); const m = new Y.Text(); m.insert(0, `−${pct}%`);
+        ids.push(surf.addElement({ type: 'text', xywh: xywh({ x: box.x + W + 16, y: y - G / 2 - 9, w: 60, h: 18 }), text: m, fontSize: 12, color: SYS.gray, fontFamily: 'blocksuite:surface:Inter' })); }
+      y += H + G;
+    });
+    created.push(...ids); groupIds(ids, String(a.title ?? 'Funnel')); newBoxes.push(box);
+  }
+  // scores: a quiet card of labelled bars (rating, confidence, effort …)
+  function bars(a: Action) {
+    const rows: { label: string; value: number; max?: number }[] = a.items ?? []; if (!rows.length) return;
+    const W = 360, rowH = 34, padX = 20, top = a.title ? 56 : 20;
+    const H = top + rows.length * rowH + 14;
+    const box = place(a.place, W, H, anchorOf(a) ?? reading.selection[0]);
+    const ids = [surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.06, xywh: xywh({ ...box }), filled: true, fillColor: '#ffffff', strokeColor: 'transparent', strokeWidth: 0, shadow: { blur: 7, offsetX: 0, offsetY: 4, color: 'rgba(0,0,0,0.12)' }, text: new Y.Text() })];
+    const txt = (s: string, x: number, y: number, w: number, size: number, weight: string, colour: string, align = 'left') => { const t = new Y.Text(); t.insert(0, s); return surf.addElement({ type: 'text', xywh: xywh({ x, y, w, h: Math.round(size * 1.4) }), text: t, fontSize: size, fontWeight: weight, color: colour, fontFamily: 'blocksuite:surface:Inter', textAlign: align }); };
+    if (a.title) ids.push(txt(String(a.title), box.x + padX, box.y + 18, W - padX * 2, 15, '600', SYS.ink));
+    const labelW = 110, trackX = box.x + padX + labelW, trackW = W - padX * 2 - labelW - 40;
+    rows.forEach((r, i) => {
+      const y = box.y + top + i * rowH, v = Math.max(0, Math.min(1, (+r.value || 0) / (r.max ?? a.max ?? 5)));
+      ids.push(txt(String(r.label), box.x + padX, y + 2, labelW - 8, 13, '400', '#3a3a3c'));
+      ids.push(surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.5, xywh: xywh({ x: trackX, y: y + 8, w: trackW, h: 6 }), filled: true, fillColor: SYS.fill, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() }));
+      if (v > 0) ids.push(surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.5, xywh: xywh({ x: trackX, y: y + 8, w: Math.max(6, trackW * v), h: 6 }), filled: true, fillColor: sysOf(a.colour), strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() }));
+      ids.push(txt(String(r.value), trackX + trackW + 10, y + 2, 30, 12, '500', SYS.gray));
+    });
+    created.push(...ids); groupIds(ids, String(a.title ?? 'Scores')); newBoxes.push(box);
+  }
+
   // Tags: small quiet pills inside a thing's bottom edge. On a coloured thing the pill is white (one
   // accent is enough); on a white thing it is soft gray. The tag's own colour is only a small dot.
   // Pills keep a 12px inset from every edge and wrap upward into a new row when a row is full.
@@ -483,6 +637,48 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
         image: pv.image, icon: pv.icon ?? null, xywh: xywh({ x: 0, y: 0, w: 300, h: 330 }), index: gfx.layer.generateIndex(false) } as any, surf.id);
       created.push(id); return { kind: k, id, w: 300, h: 330, spec: it };
     }
+    // an existing thing of the user's, moved into this section (regrouping, sorting, clustering)
+    if (k === 'ref') {
+      const id = idOf(it.ref); const el: any = id && gfx.getElementById(id);
+      if (!el) { errors.push(`section: unknown ${it.ref}`); return null; }
+      containers.add(it.ref);
+      return { kind: 'ref', id, w: el.elementBound.w, h: el.elementBound.h, spec: it };
+    }
+    const noteCard = (w: number) => store.addBlock('affine:note', { xywh: xywh({ x: 0, y: 0, w, h: 80 }), background: '#ffffff', index: gfx.layer.generateIndex(false),
+      edgeless: { style: { borderRadius: 16, borderSize: 0, borderStyle: 'none', shadowType: '--affine-note-shadow-box' } } } as any, store.root.id);
+    const gray = { color: 'var(--affine-text-secondary-color)' };
+    if (k === 'metric') {      // a number that matters: label, big value, change, one line of context
+      const mw = it._unit ?? (it.wide ? 300 : 220);
+      const id = noteCard(mw);
+      if (it.label) store.addBlock('affine:paragraph', { text: P(String(it.label), gray) }, id);
+      store.addBlock('affine:paragraph', { type: 'h1', text: P(String(it.value ?? '')) }, id);
+      if (it.delta) store.addBlock('affine:paragraph', { text: P(String(it.delta), { color: /^[-−↓]/.test(String(it.delta)) ? 'var(--affine-text-highlight-foreground-red)' : 'var(--affine-text-highlight-foreground-green)' }) }, id);
+      if (it.note ?? it.body) store.addBlock('affine:paragraph', { text: P(String(it.note ?? it.body), gray) }, id);
+      created.push(id); return { kind: 'card', id, w: mw, h: 80, spec: it };
+    }
+    if (k === 'quote') {       // a voice: the words, then who said it
+      const id = noteCard(it.wide ? 420 : 300);
+      store.addBlock('affine:paragraph', { type: 'quote', text: P(String(it.text ?? it.body ?? '')) }, id);
+      if (it.who ?? it.meta) store.addBlock('affine:paragraph', { text: P(String(it.who ?? it.meta), gray) }, id);
+      created.push(id); return { kind: 'card', id, w: it.wide ? 420 : 300, h: 80, spec: it };
+    }
+    if (k === 'persona') {     // a person: name, role, what matters to them
+      const id = noteCard(300);
+      store.addBlock('affine:paragraph', { type: 'h5', text: P(String(it.name ?? it.title ?? '')) }, id);
+      if (it.role ?? it.meta) store.addBlock('affine:paragraph', { text: P(String(it.role ?? it.meta), gray) }, id);
+      for (const line of String(it.body ?? '').split('\n').filter(Boolean)) {
+        const li = line.match(/^[-•]\s+(.*)$/);
+        store.addBlock(li ? 'affine:list' : 'affine:paragraph', li ? { type: 'bulleted', text: P(li[1]) } : { text: P(line) }, id);
+      }
+      if (Array.isArray(it.tags) && it.tags.length) store.addBlock('affine:paragraph', { text: P(it.tags.map((t: string) => '#' + t).join('   '), gray) }, id);
+      created.push(id); return { kind: 'card', id, w: 300, h: 80, spec: it };
+    }
+    if (k === 'checklist') {   // next steps people can tick
+      const id = noteCard(it.wide ? 420 : 300);
+      if (it.title) store.addBlock('affine:paragraph', { type: 'h6', text: P(String(it.title)) }, id);
+      for (const t of (it.items ?? String(it.body ?? '').split('\n')).filter(Boolean)) store.addBlock('affine:list', { type: 'todo', checked: false, text: P(String(t).replace(/^[-•]\s+/, '')) }, id);
+      created.push(id); return { kind: 'card', id, w: it.wide ? 420 : 300, h: 80, spec: it };
+    }
     // card (also a link card without a picture): a white note with meta, title, body
     const w = it.kind === 'summary' || it.span === 'full' ? (it._fullW ?? 632) : it.wide ? 420 : 300;
     const id = store.addBlock('affine:note', { xywh: xywh({ x: 0, y: 0, w, h: 80 }), background: '#ffffff', index: gfx.layer.generateIndex(false),
@@ -507,7 +703,11 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const cols = spec.layout === 'column' ? 1 : spec.layout === 'row' ? Math.max(1, regular.length) : Math.max(1, Math.min(regular.length, spec.cols ?? (regular.length <= 4 ? regular.length : regular.length <= 6 ? 3 : 4)));
     const unit = regular.some((it: any) => it.kind === 'section') ? 0 : regular.some((it: any) => it.kind === 'sticky') ? stickySize : 300;
     const fullW = unit ? cols * unit + (cols - 1) * SEC.gap : 632;
-    for (const it of spec.items ?? []) { const n = await buildItem(it.kind === 'summary' || it.span === 'full' ? { ...it, _fullW: fullW } : it, links); if (n) kids.push(n); }
+    const allMetrics = regular.length > 0 && regular.every((it: any) => it.kind === 'metric');
+    for (const it of spec.items ?? []) {
+      const spec2 = it.kind === 'summary' || it.span === 'full' ? { ...it, _fullW: fullW } : it.kind === 'metric' && !allMetrics ? { ...it, _unit: 300 } : it;
+      const n = await buildItem(spec2, links); if (n) kids.push(n);
+    }
     const title = spec.title ? String(spec.title) : undefined, sub = spec.subtitle ? String(spec.subtitle) : undefined;
     const tm = title ? measure(title, SEC.title, 700) : { w: 0, h: 0 }, sm = sub ? measure(sub, SEC.sub, 400, 640) : { w: 0, h: 0 };
     return { kind: 'section', w: 0, h: 0, spec, kids, head: { title, sub, tw: Math.max(tm.w, sm.w), th: tm.h + (sub ? SEC.subGap + sm.h : 0) } };
@@ -638,6 +838,17 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
         case 'legend': legend(a); break;
         case 'section': await section(a); break;
         case 'tag': tag(a); break;
+        case 'vote': vote(a); break;
+        case 'number': number(a); break;
+        case 'plot': plot(a); break;
+        case 'milestone': milestone(a); break;
+        case 'branch': branch(a); break;
+        case 'curve': curve(a); break;
+        case 'circle': circle(a); break;
+        case 'funnel': funnel(a); break;
+        case 'bars': bars(a); break;
+        case 'cluster': await section({ do: 'section', title: a.title, subtitle: a.subtitle, colour: 'white', layout: 'row', place: a.place ?? { below: (a.groups?.[0]?.refs ?? [])[0] },
+          items: (a.groups ?? []).map((g: any, i: number) => ({ kind: 'section', title: g.title, colour: g.colour ?? ['yellow', 'blue', 'green', 'purple', 'orange', 'teal'][i % 6], layout: 'grid', cols: g.cols ?? 2, items: (g.refs ?? []).map((r: string) => ({ kind: 'ref', ref: r })) })) }); break;
         default: errors.push(`unknown part "${a.do}"`);
       }
     } catch (e: any) { errors.push(`${a.do}: ${e?.message ?? e}`); }
