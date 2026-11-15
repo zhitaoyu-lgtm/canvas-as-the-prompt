@@ -12,6 +12,8 @@ export default defineConfig({
     target: 'es2022',
     sourcemap: false,
     chunkSizeWarningLimit: 8000,
+    // Inline sticker SVGs and stamp images as data URLs (keeps the published file count small).
+    assetsInlineLimit: (file: string) => (/templates[\\/]stickers|assets[\\/]stamps/.test(file) ? true : undefined),
     rollupOptions: {
       onwarn(w, d) { if (w.code && ['EVAL', 'SOURCEMAP_ERROR'].includes(w.code)) return; d(w); },
     },

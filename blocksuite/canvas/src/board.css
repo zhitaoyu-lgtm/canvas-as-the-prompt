@@ -26,7 +26,7 @@ edgeless-toolbar-widget { display: none !important; }
 
 .cx-dock {
   position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 40;
-  width: 664px; height: 55px;
+  width: 637px; height: 55px;
   font: 500 12px/1.2 Inter, system-ui, -apple-system, 'Segoe UI', sans-serif; color: #1e1e1e;
 }
 .cx-bar {
@@ -48,6 +48,11 @@ edgeless-toolbar-widget { display: none !important; }
 .cx-dim[data-id='shape']:hover, .cx-dim[data-id='shape'].on { color: #757575; }
 .cx-dimbg { position: absolute; top: 0; height: 55px; background: transparent; transition: background .12s; }
 .cx-dimbg.on { background: transparent; }
+/* picked dimensional tools lift a little, like FigJam */
+.cx-dim { transition: transform .16s cubic-bezier(.2,.8,.2,1); }
+.cx-dim[data-id='pen']:hover { transform: translateY(-2px); }
+.cx-dim[data-id='sticky']:hover { transform: translateY(-2px); }
+.cx-dim.on { transform: translateY(-5px); }
 
 .cx-more { width: 28px; height: 28px; border-radius: 14px; background: #f0f0f0; color: #a1a1a1; }
 .cx-more span { position: absolute; left: 2px; top: 2px; width: 24px; height: 24px; }
@@ -70,6 +75,15 @@ edgeless-toolbar-widget { display: none !important; }
 .cx-ti.on { border: 1.5px solid #efefef; border-radius: 4px; }
 .cx-tdiv { position: relative; width: 17px; height: 50px; flex: none; }
 .cx-tdiv i { position: absolute; left: 8px; top: 0; width: 1px; height: 50px; background: #e6e6e6; }
+.cx-ti.off, .cx-sw.off { opacity: .3; pointer-events: none; }
+.cx-glyph { align-items: end; overflow: hidden; }
+.cx-glyph svg { margin-bottom: -2px; }
+.cx-glyph.on { border: 0; border-radius: 8px; background: #f2f2f2; }
+.cx-tray-stamp { display: grid; grid-template-columns: repeat(12, 36px); gap: 4px; height: auto; padding: 8px; }
+.cx-stamp { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; }
+.cx-stamp img { width: 28px; height: 28px; display: block; pointer-events: none; }
+.cx-stamp:hover { background: #f5f5f5; }
+.cx-stamp.on { border: 1.5px solid #efefef; border-radius: 4px; }
 .cx-fillbtn { display: flex !important; align-items: center; height: 36px; padding-left: 4px; color: #757575; }
 .cx-fillbtn svg:last-child { width: 16px; height: 16px; }
 

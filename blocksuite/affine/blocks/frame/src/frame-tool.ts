@@ -38,6 +38,31 @@ export class FrameTool extends BaseTool {
     return this.gfx.viewport.toModelCoord(p.x, p.y);
   }
 
+  // FigJam-style: a single click drops a default-size frame centred on the pointer.
+  override click(e: PointerEventState): void {
+    const [x, y] = this._toModelCoord(e.point);
+    const w = 640;
+    const h = 400;
+    const frames = this.gfx.layer.blocks.filter(
+      block => block.flavour === 'affine:frame'
+    ) as FrameBlockModel[];
+    this.doc.captureSync();
+    const props = this.std.get(EditPropsStore).applyLastProps('affine:frame', {
+      title: new Text(new Y.Text(`Frame ${frames.length + 1}`)),
+      xywh: new Bound(x - w / 2, y - h / 2, w, h).serialize(),
+      index: this.gfx.layer.generateIndex(true),
+      presentationIndex: this.frameManager.generatePresentationIndex(),
+    });
+    const id = this.doc.addBlock('affine:frame', props, this.gfx.surface);
+    const frame = this.gfx.getElementById(id) as FrameBlockModel;
+    this.gfx.tool.setTool(DefaultTool);
+    this.gfx.selection.set({ elements: [id], editing: false });
+    this.frameManager.addElementsToFrame(
+      frame,
+      getTopElements(this.frameManager.getElementsInFrameBound(frame))
+    );
+  }
+
   override dragEnd(): void {
     if (this._frame) {
       const frame = this._frame;

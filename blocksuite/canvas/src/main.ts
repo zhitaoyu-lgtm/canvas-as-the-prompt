@@ -12,6 +12,7 @@ import { getTestViewManager } from '@blocksuite/integration-test/view';
 
 import './board.css';
 
+import './stickers';
 import { mountToolbar } from './toolbar';
 
 import { editorSetting, parseDocUrl, whiteboardOnly } from './services';

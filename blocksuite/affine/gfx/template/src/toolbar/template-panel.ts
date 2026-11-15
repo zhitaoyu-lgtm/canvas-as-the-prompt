@@ -29,6 +29,9 @@ import type { Template } from './template-type.js';
 import { cloneDeep } from './utils.js';
 
 function toSvgPreviewDataUrl(svg: string) {
+  // Previews paint their ground with currentColor; as an <img> that resolves to black.
+  // Give them the card's light ground instead.
+  svg = svg.replace(/currentColor/g, '#f5f5f5');
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
@@ -40,72 +43,86 @@ export class EdgelessTemplatePanel extends WithDisposable(LitElement) {
       z-index: 1;
     }
 
+    /* Canvas: restyled to the FigJam-style toolbar (white, Elevation 200, gray UI) */
     .edgeless-templates-panel {
-      width: 467px;
-      height: 568px;
+      width: 472px;
+      height: 520px;
       border-radius: 12px;
-      background-color: var(--affine-background-overlay-panel-color);
-      box-shadow: 0px 10px 80px 0px rgba(0, 0, 0, 0.2);
-
+      background-color: #ffffff;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.08),
+        0 0 0.5px rgba(0, 0, 0, 0.18);
       display: flex;
       flex-direction: column;
+      overflow: hidden;
+      font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+      color: #1e1e1e;
     }
-    ${unsafeCSS(lightToolbarStyles('.edgeless-templates-panel'))}
-    ${unsafeCSS(darkToolbarStyles('.edgeless-templates-panel'))}
 
     .search-bar {
-      padding: 21px 24px;
-      font-size: 18px;
-      color: var(--affine-secondary);
-      border-bottom: 1px solid var(--affine-divider-color);
-
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 48px;
+      padding: 0 16px;
+      border-bottom: 1px solid #e6e6e6;
       flex-shrink: 0;
+      color: #a1a1a1;
     }
 
     .search-input {
       border: 0;
-      color: var(--affine-text-primary-color);
-      font-size: 20px;
-      background-color: inherit;
+      color: #1e1e1e;
+      font-size: 13px;
+      font-family: inherit;
+      background-color: transparent;
       outline: none;
       width: 100%;
     }
 
     .search-input::placeholder {
-      color: var(--affine-text-secondary-color);
+      color: #a1a1a1;
     }
 
     .template-categories {
       display: flex;
-      padding: 6px 8px;
+      flex-wrap: wrap;
+      padding: 8px 12px;
       gap: 4px;
-      overflow-x: scroll;
-
+      overflow-x: auto;
+      scrollbar-width: none;
       flex-shrink: 0;
+    }
+    .template-categories::-webkit-scrollbar {
+      display: none;
     }
 
     .category-entry {
-      color: var(--affine-text-primary-color);
+      color: #757575;
       font-size: 12px;
-      font-weight: 600;
+      font-weight: 500;
       line-height: 20px;
       border-radius: 8px;
       flex-shrink: 0;
       flex-grow: 0;
       width: fit-content;
-      padding: 4px 9px;
+      padding: 4px 10px;
       cursor: pointer;
     }
 
-    .category-entry.selected,
     .category-entry:hover {
-      color: var(--affine-text-primary-color);
-      background-color: var(--affine-background-tertiary-color);
+      color: #1e1e1e;
+      background-color: #f5f5f5;
+    }
+
+    .category-entry.selected {
+      color: #1e1e1e;
+      background-color: #f2f2f2;
     }
 
     .template-viewport {
       position: relative;
       flex-grow: 1;
+      min-height: 0;
     }
 
     .template-scrollcontent {
@@ -115,62 +132,40 @@ export class EdgelessTemplatePanel extends WithDisposable(LitElement) {
     }
 
     .template-list {
-      padding: 10px;
-      display: flex;
-      align-items: flex-start;
-      align-content: flex-start;
-      gap: 10px 20px;
-      flex-wrap: wrap;
+      padding: 4px 12px 12px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
     }
 
     .template-item {
       position: relative;
-      width: 135px;
-      height: 80px;
-      box-shadow: 0px 4px 4px 0px rgba(0, 0, 0, 0.02);
-      background-color: var(--affine-background-primary-color);
-      border-radius: 4px;
+      height: 84px;
+      background-color: #f5f5f5;
+      border: 1px solid #efefef;
+      border-radius: 8px;
       cursor: pointer;
+      overflow: hidden;
+      color: #f5f5f5;
     }
 
     .template-item > svg {
       display: block;
       margin: 0 auto;
-      width: 135px;
-      height: 80px;
-      color: var(--affine-background-primary-color);
+      width: 100%;
+      height: 100%;
+      color: #f5f5f5;
     }
 
-    /* .template-item:hover::before {
-      content: attr(data-hover-text);
-      position: absolute;
-      display: block;
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%, -50%);
-      width: 110px;
-      border-radius: 8px;
-      padding: 4px 22px;
-      box-sizing: border-box;
-      z-index: 1;
-      text-align: center;
-      font-size: 12px;
-
-      background-color: var(--affine-primary-color);
-      color: var(--affine-white);
-    } */
+    .template-item:hover {
+      border-color: #d4d4d4;
+    }
 
     .template-item:hover::after {
       content: '';
       position: absolute;
-      left: 0;
-      top: 0;
-      width: 100%;
-      height: 100%;
-      box-sizing: border-box;
-      border: 1px solid var(--affine-black-10);
-      border-radius: 4px;
-      background-color: var(--affine-hover-color);
+      inset: 0;
+      background-color: rgba(0, 0, 0, 0.03);
     }
 
     .template-item.loading::before {
@@ -189,9 +184,12 @@ export class EdgelessTemplatePanel extends WithDisposable(LitElement) {
       width: 100%;
       height: 100%;
       display: block;
+      padding: 8px;
+      box-sizing: border-box;
     }
 
     .arrow {
+      display: none;
       bottom: 0;
       position: absolute;
       transform: translateY(20px);
@@ -390,10 +388,13 @@ export class EdgelessTemplatePanel extends WithDisposable(LitElement) {
         })}
       >
         <div class="search-bar">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M10.5 16a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11ZM14.5 14.5 19 19" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
           <input
             class="search-input"
             type="text"
-            placeholder="Search file or anything..."
+            placeholder="Search templates and stickers"
             @input=${this._updateSearchKeyword}
             @cut=${stopPropagation}
             @copy=${stopPropagation}
