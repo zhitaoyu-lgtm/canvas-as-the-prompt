@@ -11,7 +11,7 @@ import { html } from 'lit';
 
 // The ring, as drawn in Figma: a soft gray band around a pale centre.
 export const RING_SVG = `<svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
-  <circle cx="11" cy="11" r="7.4" fill="#fafafa" stroke="#b9b9b9" stroke-width="3"/>
+  <circle class="band" cx="11" cy="11" r="7.4" fill="#fafafa" stroke="#b9b9b9" stroke-width="3"/>
   <circle cx="11" cy="11" r="5.6" stroke="#e9e9e9" stroke-width="1"/>
 </svg>`;
 
@@ -23,7 +23,8 @@ class AiEntry extends HTMLElement {
     root.innerHTML = `<style>
       :host { display: inline-flex; }
       button { all: unset; box-sizing: border-box; width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; cursor: pointer; transition: background .12s ease, transform .14s ease; }
-      button:hover { background: #f5f5f5; }
+      .band { transition: stroke .12s ease; }
+      button:hover .band { stroke: #8f8f8f; }
       button:active { transform: scale(.94); }
       button:focus-visible { outline: 2px solid #0c8ce9; outline-offset: 1px; }
       svg { display: block; }
@@ -80,15 +81,6 @@ function describe(models: any[]): { label: string; kind: string } {
   return { label: n === 1 ? `this ${noun}` : `these ${n} ${plural(noun)}`, kind: same ? kinds[0] : 'mixed' };
 }
 
-const SUGGEST: Record<string, string[]> = {
-  sticky: ['Continue', 'Name the group', 'Find tensions'],
-  doc: ['Find pain points', 'Summarize', 'Tag by speaker'],
-  image: ['Find similar', 'Describe the style'],
-  shape: ['Tidy up', 'Continue the flow'],
-  frame: ['Summarize', 'Fill the gaps'],
-  mixed: ['Tidy up', 'Continue', 'Summarize'],
-};
-
 export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[]) => Promise<void>) {
   const gfx = rootEl.gfx;
   const layer = h('div', 'cx-ai-layer');
@@ -97,14 +89,13 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   const cap = h('div', 'cx-cap');
   cap.setAttribute('role', 'dialog');
   cap.innerHTML = `
-    <button class="cx-cap-ring" aria-label="Close prompt">${RING_SVG}</button>
+    <span class="cx-cap-ring" aria-hidden="true">${RING_SVG}</span>
     <form class="cx-cap-row">
       <input class="cx-cap-input" type="text" autocomplete="off" spellcheck="false" aria-label="Instruction">
       <button type="button" class="cx-cap-mic" aria-label="Dictate"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><rect x="9" y="4" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3"/></svg></button>
       <button type="submit" class="cx-cap-send" aria-label="Send"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
     </form>`;
-  const chips = h('div', 'cx-chips');
-  layer.append(cap, chips);
+  layer.append(cap);
   const input = cap.querySelector('input') as HTMLInputElement;
   const form = cap.querySelector('form') as HTMLFormElement;
 
@@ -123,12 +114,8 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     toolbar = toolbarEl(); if (!toolbar) return;
     const sel = gfx.selection.selectedElements as any[];
     ids = sel.map(m => m.id);
-    const { label, kind } = describe(sel);
+    const { label } = describe(sel);
     input.value = ''; input.placeholder = `What should happen to ${label}?`;
-    chips.innerHTML = '';
-    for (const s of SUGGEST[kind] ?? SUGGEST.mixed) {
-      const c = h('button', 'cx-chip', s); c.addEventListener('click', () => { input.value = s; submit(); }); chips.append(c);
-    }
     const r = toolbar.getBoundingClientRect();
     open = true;
 
@@ -147,15 +134,13 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     const w = Math.min(OPEN_W, innerWidth - r.left - 16);
     cap.animate([{ width: `${r.height}px` }, { width: `${w}px` }], { duration: 260, easing: 'cubic-bezier(.2,.9,.25,1.08)', fill: 'forwards' });
     cap.classList.add('wide');
-    // suggestions sit just above the capsule, so they never cover the selection
-    chips.style.left = `${r.left + r.height}px`; chips.style.top = `${r.top - 8 - 26}px`;
-    setTimeout(() => { chips.classList.add('on'); input.focus(); }, 180);
+    setTimeout(() => input.focus(), 180);
   }
 
   async function closeBar(restore = true) {
     if (!open) return;
     open = false;
-    chips.classList.remove('on'); cap.classList.remove('wide');
+    cap.classList.remove('wide');
     const w = cap.getBoundingClientRect().width, hgt = cap.getBoundingClientRect().height;
     await cap.animate([{ width: `${w}px` }, { width: `${hgt}px` }], { duration: 180, easing: 'cubic-bezier(.4,0,.6,1)', fill: 'forwards' }).finished;
     cap.classList.remove('on'); cap.getAnimations().forEach(a => a.cancel());
@@ -198,7 +183,6 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   }
 
   form.addEventListener('submit', e => { e.preventDefault(); submit(); });
-  cap.querySelector('.cx-cap-ring')!.addEventListener('click', () => closeBar());
   input.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); closeBar(); } e.stopPropagation(); });
 
   // Dictation where the platform has it (desktop app); hidden otherwise.

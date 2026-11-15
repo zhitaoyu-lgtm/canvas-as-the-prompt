@@ -170,7 +170,7 @@ export async function mountToolbar(rootEl: any) {
   }
   const render = () => openTray(tray);
   function swatch(name: string, c: string, on: boolean, f: () => void) {
-    const ring = on ? '<circle cx="16" cy="16" r="14" stroke="#9747FF" stroke-width="2"/>' : '';
+    const ring = '';   // selected state is the light-gray square behind the swatch
     return h('button', { class: 'cx-sw', 'aria-label': name, 'aria-pressed': String(on), onclick: f,
       html: `<svg width="32" height="32" viewBox="0 0 32 32" fill="none">${ring}<circle cx="16" cy="16" r="11" fill="${c}"/><circle cx="16" cy="16" r="10.5" stroke="black" stroke-opacity="0.08"/></svg>` });
   }

@@ -66,13 +66,15 @@ edgeless-toolbar-widget { display: none !important; }
 }
 .cx-tray[hidden] { display: none; }
 .cx-tray button { position: relative; }
-.cx-tray-sticky { gap: 8px; padding: 0 12px; }
+.cx-tray-sticky { gap: 4px; padding: 0 8px; }
 .cx-tray-shape { gap: 4px; padding: 0 8px; }
-.cx-sw { width: 32px; height: 32px; display: block; }
+.cx-sw { width: 36px; height: 36px; display: grid !important; place-items: center; border-radius: 8px; }
+.cx-sw:hover { background: #f5f5f5; }
+.cx-sw[aria-pressed='true'] { background: #f2f2f2; }
 .cx-sw svg { display: block; }
 .cx-ti { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; color: #757575; }
 .cx-ti:hover { background: #f5f5f5; }
-.cx-ti.on { border: 1.5px solid #efefef; border-radius: 4px; }
+.cx-ti.on { background: #f2f2f2; border-radius: 8px; }
 .cx-tdiv { position: relative; width: 17px; height: 50px; flex: none; }
 .cx-tdiv i { position: absolute; left: 8px; top: 0; width: 1px; height: 50px; background: #e6e6e6; }
 .cx-ti.off, .cx-sw.off { opacity: .3; pointer-events: none; }
@@ -83,7 +85,7 @@ edgeless-toolbar-widget { display: none !important; }
 .cx-stamp { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; }
 .cx-stamp img { width: 28px; height: 28px; display: block; pointer-events: none; }
 .cx-stamp:hover { background: #f5f5f5; }
-.cx-stamp.on { border: 1.5px solid #efefef; border-radius: 4px; }
+.cx-stamp.on { background: #f2f2f2; }
 .cx-fillbtn { display: flex !important; align-items: center; height: 36px; padding-left: 4px; color: #757575; }
 .cx-fillbtn svg:last-child { width: 16px; height: 16px; }
 
@@ -113,36 +115,38 @@ affine-tooltip, .affine-tooltip { display: none !important; }
 .cx-dim[data-id='sticky'].pulling { transform: translateY(2px); }
 .cx-dim[data-id='sticky'] { touch-action: none; }
 
-/* ── AI entry: input capsule (same surface as the toolbar it replaces) ── */
+/* ── AI entry: input capsule (same surface, height and radius as the toolbar it replaces) ──
+   Inner controls are concentric with the capsule: inset 6px, so their radius is 14 - 6 = 8. */
 .cx-ai-layer { position: fixed; inset: 0; pointer-events: none; z-index: 45; font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif; }
 .cx-cap {
+  --h: 44px; --in: 6px;
   position: fixed; display: none; align-items: center; overflow: hidden; pointer-events: auto;
   background: #fff; border-radius: 14px;
   box-shadow: 0 4px 12px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.08), 0 0 .5px rgba(0,0,0,.18);
 }
 .cx-cap.on { display: flex; }
+/* the ring is only the pivot of the fold; once the input opens it is gone */
 .cx-cap-ring {
-  all: unset; box-sizing: border-box; flex: none; width: var(--h, 44px); height: var(--h, 44px);
-  display: grid; place-items: center; cursor: pointer; border-radius: 14px;
+  flex: none; width: var(--h); height: var(--h); display: grid; place-items: center;
+  transition: width .2s cubic-bezier(.4,0,.2,1), opacity .12s ease, transform .16s ease;
 }
 .cx-cap-ring svg { display: block; }
-.cx-cap-ring:focus-visible { outline: 2px solid #0c8ce9; outline-offset: -4px; }
-.cx-cap-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding-right: 6px; margin: 0; opacity: 0; transform: translateX(-6px); transition: opacity .14s ease, transform .18s ease; }
+.cx-cap.wide .cx-cap-ring { width: 0; opacity: 0; transform: scale(.6); }
+.cx-cap-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; padding: 0 var(--in) 0 16px; margin: 0; opacity: 0; transform: translateX(-6px); transition: opacity .14s ease, transform .18s ease; }
 .cx-cap.wide .cx-cap-row { opacity: 1; transform: none; transition-delay: .09s; }
-.cx-cap-input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: 400 14px/1 inherit; font-family: inherit; color: #1e1e1e; padding: 0 2px; }
+.cx-cap-input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: 400 14px/1 inherit; font-family: inherit; color: #1e1e1e; padding: 0; }
 .cx-cap-input::placeholder { color: #a1a1a1; }
-.cx-cap-mic { all: unset; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: #a1a1a1; cursor: pointer; }
-.cx-cap-mic:hover { background: #f5f5f5; color: #757575; }
-.cx-cap-mic.live { color: #0c8ce9; }
+.cx-cap-mic, .cx-cap-send {
+  all: unset; box-sizing: border-box; flex: none; cursor: pointer; display: grid; place-items: center;
+  width: calc(var(--h) - 2 * var(--in)); height: calc(var(--h) - 2 * var(--in)); border-radius: calc(14px - var(--in));
+}
+.cx-cap-mic { color: #a1a1a1; }
+.cx-cap-mic:hover { color: #757575; background: #f2f2f2; }
+.cx-cap-mic.live { color: #1e1e1e; background: #f2f2f2; }
 .cx-cap-mic[hidden] { display: none; }
-.cx-cap-send { all: unset; width: 30px; height: 30px; border-radius: 50%; background: #1e1e1e; color: #fff; display: grid; place-items: center; cursor: pointer; transform: scale(.4); transition: transform .22s cubic-bezier(.2,.9,.25,1.3); }
-.cx-cap.wide .cx-cap-send { transform: scale(1); transition-delay: .14s; }
-.cx-cap-send:focus-visible { outline: 2px solid #0c8ce9; outline-offset: 2px; }
-.cx-chips { position: fixed; display: flex; gap: 6px; height: 26px; pointer-events: auto; opacity: 0; transform: translateY(4px); transition: opacity .16s ease, transform .2s ease; }
-.cx-chips:not(.on) { pointer-events: none; }
-.cx-chips.on { opacity: 1; transform: none; }
-.cx-chip { all: unset; font: 500 12px/1 Inter, system-ui, sans-serif; color: #757575; background: rgba(255,255,255,.92); border: 1px solid #e6e6e6; border-radius: 99px; padding: 6px 10px; cursor: pointer; }
-.cx-chip:hover { color: #1e1e1e; border-color: #d4d4d4; }
+.cx-cap-send { background: #1e1e1e; color: #fff; transform: scale(.5); opacity: 0; transition: transform .22s cubic-bezier(.2,.9,.25,1.3), opacity .12s ease; }
+.cx-cap.wide .cx-cap-send { transform: scale(1); opacity: 1; transition-delay: .14s; }
+.cx-cap-mic:focus-visible, .cx-cap-send:focus-visible { outline: 2px solid #0c8ce9; outline-offset: 2px; }
 
 /* ── Working: a small ring beside the selection that hops (squash and stretch), then rests ── */
 .cx-working {
