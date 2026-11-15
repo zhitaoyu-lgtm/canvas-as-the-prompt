@@ -185,26 +185,7 @@ affine-drag-handle-widget { display: none !important; }
 .cx-is { position: fixed; border: 1px dashed rgba(201,59,48,.55); border-radius: 6px; background: rgba(201,59,48,.04); }
 .cx-in { position: fixed; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: #1e1e1e; color: #fff; font: 600 10px/18px Inter, system-ui, sans-serif; text-align: center; }
 
-/* ── AI proposals ─────────────────────────────────────────────────── */
-.cx-prop-layer { position: fixed; inset: 0; pointer-events: none; z-index: 25; }
-.cx-veil { position: fixed; background: rgba(255,255,255,.5); border-radius: 6px; pointer-events: none; }
-.cx-prop-layer .cx-pend-box { opacity: 1; }
-.cx-prop-bar {
-  position: fixed; display: none; align-items: center; height: 40px; padding: 0 4px 0 6px; gap: 2px;
-  background: #fff; border-radius: 14px; pointer-events: auto;
-  box-shadow: 0 0 0 .5px rgba(0,0,0,.06), 0 4px 14px rgba(0,0,0,.10);
-  font: 500 13px/1 Inter, system-ui, sans-serif;
-}
-.cx-prop-bar.on { display: inline-flex; animation: cx-rise .22s cubic-bezier(.2,.9,.25,1.05); }
-.cx-prop-say { color: #8a8984; font-weight: 400; padding: 0 8px 0 6px; max-width: 320px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cx-prop-say[hidden] { display: none; }
-.cx-prop-bar button { all: unset; cursor: pointer; height: 28px; padding: 0 10px; border-radius: 8px; display: inline-flex; align-items: center; }
-.cx-prop-keep { color: #1e1e1e; }
-.cx-prop-drop { color: #8a8984; }
-.cx-prop-bar button:hover { background: #f2f2f2; }
-.cx-prop-bar button:focus-visible { outline: 2px solid #0c8ce9; outline-offset: 1px; }
-@keyframes cx-rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-
+/* ── AI on the board ─────────────────────────────────────────────── */
 /* author mark: the "working" dots, still */
 .cx-marks { position: fixed; inset: 0; pointer-events: none; z-index: 24; }
 .cx-ai-mark { position: fixed; display: grid; grid-template-columns: 3px 3px; gap: 3px; }
