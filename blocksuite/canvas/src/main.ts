@@ -13,6 +13,7 @@ import { getTestViewManager } from '@blocksuite/integration-test/view';
 import './board.css';
 
 import './stickers';
+import { aiToolbarExtension, mountAiBar } from './ai-bar';
 import { mountToolbar } from './toolbar';
 
 import { editorSetting, parseDocUrl, whiteboardOnly } from './services';
@@ -65,12 +66,14 @@ async function main() {
     { setup: (di: any) => { di.override(DocModeProvider, whiteboardOnly()); } },
   ];
   editor.pageSpecs = [...viewManager.get('page'), ...common];
-  editor.edgelessSpecs = [...viewManager.get('edgeless'), ...common];
+  editor.edgelessSpecs = [...viewManager.get('edgeless'), ...common, aiToolbarExtension];
   editor.mode = 'edgeless';
   document.getElementById('app')!.append(editor);
   await editor.updateComplete;
   const waitRoot = async () => { for (let i = 0; i < 200; i++) { const r = document.querySelector('affine-edgeless-root') as any; if (r?.std && r.gfx) return r; await new Promise(r => setTimeout(r, 50)); } throw new Error('edgeless root not ready'); };
-  await mountToolbar(await waitRoot());
+  const rootEl = await waitRoot();
+  await mountToolbar(rootEl);
+  mountAiBar(rootEl);
   (window as any).editor = editor; (window as any).collection = collection;
 }
 

@@ -112,3 +112,58 @@ affine-tooltip, .affine-tooltip { display: none !important; }
 .cx-ghost.gone { opacity: 0; }
 .cx-dim[data-id='sticky'].pulling { transform: translateY(2px); }
 .cx-dim[data-id='sticky'] { touch-action: none; }
+
+/* ── AI entry: input capsule (same surface as the toolbar it replaces) ── */
+.cx-ai-layer { position: fixed; inset: 0; pointer-events: none; z-index: 45; font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif; }
+.cx-cap {
+  position: fixed; display: none; align-items: center; overflow: hidden; pointer-events: auto;
+  background: #fff; border-radius: 14px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.08), 0 0 .5px rgba(0,0,0,.18);
+}
+.cx-cap.on { display: flex; }
+.cx-cap-ring {
+  all: unset; box-sizing: border-box; flex: none; width: var(--h, 44px); height: var(--h, 44px);
+  display: grid; place-items: center; cursor: pointer; border-radius: 14px;
+}
+.cx-cap-ring svg { display: block; }
+.cx-cap-ring:focus-visible { outline: 2px solid #0c8ce9; outline-offset: -4px; }
+.cx-cap-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding-right: 6px; margin: 0; opacity: 0; transform: translateX(-6px); transition: opacity .14s ease, transform .18s ease; }
+.cx-cap.wide .cx-cap-row { opacity: 1; transform: none; transition-delay: .09s; }
+.cx-cap-input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: 400 14px/1 inherit; font-family: inherit; color: #1e1e1e; padding: 0 2px; }
+.cx-cap-input::placeholder { color: #a1a1a1; }
+.cx-cap-mic { all: unset; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: #a1a1a1; cursor: pointer; }
+.cx-cap-mic:hover { background: #f5f5f5; color: #757575; }
+.cx-cap-mic.live { color: #0c8ce9; }
+.cx-cap-mic[hidden] { display: none; }
+.cx-cap-send { all: unset; width: 30px; height: 30px; border-radius: 50%; background: #1e1e1e; color: #fff; display: grid; place-items: center; cursor: pointer; transform: scale(.4); transition: transform .22s cubic-bezier(.2,.9,.25,1.3); }
+.cx-cap.wide .cx-cap-send { transform: scale(1); transition-delay: .14s; }
+.cx-cap-send:focus-visible { outline: 2px solid #0c8ce9; outline-offset: 2px; }
+.cx-chips { position: fixed; display: flex; gap: 6px; height: 26px; pointer-events: auto; opacity: 0; transform: translateY(4px); transition: opacity .16s ease, transform .2s ease; }
+.cx-chips:not(.on) { pointer-events: none; }
+.cx-chips.on { opacity: 1; transform: none; }
+.cx-chip { all: unset; font: 500 12px/1 Inter, system-ui, sans-serif; color: #757575; background: rgba(255,255,255,.92); border: 1px solid #e6e6e6; border-radius: 99px; padding: 6px 10px; cursor: pointer; }
+.cx-chip:hover { color: #1e1e1e; border-color: #d4d4d4; }
+
+/* ── Working: a small ring beside the selection that hops (squash and stretch), then rests ── */
+.cx-working {
+  position: fixed; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%;
+  background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.10), 0 0 .5px rgba(0,0,0,.2);
+  display: grid; place-items: center; opacity: 0; transform: scale(.6); pointer-events: none;
+  transition: opacity .18s ease, transform .22s cubic-bezier(.2,.9,.25,1.3);
+}
+.cx-working.on { opacity: 1; transform: scale(1); }
+.cx-working .cx-hop { display: block; width: 18px; height: 18px; transform-origin: 50% 90%; }
+.cx-working .cx-hop svg { width: 18px; height: 18px; display: block; }
+@media (prefers-reduced-motion: no-preference) {
+  .cx-working.on .cx-hop { animation: cx-hop 1.25s cubic-bezier(.3,.6,.3,1) infinite; }
+}
+@keyframes cx-hop {
+  0%   { transform: translateY(0) scale(1, 1); }
+  8%   { transform: translateY(0) scale(1.14, .84); }
+  24%  { transform: translateY(-5px) scale(.9, 1.1); }
+  38%  { transform: translateY(0) scale(1.12, .88); }
+  46%  { transform: translateY(0) scale(1, 1); }
+  54%  { transform: translateY(-2.5px) scale(.96, 1.04); }
+  64%  { transform: translateY(0) scale(1.05, .95); }
+  72%, 100% { transform: translateY(0) scale(1, 1); }
+}
