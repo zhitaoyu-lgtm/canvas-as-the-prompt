@@ -71,7 +71,10 @@ export function structuresOf(segs: Seg[], items: Item[]): Structure[] {
     const a = segBox(A), b = segBox(B);
     const overlap = A.dir === 'v' ? Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) : Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
     const dist = A.dir === 'v' ? Math.abs(a.x - b.x) : Math.abs(a.y - b.y);
-    if (overlap > Math.min(A.len, B.len) * 0.6 && dist < Math.max(A.len, B.len) * 1.2) parent[find(i)] = find(j);
+    // drawn as a set: nearly the same start and end (lanes, column rules), not just any two lines
+    const [as, ae] = A.dir === 'v' ? [a.y, a.y + a.h] : [a.x, a.x + a.w], [bs, be] = B.dir === 'v' ? [b.y, b.y + b.h] : [b.x, b.x + b.w];
+    const L = Math.max(A.len, B.len);
+    if (overlap > Math.min(A.len, B.len) * 0.6 && Math.abs(as - bs) < L * 0.06 && Math.abs(ae - be) < L * 0.06 && dist < L * 1.2) parent[find(i)] = find(j);
   }
   const groups = new Map<number, Seg[]>();
   hv.forEach((s, i) => { const r = find(i); (groups.get(r) ?? groups.set(r, []).get(r)!).push(s); });
@@ -113,9 +116,70 @@ export function structuresOf(segs: Seg[], items: Item[]): Structure[] {
     const hdiv = g.filter(s => s.dir === 'h' && s.arrow === 'none');
     if (hdiv.length) notes.push(`${hdiv.length} ${hdiv.some(d => d.dashed) ? 'dashed ' : ''}horizontal divider${hdiv.length > 1 ? 's' : ''}`);
     if (axes.x && rows.length === 2) notes.push('the horizontal axis splits it into above (row 1) and below (row 2)');
+    notes.push(...labelsOf(items, segRefs, { x: x0, y: y0, w: W, h: H }, cols, rows, g, axes));
     out.push({ ref: '', kind, box: { x: Math.round(x0), y: Math.round(y0), w: Math.round(W), h: Math.round(H) }, segs: [...segRefs], cols, rows, axes: Object.keys(axes).length ? axes : undefined, cells, notes });
   }
+  out.push(...tiledTables(items));
   out.sort((a, b) => a.box.y - b.box.y || a.box.x - b.box.x).forEach((s, i) => (s.ref = 'L' + (i + 1)));
+  return out;
+}
+
+const words = (it: Item) => `${it.ref}${it.text ? ' "' + it.text.slice(0, 40).replace(/\n/g, ' ') + '"' : ''}`;
+const isLabel = (it: Item) => ['text', 'sticky', 'shape', 'sticker'].includes(it.kind);
+
+/** Column headers above, row labels to the left, axis labels at the arrow tips. */
+function labelsOf(items: Item[], segRefs: Set<string>, b: Box, cols: [number, number][], rows: [number, number][], g: Seg[], axes: Structure['axes']): string[] {
+  const out: string[] = [];
+  const cands = items.filter(it => !segRefs.has(it.ref) && isLabel(it) && it.box.w < b.w * 0.6);
+  const cx = (it: Item) => it.box.x + it.box.w / 2, cy = (it: Item) => it.box.y + it.box.h / 2;
+  cols.forEach(([a, z], i) => {
+    const h = cands.filter(it => cx(it) > a && cx(it) < z && it.box.y + it.box.h <= b.y + 8 && it.box.y + it.box.h >= b.y - 140);
+    if (h.length) out.push(`col ${i + 1} headed by ${h.map(words).join(', ')}`);
+  });
+  rows.forEach(([a, z], i) => {
+    const h = cands.filter(it => cy(it) > a && cy(it) < z && it.box.x + it.box.w <= b.x + 8 && it.box.x + it.box.w >= b.x - 200);
+    if (h.length) out.push(`row ${i + 1} labelled by ${h.map(words).join(', ')}`);
+  });
+  const used = new Set(out.join(' ').match(/\b[a-z]+\d+\b/g) ?? []);
+  for (const s of g) if (s.arrow !== 'none') {
+    const tip = s.arrow === 'end' ? s.b : s.a;
+    const near = cands.filter(it => !used.has(it.ref) && Math.hypot(cx(it) - tip[0], cy(it) - tip[1]) < 110 + Math.max(it.box.w, it.box.h) / 2);
+    if (near.length) out.push(`${s.dir === 'v' ? 'vertical' : 'horizontal'} axis labelled by ${near.map(words).join(', ')}`);
+  }
+  void axes;
+  return out;
+}
+
+/** Tables built from touching rectangles (a header row of boxes, a grid of cells). */
+function tiledTables(items: Item[]): Structure[] {
+  const rects = items.filter(it => it.kind === 'shape' && (it.shape === 'rect' || it.shape === 'rounded rect'));
+  const touch = (a: Box, b: Box) => {
+    const gx = Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w), gy = Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h);
+    return (gx <= 8 && gx >= -4 && gy < -Math.min(a.h, b.h) * 0.6) || (gy <= 8 && gy >= -4 && gx < -Math.min(a.w, b.w) * 0.6);
+  };
+  const parent = rects.map((_, i) => i); const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) if (touch(rects[i].box, rects[j].box)) parent[find(i)] = find(j);
+  const groups = new Map<number, Item[]>(); rects.forEach((r, i) => { const k = find(i); (groups.get(k) ?? groups.set(k, []).get(k)!).push(r); });
+  const out: Structure[] = [];
+  for (const g of groups.values()) {
+    if (g.length < 3) continue;
+    const xs = [...new Set(g.map(r => Math.round(r.box.x / 6)))].sort((a, b) => a - b).map(v => v * 6);
+    const ys = [...new Set(g.map(r => Math.round(r.box.y / 6)))].sort((a, b) => a - b).map(v => v * 6);
+    const colOf = (r: Item) => xs.findIndex(x => Math.abs(x - r.box.x) <= 6) + 1, rowOf = (r: Item) => ys.findIndex(y => Math.abs(y - r.box.y) <= 6) + 1;
+    const x0 = Math.min(...g.map(r => r.box.x)), y0 = Math.min(...g.map(r => r.box.y));
+    const x1 = Math.max(...g.map(r => r.box.x + r.box.w)), y1 = Math.max(...g.map(r => r.box.y + r.box.h));
+    const cells: Cell[] = g.map(r => ({ row: rowOf(r), col: colOf(r), box: r.box, holds: [] as string[] }));
+    for (const it of items) {
+      if (g.includes(it) || it.kind === 'connector' || it.kind === 'frame') continue;
+      const cx = it.box.x + it.box.w / 2, cy = it.box.y + it.box.h / 2;
+      const c = cells.find(c => cx >= c.box.x && cx <= c.box.x + c.box.w && cy >= c.box.y && cy <= c.box.y + c.box.h);
+      if (c) c.holds.push(it.ref);
+    }
+    const texts = g.filter(r => r.text).map(r => `row ${rowOf(r)} col ${colOf(r)} reads "${r.text.slice(0, 30)}"`);
+    out.push({ ref: '', kind: 'table', box: { x: Math.round(x0), y: Math.round(y0), w: Math.round(x1 - x0), h: Math.round(y1 - y0) }, segs: g.map(r => r.ref),
+      cols: xs.map(x => [x, x] as [number, number]), rows: ys.map(y => [y, y] as [number, number]), cells,
+      notes: ['built from touching boxes; each box is a cell', ...texts.slice(0, 24)] });
+  }
   return out;
 }
 
@@ -123,9 +187,12 @@ export function structuresPrompt(ss: Structure[]): string[] {
   if (!ss.length) return [];
   const L = ['', 'DRAWN STRUCTURES (tables, lanes, axes and charts drawn with lines; cells are places to put things)'];
   for (const s of ss) {
-    L.push(`${s.ref} ${s.kind} @${s.box.x},${s.box.y} ${s.box.w}×${s.box.h} · made of ${s.segs.join(' ')}${s.notes.length ? ' · ' + s.notes.join('; ') : ''}`);
-    L.push(`    ${s.cols.length} column${s.cols.length > 1 ? 's' : ''} (left→right): ${s.cols.map((c, i) => `col ${i + 1} x${c[0]}–${c[1]}`).join(', ')}`);
-    L.push(`    ${s.rows.length} row${s.rows.length > 1 ? 's' : ''} (top→bottom): ${s.rows.map((r, i) => `row ${i + 1} y${r[0]}–${r[1]}`).join(', ')}`);
+    L.push(`${s.ref} ${s.kind} @${s.box.x},${s.box.y} ${s.box.w}×${s.box.h} · made of ${s.segs.join(' ')}${s.notes.length ? '\n    ' + s.notes.join('\n    ') : ''}`);
+    if (s.cols.every(c => c[0] === c[1])) L.push(`    ${s.rows.length} rows × ${s.cols.length} columns of boxes: ${s.cells.map(c => `r${c.row}c${c.col} @${Math.round(c.box.x)},${Math.round(c.box.y)} ${Math.round(c.box.w)}×${Math.round(c.box.h)}`).join(', ')}`);
+    else {
+      L.push(`    ${s.cols.length} column${s.cols.length > 1 ? 's' : ''} (left→right): ${s.cols.map((c, i) => `col ${i + 1} x${c[0]}–${c[1]}`).join(', ')}`);
+      L.push(`    ${s.rows.length} row${s.rows.length > 1 ? 's' : ''} (top→bottom): ${s.rows.map((r, i) => `row ${i + 1} y${r[0]}–${r[1]}`).join(', ')}`);
+    }
     const full = s.cells.filter(c => c.holds.length);
     L.push(`    cells: ${full.length ? full.map(c => `row ${c.row} col ${c.col} holds ${c.holds.join(' ')}`).join('; ') + '; others empty' : 'all empty'}`);
   }

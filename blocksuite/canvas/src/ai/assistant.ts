@@ -5,7 +5,7 @@ import { systemPrompt, userPrompt } from './grammar';
 import { ask, online, parseAnswer, ModelError } from './model';
 import { toast } from './proposals';
 import { readBoard, toPrompt, type Box } from './reading';
-import { needsPicture, snapshot } from './snapshot';
+import { snapshot } from './snapshot';
 
 export function createAssistant(rootEl: any) {
   const gfx = rootEl.gfx, store = rootEl.std.store;
@@ -15,11 +15,10 @@ export function createAssistant(rootEl: any) {
   return async function onSubmit(request: string, ids: string[]) {
     const reading = readBoard(gfx, { selection: ids });
     const text = toPrompt(reading);
-    let picture: Blob | null = null;
-    if (needsPicture(reading, reading.focus)) {
-      const boxes = [...reading.focus.map(r => reading.byRef.get(r)?.box), ...reading.structures.filter(st => reading.focus.includes(st.ref)).map(st => st.box)].filter(Boolean) as Box[];
-      picture = await snapshot(rootEl, unionBox(boxes));
-    }
+    // always look as well as read: a quiet off-screen picture of what is asked about (or the view)
+    const focusBoxes = [...reading.focus.map(r => reading.byRef.get(r)?.box), ...reading.structures.filter(st => reading.focus.includes(st.ref)).map(st => st.box)].filter(Boolean) as Box[];
+    const area = focusBoxes.length ? unionBox(focusBoxes) : reading.viewport;
+    const picture: Blob | null = area.w > 0 && area.h > 0 ? await snapshot(rootEl, area) : null;
     const entry: any = { at: new Date().toISOString(), request, reading: text, picture: !!picture };
     log.unshift(entry); log.length = Math.min(log.length, 10);
     try {

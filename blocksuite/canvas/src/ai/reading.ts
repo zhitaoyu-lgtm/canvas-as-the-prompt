@@ -38,6 +38,7 @@ export type Item = {
   parent?: string;        // ref of the frame / group / container it sits in
   arrow?: { from?: string; to?: string; directed: boolean; label?: string };
   children?: string[];    // frames, groups, containers
+  style?: string;         // exact look and geometry, compact (fill, stroke, dash, path, rotation …)
   order?: number;         // reading order (1-based)
 };
 
@@ -262,6 +263,7 @@ export function readBoard(gfx: any, opts: { selection?: string[] } = {}): Readin
       }
     }
     it.colour = colourName(it.hex);
+    it.style = styleOf(e, kind, it.box);
     if (it.marks && !it.marks.length) delete it.marks;
     items.push(it); byId.set(e.id, it);
   }
@@ -412,6 +414,58 @@ export function readBoard(gfx: any, opts: { selection?: string[] } = {}): Readin
   };
 }
 const area = (b: Box) => b.w * b.h;
+
+// ── Exact look, like a design file's node properties (the model sees what is drawn, not a guess) ──
+const hx = (v: any) => { const p = paint(v); if (!p || p === 'transparent') return 'none'; return p.startsWith('#') ? p.toUpperCase() : p; };
+function simplify(pts: number[][], eps: number): number[][] {
+  if (pts.length < 3) return pts;
+  const [a, b] = [pts[0], pts[pts.length - 1]]; const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  let k = 0, d = 0;
+  for (let i = 1; i < pts.length - 1; i++) { const di = Math.abs((b[0] - a[0]) * (a[1] - pts[i][1]) - (a[0] - pts[i][0]) * (b[1] - a[1])) / L; if (di > d) { d = di; k = i; } }
+  return d > eps ? [...simplify(pts.slice(0, k + 1), eps).slice(0, -1), ...simplify(pts.slice(k), eps)] : [a, b];
+}
+function pathWords(pts: number[][]): string {
+  if (pts.length < 2) return '';
+  const a = pts[0], z = pts[pts.length - 1];
+  const L = pts.slice(1).reduce((s, p, i) => s + Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1]), 0);
+  const chord = Math.hypot(z[0] - a[0], z[1] - a[1]);
+  if (chord < L * 0.15) return 'closed loop';
+  if (chord > L * 0.96) { const ang = Math.atan2(z[1] - a[1], z[0] - a[0]) * 180 / Math.PI; return Math.abs(ang) < 12 || Math.abs(ang) > 168 ? 'straight horizontal' : Math.abs(Math.abs(ang) - 90) < 12 ? 'straight vertical' : 'straight diagonal'; }
+  // overall trend left→right
+  const l = a[0] <= z[0] ? pts : [...pts].reverse();
+  const ys = l.map(p => p[1]); const rises = ys.slice(1).filter((y, i) => y < ys[i]).length, falls = ys.length - 1 - rises;
+  return `curve ${rises > falls * 2 ? 'rising' : falls > rises * 2 ? 'falling' : 'up and down'} left→right`;
+}
+function styleOf(e: any, kind: Kind, b: Box): string {
+  const bits: string[] = [];
+  const rot = Math.round(e.rotate ?? 0); if (rot) bits.push(`rot ${rot}°`);
+  switch (kind) {
+    case 'sticky': bits.push(`fill ${hx(e.fillColor)}`); break;
+    case 'shape':
+      bits.push(`fill ${e.filled ? hx(e.fillColor) : 'none'}`, `stroke ${hx(e.strokeColor)}${e.strokeWidth ? ' ' + e.strokeWidth + 'px' : ''}${e.strokeStyle === 'dash' ? ' dashed' : ''}`);
+      if (e.radius) bits.push(`radius ${e.radius}`);
+      break;
+    case 'text': bits.push(`${hx(e.color ?? e.props?.color)}`, `${e.fontSize ?? e.props?.fontSize ?? 16}px`, `${(+(e.fontWeight ?? 400)) >= 600 ? 'bold' : 'regular'}`); break;
+    case 'connector': {
+      const p = (e.absolutePath ?? []).map((q: any) => [Math.round(q[0]), Math.round(q[1])]);
+      const ends = p.length ? `(${p[0].join(',')})→(${p[p.length - 1].join(',')})` : '';
+      const mode = ['straight', 'elbow', 'curve'][e.mode ?? 0] ?? 'line';
+      const fr = e.frontEndpointStyle && e.frontEndpointStyle !== 'None', re = e.rearEndpointStyle && e.rearEndpointStyle !== 'None';
+      bits.push(ends, mode, e.strokeStyle === 'dash' ? 'dashed' : 'solid', fr && re ? 'arrows both ends' : re ? 'arrow at end' : fr ? 'arrow at start' : 'no arrows', `${e.strokeWidth ?? 2}px ${hx(e.stroke)}`);
+      if (mode === 'elbow' && p.length > 2) bits.push('via ' + p.slice(1, -1).map((q: number[]) => `(${q.join(',')})`).join(' '));
+      break;
+    }
+    case 'drawing': case 'highlight': {
+      const raw = ((e.points ?? []) as number[][]).map(q => [b.x + q[0], b.y + q[1]]);
+      const sp = simplify(raw, Math.max(4, Math.max(b.w, b.h) * 0.03)).slice(0, 16).map(q => `(${Math.round(q[0])},${Math.round(q[1])})`);
+      bits.push(pathWords(raw), `${e.lineWidth ?? 4}px`, `path ${sp.join(' ')}`);
+      break;
+    }
+    case 'frame': bits.push(`bg ${hx(e.props?.background)}`); break;
+    case 'doc': case 'table': bits.push(`bg ${hx(e.props?.background)}`); break;
+  }
+  return bits.filter(Boolean).join(' · ');
+}
 const idOfRef = (items: Item[], ref: string) => items.find(i => i.ref === ref)?.id ?? ref;
 
 // Single-linkage: two things are together when the gap between them is small for their size.
@@ -578,7 +632,7 @@ export function toPrompt(r: Reading, opts: { maxItems?: number; textLimit?: numb
     bits.push(`@${r0(i.box.x)},${r0(i.box.y)} ${r0(i.box.w)}×${r0(i.box.h)}`);
     if (i.parent) bits.push(`in ${i.parent}`);
     if (i.author === 'ai') bits.push('by ai');
-    if (i.fontSize && i.kind === 'text') bits.push(`${i.fontSize}px`);
+    if (i.style) bits.push(`[${i.style}]`);
     let line = bits.join(' ');
     if (i.kind === 'table' && i.table) line += '\n' + i.table.map(row => '    | ' + row.map(c => clip(c, 60) || '·').join(' | ') + ' |').join('\n');
     else if (i.text) line += i.text.includes('\n') ? '\n' + clip(i.text, tl).split('\n').map(s => '    ' + s).join('\n') : ' — ' + q(clip(i.text, tl));
@@ -593,7 +647,7 @@ export function toPrompt(r: Reading, opts: { maxItems?: number; textLimit?: numb
     for (const c of lines) {
       const a = c.arrow!;
       const ends = !a.from || !a.to ? ` @${r0(c.box.x)},${r0(c.box.y)} ${r0(c.box.w)}×${r0(c.box.h)}` : '';
-      L.push(`${c.ref} ${a.from ?? '(free end)'} ${a.directed ? '→' : '—'} ${a.to ?? '(free end)'}${ends}${a.label ? ' ' + q(a.label) : ''}${c.colour && c.colour !== 'black' ? ' ' + c.colour : ''}${c.author === 'ai' ? ' by ai' : ''}`);
+      L.push(`${c.ref} ${a.from ?? '(free end)'} ${a.directed ? '→' : '—'} ${a.to ?? '(free end)'}${ends}${a.label ? ' ' + q(a.label) : ''}${c.author === 'ai' ? ' by ai' : ''} [${c.style}]`);
     }
   }
   if (r.chains.length) {
