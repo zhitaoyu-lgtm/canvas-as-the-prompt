@@ -6,8 +6,10 @@ const KEY = 'cx:comments';
 type C = { on: string; text: string; at: number };
 const mapOf = (store: any) => store?.spaceDoc?.getMap?.(KEY) ?? store?.doc?.spaceDoc?.getMap?.(KEY);
 
+// bookkeeping is not worth a comment (missing year / author / format, "no source")
+const CHORE = /\b(missing|no (year|author|date|source|link)|lacks?|format(ting)?|typo)\b|缺(少)?(年份|作者|日期|来源|链接)|格式/i;
 export function addComment(store: any, on: string, text: string) {
-  const m = mapOf(store); if (!m) return;
+  const m = mapOf(store); if (!m || !text.trim() || CHORE.test(text)) return;
   const id = 'c' + Math.random().toString(36).slice(2, 9);
   m.set(id, { on, text, at: Date.now() } as C);
 }

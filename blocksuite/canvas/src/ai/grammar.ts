@@ -54,7 +54,9 @@ Answer with a list of actions. Use only these parts; combine them freely. Refer 
 {"do":"ref", "from":"card-name", "to":"t27", "label":"依据 / evidence for"}   a quiet dashed line from your new thing to the user's thing it builds on
 {"do":"pair", "pairs":[["n1","card-a"],["t27","card-b"]]}   the same small number on both ends of each pair: a link without a line (use when lines would cross)
 {"do":"frame", "refs":["s1","s2"], "title":"…"}            name a set by wrapping it
-{"do":"note", "on":"s2", "text":"short remark"}             a comment pin on that thing (opens on click), for a remark only it needs; few
+{"do":"note", "on":"s2", "text":"short remark"}             a comment pin on that thing (opens on click). Only for an insight: a link or tension
+                                                              with something else on the board, a conflict with the persona or goal, a non-obvious
+                                                              implication. Never bookkeeping (missing year, author, format) or a restatement. At most 2.
 {"do":"tag", "refs":["s1","s3"], "text":"Pain point", "colour":"red"}   a colour dot on the corner of each thing; the text goes once into a Key card
                                                               beside them (never written on the thing). Use sparingly: only when the colour carries a
                                                               category the user will scan for (pain / hope, must / nice). Prefer comments or a new sticky
