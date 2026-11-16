@@ -32,7 +32,7 @@ export const TYPE = { caption: 12, small: 14, body: 16, title: 20, heading: 28 }
 export const FONT = 'blocksuite:surface:Inter';
 export const RADIUS = { sticky: 0.04, card: 16, section: 12, pill: 0.5 } as const;
 export const SHADOW = {
-  sticky: { blur: 8, offsetX: 0, offsetY: 3, color: 'rgba(0,0,0,0.10)' },
+  sticky: { blur: 6, offsetX: 0, offsetY: 2, color: 'rgba(0,0,0,0.06)' },
   card: '--affine-note-shadow-box',
 } as const;
 export const SIZE = { sticky: 184, stickySmall: 120, gap: 40, grid: 8 } as const;

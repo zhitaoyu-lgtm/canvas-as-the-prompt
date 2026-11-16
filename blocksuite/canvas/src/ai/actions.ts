@@ -55,14 +55,17 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
 
   // what is used where: the user's own hex for a colour name wins over the default palette
   const userHex = new Map<string, string>();
-  for (const c of reading.colours) if (c.hex?.length) userHex.set(base(c.colour), c.hex[0]);
+  // the user's own shade of a hue, for stickies; pale container tints are not a sticky colour (a sticky in
+  // the tint of its own section would vanish)
+  const pale = (h: string) => { const m = /^#?([0-9a-f]{6})/i.exec(h); if (!m) return true; const n = parseInt(m[1], 16); return Math.min((n >> 16) & 255, (n >> 8) & 255, n & 255) > 215; };
+  for (const c of reading.colours) { const h = (c.hex ?? []).find(x => !pale(x)); if (h) userHex.set(base(c.colour), h); }
   const fillOf = (c?: string) => !c ? undefined : c.startsWith('#') ? c : userHex.get(base(c)) ?? STICKY[base(c)] ?? STICKY.yellow;
   const inkOf = (c?: string) => !c ? undefined : c.startsWith('#') ? c : INK[base(c)] ?? INK.black;
 
   const item = (ref?: string): Item | undefined => (ref ? reading.byRef.get(ref) : undefined);
   const boxOfRef = (ref?: string): Box | undefined => {
     if (!ref) return;
-    const n = named.get(ref); if (n) return n.box;
+    const n = named.get(ref); if (n) { const el: any = gfx.getElementById(n.id); return el ? { ...el.elementBound } : n.box; }
     const it = item(ref); if (it) { const el = gfx.getElementById(it.id); return el ? { ...el.elementBound } : it.box; }
     const g = reading.groups.find(g => g.ref === ref); if (g) return g.box;
     const st = reading.structures.find(x => x.ref === ref); if (st) return st.box;
@@ -173,7 +176,10 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
         const pad = 32;
         for (let y = f.y + pad + 24; y + h <= f.y + f.h - pad / 2; y += 24)
           for (let x = f.x + pad; x + w <= f.x + f.w - pad / 2; x += 24) { const b = { x, y, w, h }; if (free(b)) return b; }
-        return walk({ x: f.x, y: f.y + f.h, w: f.w, h: 0 }, 'below', 24);
+        // too big for the frame: start at its top-left, under whatever is already inside; the frame grows to fit
+        const inside = reading.items.filter(i => i.kind !== 'frame' && i.box.x >= f.x - 2 && i.box.y >= f.y - 2 && i.box.x + i.box.w <= f.x + f.w + 2 && i.box.y + i.box.h <= f.y + f.h + 2);
+        const y0 = inside.length ? Math.max(...inside.map(i => i.box.y + i.box.h)) + 32 : f.y + pad;
+        return { x: f.x + pad, y: y0, w, h };
       }
     }
     if (p.at) return { x: p.at[0], y: p.at[1], w, h };
@@ -426,6 +432,18 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       created.push(id);
     });
   }
+  // the same small number on a new thing and the user's thing it answers: a link without a line
+  function pair(a: Action) {
+    (a.pairs ?? []).forEach((pr: string[], i: number) => {
+      for (const ref of pr) {
+        const b = boxOfRef(ref); if (!b) { errors.push(`pair: unknown ${ref}`); continue; }
+        const t = new Y.Text(); t.insert(0, String((a.start ?? 1) + i));
+        const id = addEl({ type: 'shape', shapeType: 'ellipse', index: top(), xywh: xywh({ x: b.x + b.w - 11, y: b.y - 9, w: 20, h: 20 }), filled: true, fillColor: '#ffffff', strokeColor: LINE.color, strokeWidth: 1,
+          color: LINE.color, fontSize: 11, fontWeight: '600', fontFamily: 'blocksuite:surface:Inter', textAlign: 'center', textHorizontalAlign: 'center', textVerticalAlign: 'center', padding: [0, 0], text: t });
+        created.push(id);
+      }
+    });
+  }
   // place things by value on a chart / 2×2: x 0→1 left→right, y 0→1 bottom→top
   function plot(a: Action) {
     const st = reading.structures.find(x => x.ref === a.chart); if (!st) { errors.push(`plot: unknown ${a.chart}`); return; }
@@ -641,7 +659,17 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   const stickySize = (() => { const st = reading.items.filter(i => i.kind === 'sticky').map(i => i.box.w).sort((a, b) => a - b); return st.length ? st[st.length >> 1] : 184; })();
   const P = (text: string, attrs?: any) => new Text(attrs ? [{ insert: text, attributes: attrs }] as any : text);
 
+  // Build where the user is looking: AFFiNE only renders notes inside the viewport, and a note that is not
+  // rendered keeps its placeholder height, so cards built off-screen were laid out too short (they then
+  // overflowed their sections). Everything is moved to its real place right after.
+  const STAGE = (() => { const vb = gfx.viewport.viewportBounds; return { x: Math.round(vb.x + vb.w * 0.3), y: Math.round(vb.y + vb.h * 0.3) }; })();
+  // items inside a section can be named, so a later line or badge can point at them
   async function buildItem(it: any, links: Map<string, any>): Promise<N | null> {
+    const n = await buildItem0(it, links);
+    if (n?.id && it?.name) named.set(String(it.name), { id: n.id, box: { x: 0, y: 0, w: n.w, h: n.h } });
+    return n;
+  }
+  async function buildItem0(it: any, links: Map<string, any>): Promise<N | null> {
     const k = it.kind ?? (it.url ? 'link' : it.items ? 'section' : it.title ? 'card' : 'sticky');
     if (k === 'section') return buildSection(it, links);
     if (k === 'sticky') {
@@ -666,7 +694,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
         const blob = await (await fetch(it.url)).blob(); if (!blob.type.startsWith('image/')) throw 0;
         const sourceId = await store.blobSync.set(blob);
         const bmp = await createImageBitmap(blob); const w = 300, h = Math.round(300 * bmp.height / bmp.width);
-        const id = store.addBlock('affine:image', { sourceId, xywh: xywh({ x: 0, y: 0, w, h }), width: bmp.width, height: bmp.height, caption: it.caption ?? null, index: nextTop() } as any, surf.id);
+        const id = store.addBlock('affine:image', { sourceId, xywh: xywh({ ...STAGE, w, h }), width: bmp.width, height: bmp.height, caption: it.caption ?? null, index: nextTop() } as any, surf.id);
         created.push(id); return { kind: k, id, w, h, spec: it };
       } catch { errors.push(`image: could not load ${it.url}`); return null; }
     }
@@ -675,7 +703,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       const desc = [it.meta ?? it.source, it.note ?? it.description ?? pv.description].filter(Boolean).join('\n') || null;
       rememberLink(it.url, { title: it.title ?? pv.title, description: desc });
       const id = store.addBlock('affine:bookmark', { url: it.url, style: 'vertical', title: it.title ?? pv.title ?? null, description: desc,
-        image: pv.image, icon: pv.icon ?? null, xywh: xywh({ x: 0, y: 0, w: 300, h: 330 }), index: nextTop() } as any, surf.id);
+        image: pv.image, icon: pv.icon ?? null, xywh: xywh({ ...STAGE, w: 300, h: 330 }), index: nextTop() } as any, surf.id);
       created.push(id); return { kind: k, id, w: 300, h: 330, spec: it };
     }
     if (k === 'panel') return buildPanel(it);
@@ -686,7 +714,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       containers.add(it.ref);
       return { kind: 'ref', id, w: el.elementBound.w, h: el.elementBound.h, spec: it };
     }
-    const noteCard = (w: number) => store.addBlock('affine:note', { xywh: xywh({ x: 0, y: 0, w, h: 80 }), background: '#ffffff', index: nextTop(),
+    const noteCard = (w: number) => store.addBlock('affine:note', { xywh: xywh({ ...STAGE, w, h: 80 }), background: '#ffffff', index: nextTop(),
       edgeless: { style: CARD_STYLE } } as any, store.root.id);
     const gray = { color: 'var(--affine-text-secondary-color)' };
     if (k === 'metric') {      // a number that matters: label, big value, change, one line of context
@@ -723,7 +751,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     }
     // card (also a link card without a picture): a white note with meta, title, body
     const w = it.kind === 'summary' || it.span === 'full' ? (it._fullW ?? 632) : it.wide ? 420 : 300;
-    const id = store.addBlock('affine:note', { xywh: xywh({ x: 0, y: 0, w, h: 80 }), background: '#ffffff', index: nextTop(),
+    const id = store.addBlock('affine:note', { xywh: xywh({ ...STAGE, w, h: 80 }), background: '#ffffff', index: nextTop(),
       edgeless: { style: CARD_STYLE } } as any, store.root.id);
     const meta = it.meta ?? it.source ?? (it.url ? domain(it.url) : '');
     if (meta) store.addBlock('affine:paragraph', { text: P(String(meta), { color: 'var(--affine-text-secondary-color)' }) }, id);
@@ -941,11 +969,14 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const down = a.direction === 'down';
     // layers: longest path from the sources (back edges ignored)
     const layer = new Map<string, number>(); nodes.forEach(n => layer.set(n.id, 0));
+    const order = new Map(nodes.map((n, i) => [n.id, i]));
     for (let pass = 0; pass < nodes.length; pass++) for (const e of edges) {
+      if ((order.get(e.to) ?? 0) <= (order.get(e.from) ?? 0)) continue;   // a loop back (e.g. "no → try again") does not push layers
       const lf = layer.get(e.from), lt = layer.get(e.to); if (lf == null || lt == null) continue;
       if (lt < lf + 1 && lf + 1 < nodes.length) layer.set(e.to, lf + 1);
     }
     const layers: any[][] = []; for (const n of nodes) (layers[layer.get(n.id)!] ??= []).push(n);
+    for (let i = layers.length - 1; i >= 0; i--) if (!layers[i]) layers.splice(i, 1);
     // keep zones together inside a layer
     layers.forEach(l => l.sort((p, q) => String(p.zone ?? '').localeCompare(String(q.zone ?? ''))));
     const GAPL = 168, GAPN = 48;
@@ -997,7 +1028,8 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     await frame2();
     for (const e of edges) {
       if (!idOfNode.has(e.from) || !idOfNode.has(e.to)) continue;
-      const cid = connect({ do: 'connect', from: e.from, to: e.to, label: e.label, dashed: e.dashed || e.style === 'dashed', both: e.both });
+      const back = (order.get(e.to) ?? 0) <= (order.get(e.from) ?? 0);   // loops back arc away instead of running over the forward line
+      const cid = connect({ do: 'connect', from: e.from, to: e.to, label: e.label, dashed: e.dashed || e.style === 'dashed', both: e.both, curve: back });
       if (cid) ids.push(cid);
     }
     if (a.title) { const t = new Y.Text(); t.insert(0, String(a.title)); const tid = addEl({ type: 'text', xywh: xywh({ x: box.x + pad, y: box.y + pad - 8, w: textWidth(String(a.title), TYPE.heading) * 1.1 + 8, h: 40 }), text: t, color: TEXT.ink, fontSize: TYPE.heading, fontWeight: '700', fontFamily: 'blocksuite:surface:Inter' }); created.push(tid); ids.push(tid); }
@@ -1035,6 +1067,8 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
         case 'move': move(a); break;
         case 'arrange': arrange(a); break;
         case 'connect': connect(a); break;
+        case 'ref': connect({ ...a, dashed: a.dashed ?? true, curve: a.curve ?? true }); break;
+        case 'pair': pair(a); break;
         case 'frame': addFrame(a, a.refs ?? [], a.title ?? ''); break;
         case 'note': note(a); break;
         case 'legend': legend(a); break;

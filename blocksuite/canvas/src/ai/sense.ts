@@ -13,6 +13,7 @@ import { Text } from '@blocksuite/affine/store';
 import { generateKeyBetween } from '@blocksuite/affine/std/gfx';
 import { ask, online, parseAnswer } from './model';
 import { readBoard, toPrompt, type Box, type Item, type Reading } from './reading';
+import { addComment, removeCommentsOn } from './comments';
 
 const STABLE_MS = 1800, POLL_MS = 600, NEAR = 48;
 const DEFAULT_FRAME = /^(frame|section|untitled)(\s*\d+)?$/i;
@@ -142,33 +143,45 @@ export function mountSense(rootEl: any) {
       task = `The user drew a section and named it "${intent.title}". Pick the things on the board, outside it, that belong in it.`;
     } else if (intent.type === 'group') {
       exclude = new Set([intent.anchor.id, ...intent.members.map(m => m.id)]);
-      task = `The user put a sticky "${intent.anchor.text.trim()}" (${intent.anchor.ref}) in open space and set ${intent.members.map(m => m.ref).join(', ')} beside it: it is now a category. Pick the other things on the board that belong with it.`;
+      task = `The user put a sticky "${intent.anchor.text.trim()}" (${intent.anchor.ref}) in open space and set ${intent.members.map(m => m.ref).join(', ')} beside it. The sticky names a topic, and what sits beside it is material on that topic. Gather more for this topic to sit beside it: things already on the board (refs) and literature or cases on the topic (found). Then sort the rest of the board the same way: propose other topics (more), each a short sticky title with its own refs and found, so every loose thing ends up in some topic.`;
     } else {
       exclude = new Set(intent.marks.flatMap(l => [l.host.id, l.mark.id]));
-      task = `The user marked ${intent.marks.map(l => l.host.ref).join(', ')} with the same mark (${intent.label}): it labels them as one kind. Pick the other things on the board that deserve the same mark.`;
+      task = `The user marked ${intent.marks.map(l => l.host.ref).join(', ')} with the same mark (${intent.label}): it labels them as one kind. Work out what they have in common, then pick the other things on the board that deserve the same mark, each with a one-line reason.`;
     }
+    const foundRule = online()
+      ? 'real sources you verified with search, with their real URL'
+      : 'only well-known, real works you are sure of (classic papers, books, products), with venue · year · authors; leave url out (you cannot browse here; never invent a work)';
     const sys = `You help someone sort material on a whiteboard. They set up a category with space alone (a named section, a sticky with things beside it, or a repeated mark); you decide what else belongs.
-Answer with JSON only: {"refs":["s3","n2"],"found":[{"title":"…","meta":"venue · year · authors","summary":"one line","url":"https://…"}],"why":"one short line"}
-- refs: things already on the board that clearly belong. Judge by their words and pictures, not by position. At most 8. Never refs that are marks, frames or lines, never the ones listed as already in.
-- found: ${online() ? 'up to 2 real sources from the web that belong, only ones you verified with search, with their real URL' : 'always [] (you cannot browse here; never invent sources)'}.
-- Few and right beats many: if nothing fits, return {"refs":[],"found":[]}.`;
+Answer with JSON only:
+{"refs":[{"ref":"s3","why":"one short line"}],"found":[{"title":"…","meta":"venue · year · authors","summary":"one line on why it matters here","url":"https://… (optional)"}],
+ "more":[{"title":"2–4 word topic","refs":["n4"],"found":[…]}]}
+- refs: things already on the board that clearly belong. Judge by their words and pictures, not by position. At most 8. Never refs that are marks, frames or lines, never the ones listed as already in. "why" says in a few words what ties it to the category, in the user's language.
+- found: up to ${intent.type === 'mark' ? 0 : 3}; ${foundRule}. In the language the board uses for its titles.
+- more: ${intent.type === 'group' ? 'up to 4 other topics that sort the remaining loose things on the board (each ref appears once overall); 1–2 found each' : 'always []'}.
+- Few and right beats many: if nothing fits, return {"refs":[],"found":[],"more":[]}.`;
     const user = `BOARD\n${reading}\n\nCATEGORY\n${task}\nAlready in it: ${[...exclude].map(refOf).filter(Boolean).join(', ') || 'nothing'}`;
     const mock = (window as any).cxMockSense;
     const raw = mock ? (typeof mock === 'function' ? await mock(intent, user) : mock) : await ask(sys, user);
     const ans = typeof raw === 'string' ? parseAnswer(raw) : raw;
     dev.log.unshift({ intent: intent.key, task, answer: ans }); dev.log.length = Math.min(dev.log.length, 10);
-    const picks: Item[] = (ans.refs ?? []).map((x: string) => r.byRef.get(String(x))).filter((i: Item | undefined): i is Item =>
-      !!i && !exclude.has(i.id) && !['frame', 'connector', 'group'].includes(i.kind) && !r.relations.attached.has(i.ref));
-    const found: any[] = Array.isArray(ans.found) ? ans.found.slice(0, 2) : [];
-    if (!picks.length && !found.length) return;
+    const used = new Set<string>(exclude);
+    const take = (list: any[]): { it: Item; why: string }[] => (list ?? []).map((x: any) => {
+      const ref = typeof x === 'string' ? x : x?.ref; const it = r.byRef.get(String(ref));
+      if (!it || used.has(it.id) || ['frame', 'connector', 'group'].includes(it.kind) || r.relations.attached.has(it.ref)) return null;
+      used.add(it.id); return { it, why: typeof x === 'string' ? '' : String(x?.why ?? '') };
+    }).filter(Boolean) as any;
+    const picks = take(ans.refs);
+    const found: any[] = Array.isArray(ans.found) ? ans.found.slice(0, 3) : [];
+    const more = intent.type === 'group' && Array.isArray(ans.more) ? ans.more.slice(0, 4).map((m: any) => ({ title: String(m.title ?? '').trim(), picks: take(m.refs), found: Array.isArray(m.found) ? m.found.slice(0, 2) : [] })).filter((m: any) => m.title && (m.picks.length || m.found.length)) : [];
+    if (!picks.length && !found.length && !more.length) return;
     store.captureSync();
-    const made = intent.type === 'mark' ? placeMarks(intent, picks) : placeCopies(intent, picks, found, r);
+    const made = intent.type === 'mark' ? placeMarks(intent, picks) : intent.type === 'group' ? placeGroup(intent, picks.map(p => p.it), found, more, r) : placeCopies(intent, picks.map(p => p.it), found, r);
     store.captureSync();
     if (made.ids.length) pending = new Pending(rootEl, made, intent, () => { pending = null; rebase(); });
   }
 
   // ── placing: copies in a grid inside the section, or close beside the group ──
-  type Made = { ids: string[]; restore?: () => void; label: string };
+  type Made = { ids: string[]; restore?: () => void; label: string; onKeep?: () => void; notes?: readonly (readonly [string, string])[] };
   function placeCopies(intent: Intent, picks: Item[], found: any[], r: Reading): Made {
     const sizes = picks.map(p => p.box);
     const foundW = 260;
@@ -205,7 +218,37 @@ Answer with JSON only: {"refs":["s3","n2"],"found":[{"title":"…","meta":"venue
     return { ids, restore, label: `${n} ${label}` };
   }
 
-  function placeMarks(intent: Extract<Intent, { type: 'mark' }>, picks: Item[]): Made {
+  // A topic sticky with its material: more of the same right beside it, then the rest of the board sorted
+  // into new topics laid out the same way underneath (a new sticky, its things to the right).
+  function placeGroup(intent: Extract<Intent, { type: 'group' }>, picks: Item[], found: any[], more: { title: string; picks: { it: Item }[]; found: any[] }[], r: Reading): Made {
+    const GAP = 16, CARD = 260;
+    const a = intent.anchor, cl = union([a.box, ...intent.members.map(m => m.box)]);
+    const sz = (list: Item[], f: any[]) => [...list.map(p => ({ w: p.box.w, h: p.box.h })), ...f.map(() => ({ w: CARD, h: 140 }))];
+    const W = Math.max(3 * CARD + 2 * GAP, cl.w - a.box.w - GAP);
+    const ids: string[] = [];
+    const lay = (list: Item[], f: any[], x0: number, y0: number) => {
+      const spots = flow(sz(list, f), x0, y0, W, GAP);
+      list.forEach((p, i) => { const id = duplicate(p.id, spots[i]); if (id) ids.push(id); });
+      f.forEach((s0, i) => ids.push(sourceCard(s0, spots[list.length + i])));
+      return spots.length ? Math.max(...spots.map(b => b.y + b.h)) : y0;
+    };
+    // 1 · more for the user's own topic: next to what they already put there
+    let bottom = cl.y + cl.h;
+    if (picks.length || found.length) bottom = Math.max(bottom, lay(picks, found, cl.x + cl.w + GAP, cl.y));
+    // 2 · the other topics, one row each, starting under the user's
+    let y = bottom + 56;
+    for (const m of more) {
+      const sid = duplicate(a.id, { x: a.box.x, y, w: a.box.w, h: a.box.h }, m.title);
+      if (sid) ids.push(sid);
+      const end = lay(m.picks.map(p => p.it), m.found, a.box.x + a.box.w + GAP, y);
+      y = Math.max(end, y + a.box.h) + 48;
+    }
+    const n = picks.length + found.length;
+    return { ids, label: `${n} for “${a.text.trim()}”` + (more.length ? ` · ${more.length} more topics` : '') };
+  }
+
+  function placeMarks(intent: Extract<Intent, { type: 'mark' }>, picksWhy: { it: Item; why: string }[]): Made {
+    const picks = picksWhy.map(p => p.it);
     const { mark, host } = intent.marks[intent.marks.length - 1];
     // keep the mark's relation to its host's nearest corner
     const right = mark.box.x + mark.box.w / 2 > host.box.x + host.box.w / 2, bottom = mark.box.y + mark.box.h / 2 > host.box.y + host.box.h / 2;
@@ -216,6 +259,9 @@ Answer with JSON only: {"refs":["s3","n2"],"found":[{"title":"…","meta":"venue
       const x = (right ? p.box.x + p.box.w : p.box.x) + dx, y = (bottom ? p.box.y + p.box.h : p.box.y) + dy;
       const id = duplicate(mark.id, { x, y, w: mark.box.w, h: mark.box.h }); if (id) ids.push(id);
     }
+    // why each one got the mark: a comment pin on the new mark, opened with a click
+    const notes = picksWhy.map((p, i) => [ids[i], p.why] as const).filter(([id, why]) => id && why);
+    notes.forEach(([id, why]) => addComment(store, id, why));   // shown at once, so the reason is there before deciding
     return { ids, label: `${ids.length} more get ${intent.label}` };
   }
 
@@ -234,13 +280,13 @@ Answer with JSON only: {"refs":["s3","n2"],"found":[{"title":"…","meta":"venue
   };
   const cloneVal = (v: any): any => v instanceof Text ? new Text(v.toDelta() as any) : v instanceof Y.Text ? (() => { const t = new Y.Text(); t.insert(0, v.toString()); return t; })() : v && typeof v === 'object' && !Array.isArray(v) && v.constructor === Object ? JSON.parse(JSON.stringify(v)) : Array.isArray(v) ? JSON.parse(JSON.stringify(v)) : v;
 
-  function duplicate(id: string, at: Box): string | null {
+  function duplicate(id: string, at: Box, text?: string): string | null {
     const el: any = gfx.getElementById(id); if (!el) return null;
     if (!el.flavour) {                                   // a surface element: shape, text, brush …
       const src = el.serialize ? el.serialize() : {};
       const props: any = {};
       for (const [k, v] of Object.entries(src)) if (!['id', 'index', 'seed'].includes(k)) props[k] = v;
-      if (el.text) { const t = new Y.Text(); t.insert(0, str(el.text)); props.text = t; }
+      if (el.text || text) { const t = new Y.Text(); t.insert(0, text ?? str(el.text)); props.text = t; }
       props.xywh = xywh(at); props.index = nextTop();
       try { return surf.addElement(props); } catch (e) { console.warn('[sense] copy', e); return null; }
     }
@@ -285,7 +331,7 @@ class Pending {
   private bar = document.createElement('div');
   private raf = 0;
   private spread: boolean;
-  constructor(private rootEl: any, private made: { ids: string[]; restore?: () => void; label: string }, intent: Intent, private done: () => void) {
+  constructor(private rootEl: any, private made: { ids: string[]; restore?: () => void; label: string; onKeep?: () => void; notes?: readonly (readonly [string, string])[] }, intent: Intent, private done: () => void) {
     // marks are scattered over the user's things: each copy fades on its own and only the bar carries the dots
     this.spread = intent.type === 'mark';
     this.ring.className = 'cx-sense-ring';
@@ -314,15 +360,17 @@ class Pending {
     if (this.spread) bs.forEach((b, i) => this.veils[i] && set(this.veils[i], this.screen(b, 2)));
     else { set(this.veils[0], u); set(this.ring, u); }
     const bw = this.bar.offsetWidth || 220;
-    Object.assign(this.bar.style, { left: Math.max(8, u.L + u.W - bw) + 'px', top: (u.T + u.H + 10) + 'px' });
+    if (this.spread) { const l = this.screen(bs[bs.length - 1], 2); Object.assign(this.bar.style, { left: (l.L + l.W + 10) + 'px', top: (l.T + l.H / 2 - 17) + 'px' }); }   // beside the last new mark
+    else Object.assign(this.bar.style, { left: Math.max(8, u.L + u.W - bw) + 'px', top: (u.T + u.H + 10) + 'px' });
   }
   private close() { cancelAnimationFrame(this.raf); this.veils.forEach(v => v.remove()); this.ring.remove(); this.bar.remove(); }
-  keep() { this.close(); this.done(); }
+  keep() { this.close(); this.made.onKeep?.(); this.done(); }
   drop() {
     const store = this.rootEl.std.store, g = this.rootEl.gfx;
     store.captureSync();
     for (const id of this.made.ids) { const el: any = g.getElementById(id); if (!el) continue; if (el.flavour) store.deleteBlock(store.getBlock(id)!.model); else g.surface.deleteElement(id); }
     this.made.restore?.();
+    removeCommentsOn(store, this.made.ids);
     store.captureSync();
     this.close(); this.done();
   }

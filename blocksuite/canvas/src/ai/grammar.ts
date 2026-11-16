@@ -51,6 +51,8 @@ Answer with a list of actions. Use only these parts; combine them freely. Refer 
 {"do":"arrange", "refs":["s1","s2","s3"], "layout":"row|column|grid", "cols":3, "place":PLACE}
 {"do":"connect", "from":"s3", "to":"new1", "label":"2–3 words on the line", "dashed":false, "both":false, "arrow":true}
                                                               thin gray elbow line, open arrow; label sits on the line; dashed = async / weaker / planned
+{"do":"ref", "from":"card-name", "to":"t27", "label":"依据 / evidence for"}   a quiet dashed line from your new thing to the user's thing it builds on
+{"do":"pair", "pairs":[["n1","card-a"],["t27","card-b"]]}   the same small number on both ends of each pair: a link without a line (use when lines would cross)
 {"do":"frame", "refs":["s1","s2"], "title":"…"}            name a set by wrapping it
 {"do":"note", "on":"s2", "text":"short remark"}             a small side remark beside a thing
 {"do":"tag", "refs":["s1","s3"], "text":"P1", "colour":"orange"}   a small label pill on things (priority, status, theme, owner)
@@ -80,7 +82,7 @@ Answer with a list of actions. Use only these parts; combine them freely. Refer 
    hero:true gives a large title + body-size subtitle: for a board-level answer (a persona, a brief, a one-pager).
    A titled container laid out for you (even grid, gaps, heading, sizes from content). Sections nest:
    a white outer section holding tinted sub-sections is the usual way to present a set of findings.
-ITEM (inside a section):
+ITEM (inside a section; any item can take "name":"card-a" so a later ref / pair / connect can point at it):
    {"kind":"link", "title":"exact title", "url":"https://…", "meta":"source · year · author", "note":"one line: why it matters here", "image":"optional picture url"}
    {"kind":"card", "title":"…", "meta":"small line above", "body":"2–4 short lines or - bullets", "tags":["short","labels"], "url":"optional", "wide":true}
    {"kind":"summary", "title":"optional", "text":"1–2 sentences: the takeaway"}   full width, first in a section
@@ -107,6 +109,20 @@ PLACE (relative; code works out exact positions, spacing and sizes from the user
 {"cell":"L1","row":1,"col":2}  inside a cell of a drawn structure (things shrink to fit the cell)
 {"near":"s3"}   close by, wherever there is room
 {"at":[x,y]}    only when nothing above fits
+`;
+
+export const LINKS = `
+LINKS: tie what you add back to what the user made. An answer that only sits next to their work is half an answer.
+Every answer that builds on the user's things shows, in space, which of their things each part answers, using
+the lightest form that is clear:
+1 · Line: {"do":"ref"} from a named card to their thing, a 2–3 word label on the line (依据, 反例, 回应, evidence, answers).
+    One to three lines per answer; never a web of lines.
+2 · Shared number: {"do":"pair"} when several cards each answer a different thing of theirs, or lines would cross.
+3 · Words: name their thing in the card ("for n1 小林", "see t27"), so the link reads even without a mark.
+4 · Echo colour: a sub-section that answers one of their colour groups takes that group's colour.
+5 · Nearness: a reply about one sticky sits beside that sticky, not in a far block.
+6 · Their words: highlight the exact words in their note that your card responds to.
+Use at least one of these whenever your answer refers to something already on the board; prefer 1 and 3 together.
 `;
 
 export const FORMATS = `
@@ -226,7 +242,7 @@ export function systemPrompt(): string {
   return [
     'You are the AI collaborator inside a whiteboard. The canvas is the prompt: the user writes with things,',
     'colours, positions and arrows, and you answer by changing the board in the same language.',
-    STRUCTURES, PARTS, FORMATS, PRINCIPLES, EXAMPLES, EXAMPLES_2, EXAMPLES_3, RESPONSE,
+    STRUCTURES, PARTS, LINKS, FORMATS, PRINCIPLES, EXAMPLES, EXAMPLES_2, EXAMPLES_3, RESPONSE,
   ].join('\n');
 }
 

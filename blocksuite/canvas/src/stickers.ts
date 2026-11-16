@@ -4,7 +4,7 @@
 
 import { EdgelessTemplatePanel } from '@blocksuite/affine/gfx/template';
 
-import { builtInTemplates } from '@affine/templates/edgeless';
+import { TEMPLATE_CATEGORIES, insertTemplate, panelEntries } from './templates';
 
 const files = import.meta.glob('./assets/stamps/*.webp', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
 
@@ -45,18 +45,29 @@ const stickers = () => (stickerModule ??= import('@affine/templates/stickers').t
 const reactions = () => STAMPS.map(s => stickerTemplate(s.name, s.url));
 const match = (q: string, name: string) => name.toLowerCase().includes(q.trim().toLowerCase());
 
-// Template library order: templates first, then stickers.
-EdgelessTemplatePanel.templates.extend(builtInTemplates as any);
+// Template library order: our templates first (one family, one style), then stickers.
+// AFFiNE's own templates are left out: their colours and type don't match the rest of the board.
+let host: any = null;
+export function setTemplateHost(rootEl: any) { host = rootEl; }
+const proto: any = (EdgelessTemplatePanel as any).prototype;
+const origInsert = proto._insertTemplate;
+proto._insertTemplate = async function (template: any, bound: any) {
+  if (!template?.cxTemplate || !host) return origInsert.call(this, template, bound);
+  try { await insertTemplate(host, template.cxTemplate, { x: bound.x + bound.w / 2, y: bound.y + bound.h / 2 }); }
+  finally { try { this.gfx.tool.setTool({ toolName: 'default' }); } catch { /* tool already reset */ } }
+};
 EdgelessTemplatePanel.templates.extend({
-  categories: async () => [REACTIONS, ...STICKER_PACKS],
+  categories: async () => [...TEMPLATE_CATEGORIES, REACTIONS, ...STICKER_PACKS],
   list: async (cate: string) => {
+    if (TEMPLATE_CATEGORIES.includes(cate)) return panelEntries(cate) as any;
     if (cate === REACTIONS) return reactions() as any;
     if (STICKER_PACKS.includes(cate)) return (await stickers()).list(cate);
     return [];
   },
   search: async (q: string) => {
     if (!q.trim()) return [];
-    const own = reactions().filter(t => match(q, t.name));
+    const own = [...panelEntries().filter(t => match(q, t.name)), ...reactions().filter(t => match(q, t.name))];
     return [...own, ...((await (await stickers()).search(q)) as any[])] as any;
   },
 } as any);
+(window as any).cxTemplates = { insert: (id: string, x: number, y: number) => host && insertTemplate(host, id, { x, y }) };

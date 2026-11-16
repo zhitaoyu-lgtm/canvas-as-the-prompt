@@ -20,6 +20,8 @@ import { mountToolbar } from './toolbar';
 import { mountInspector } from './ai/inspect';
 import { mountDemos } from './ai/demo';
 import { mountSense } from './ai/sense';
+import { setTemplateHost } from './stickers';
+import { mountComments } from './ai/comments';
 import { createAssistant } from './ai/assistant';
 import { linkPreviewExtension } from './ai/links';
 import { ImageProxyService } from '@blocksuite/affine/shared/adapters';
@@ -82,10 +84,14 @@ async function main() {
   const rootEl = await waitRoot();
   try { rootEl.std.store.get(ImageProxyService).setImageProxyURL(''); } catch { /* older store */ }
   await mountToolbar(rootEl);
-  mountAiBar(rootEl, createAssistant(rootEl));
+  const assistant = createAssistant(rootEl);
+  mountAiBar(rootEl, assistant);
+  (window as any).cxAsk = (req: string) => assistant(req, (rootEl.gfx.selection.selectedElements as any[]).map(e => e.id));   // dev: ask without the bar
   mountInspector(rootEl);
   mountDemos(rootEl);
   mountSense(rootEl);
+  setTemplateHost(rootEl);
+  mountComments(rootEl);
   (window as any).editor = editor; (window as any).collection = collection; (window as any).cxDev = { Text, Y: Y.Text, rootEl };
 }
 

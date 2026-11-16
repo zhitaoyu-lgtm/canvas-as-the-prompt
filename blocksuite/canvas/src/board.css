@@ -98,7 +98,7 @@ edgeless-toolbar-widget { display: none !important; }
 affine-tooltip, .affine-tooltip { display: none !important; }
 
 /* Doc note card (Figma scenario "Semantic Representation"): soft drop shadow */
-:root { --affine-note-shadow-box: 0 4px 7px rgba(0, 0, 0, 0.12); }
+:root { --affine-note-shadow-box: 0 0 0 .5px rgba(0, 0, 0, .06), 0 1px 2px rgba(0, 0, 0, .04), 0 3px 10px rgba(0, 0, 0, .04); }
 
 /* Sticky drag-out ghost */
 .cx-ghost {
@@ -215,9 +215,6 @@ affine-link-preview-details { display: none !important; }
 /* equal-height cards keep their height quietly: no collapse chevron */
 [data-testid="edgeless-note-collapse-button"] { display: none !important; }
 
-/* Selection in light gray, like the sorting sketch: the selected-rect, its handles and resize dots */
-edgeless-selected-rect { --affine-blue: #c7c7cc; --affine-primary-color: #c7c7cc; }
-
 /* Spatial intent: a set of copies waiting for one decision */
 .cx-sense-veil { position: fixed; z-index: 30; pointer-events: none; background: rgba(255,255,255,.5); border-radius: 14px; }
 .cx-sense-ring { position: fixed; z-index: 31; pointer-events: none; border: 1px solid rgba(30,136,229,.42); border-radius: 14px; }
@@ -229,3 +226,18 @@ edgeless-selected-rect { --affine-blue: #c7c7cc; --affine-primary-color: #c7c7cc
   box-shadow: 0 4px 12px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.08), 0 0 .5px rgba(0,0,0,.18); }
 .cx-sense-bar button { width: 26px; height: 26px; border-radius: 50%; border: 1px solid #e6e6e6; background: #fff; display: grid; place-items: center; cursor: pointer; padding: 0; }
 .cx-sense-bar button.ok { background: #1d1d1f; border-color: #1d1d1f; }
+
+/* Comment pins (Figma-like): a bubble with a square bottom-left corner; click to read why */
+.cx-pins { position: fixed; inset: 0; pointer-events: none; z-index: 33; }
+.cx-pin { position: absolute; left: 0; top: 0; pointer-events: auto; }
+.cx-pin-dot { width: 24px; height: 24px; padding: 0; border: 0; cursor: pointer; border-radius: 12px 12px 12px 2px; background: #fff;
+  box-shadow: 0 0 0 .5px rgba(0,0,0,.18), 0 2px 6px rgba(0,0,0,.12); display: grid; place-items: center; transition: transform .15s ease; }
+.cx-pin-dot span { width: 10px; height: 10px; border-radius: 50%; background: #1d1d1f; }
+.cx-pin-dot:hover { transform: scale(1.08); }
+.cx-pin.open .cx-pin-dot { background: #1d1d1f; } .cx-pin.open .cx-pin-dot span { background: #fff; }
+.cx-pin-card { position: absolute; left: 30px; top: -2px; width: max-content; max-width: 240px; display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 10px 10px 12px; background: #fff; border-radius: 12px; box-shadow: 0 0 0 .5px rgba(0,0,0,.14), 0 6px 18px rgba(0,0,0,.12);
+  font: 400 12.5px/1.45 Inter, -apple-system, "PingFang SC", sans-serif; color: #1d1d1f; }
+.cx-pin-card[hidden] { display: none; }
+.cx-pin-card p { margin: 0; }
+.cx-pin-done { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 1px solid #e6e6e6; background: #fff; color: #6e6e73; display: grid; place-items: center; cursor: pointer; padding: 0; }
