@@ -4,6 +4,7 @@
 
 import { TableDataManager } from '@blocksuite/affine/blocks/table';
 import { Text } from '@blocksuite/affine/store';
+import { generateKeyBetween } from '@blocksuite/affine/std/gfx';
 import * as Y from 'yjs';
 
 import { CARD_STYLE, FILL, INK as INKH, RADIUS, SHADOW, TEXT, TINT as TINTH, TYPE, fitSize, snap } from '../design';
@@ -44,6 +45,10 @@ const textWidth = (s: string, size: number) => {
 export async function execute(rootEl: any, reading: Reading, answer: Answer): Promise<Result> {
   const gfx = rootEl.gfx, std = rootEl.std, store = std.store, surf = gfx.surface;
   const created: string[] = [], changed = new Set<string>(), errors: string[] = [];
+  let topKey: string | null = null;
+  for (const e of gfx.gfxElements as any[]) { const k = e.index ?? e.props?.index; if (typeof k === 'string' && (!topKey || k > topKey)) topKey = k; }
+  const nextTop = () => { try { topKey = generateKeyBetween(topKey, null); } catch { topKey = (topKey ?? 'a0') + 'V'; } return topKey!; };
+  const addEl = (props: any) => gfx.surface.addElement({ ...props, index: props.index ?? nextTop() });
   const named = new Map<string, { id: string; box: Box; like?: Item }>();
   const newBoxes: Box[] = [];
 
@@ -106,10 +111,10 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       // stay on the anchor's line: share its top (rows) or its left (columns)
       switch (dir) {
         // same-size things centre on the anchor's line; bigger things align to its edge (top / left)
-        case 'right': return { x: from.x + from.w + gap, y: h <= from.h ? from.y + (from.h - h) / 2 : from.y, w, h };
-        case 'left': return { x: from.x - gap - w, y: h <= from.h ? from.y + (from.h - h) / 2 : from.y, w, h };
-        case 'below': return { x: w <= from.w ? from.x + (from.w - w) / 2 : from.x, y: from.y + from.h + gap, w, h };
-        default: return { x: w <= from.w ? from.x + (from.w - w) / 2 : from.x, y: from.y - gap - h, w, h };
+        case 'right': return { x: from.x + from.w + gap, y: Math.abs(h - from.h) < 12 ? from.y + (from.h - h) / 2 : from.y, w, h };
+        case 'left': return { x: from.x - gap - w, y: Math.abs(h - from.h) < 12 ? from.y + (from.h - h) / 2 : from.y, w, h };
+        case 'below': return { x: Math.abs(w - from.w) < 12 ? from.x + (from.w - w) / 2 : from.x, y: from.y + from.h + gap, w, h };
+        default: return { x: Math.abs(w - from.w) < 12 ? from.x + (from.w - w) / 2 : from.x, y: from.y - gap - h, w, h };
       }
     };
     const walk = (anchor: Box, dir: string, gap: number, strict = true) => {
@@ -204,7 +209,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const fill = fillOf(a.colour) ?? (likeEl?.fillColor && typeof likeEl.fillColor === 'string' ? likeEl.fillColor : STICKY.yellow);
     const t = new Y.Text(); t.insert(0, String(a.text ?? ''));
     const copy = (k: string, d: any) => (likeEl && likeEl[k] !== undefined ? likeEl[k] : d);
-    const id = surf.addElement({
+    const id = addEl({
       type: 'shape', shapeType: 'rect', xywh: xywh(box), radius: copy('radius', 0.04), filled: true, fillColor: fill,
       strokeColor: 'transparent', strokeWidth: 0, color: copy('color', TEXT.ink), fontSize: likeEl?.fontSize ?? fitSize(w, String(a.text ?? '')),
       fontFamily: copy('fontFamily', 'blocksuite:surface:Inter'), fontWeight: copy('fontWeight', '400'),
@@ -218,7 +223,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const w = like ? like.box.w : 160, h = like ? like.box.h : 100;
     const box = place(a.place, w, h, anchorOf(a));
     const t = new Y.Text(); t.insert(0, String(a.text ?? ''));
-    const id = surf.addElement({
+    const id = addEl({
       type: 'shape', shapeType: a.shape ?? likeEl?.shapeType ?? 'rect', xywh: xywh(box), filled: true,
       fillColor: fillOf(a.colour) ?? likeEl?.fillColor ?? '#ffffff', strokeColor: likeEl?.strokeColor ?? '#1e1e1e',
       strokeWidth: likeEl?.strokeWidth ?? 2, color: '#1e1e1e', fontSize: likeEl?.fontSize ?? 16, fontFamily: 'blocksuite:surface:Inter', text: t,
@@ -233,7 +238,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const h = Math.ceil(size * 1.4 * lines);
     const box = at ?? place(a.place, w, h, anchorOf(a));
     const t = new Y.Text(); t.insert(0, text);
-    const id = surf.addElement({
+    const id = addEl({
       type: 'text', xywh: xywh({ ...box, w, h }), text: t, color: colour ?? inkOf(a.colour) ?? likeEl?.color ?? '#1e1e1e',
       fontSize: size, fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', hasMaxWidth: w >= 360,
     });
@@ -246,7 +251,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const lines = String(a.text ?? '').split('\n');
     const h = 60 + lines.length * 28;
     const box = place(a.place, w, h, anchorOf(a));
-    const noteId = store.addBlock('affine:note', { xywh: xywh(box), background: '#ffffff', index: gfx.layer.generateIndex(false) } as any, store.root.id);
+    const noteId = store.addBlock('affine:note', { xywh: xywh(box), background: '#ffffff', index: nextTop() } as any, store.root.id);
     for (const l of lines) {
       const m = l.match(/^(#{1,3})\s+(.*)$/), li = l.match(/^[-•]\s+(.*)$/);
       if (m) store.addBlock('affine:paragraph', { type: 'h' + (m[1].length + 1), text: new Text(m[2]) }, noteId);
@@ -279,7 +284,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       rearEndpointStyle: a.arrow === false ? 'None' : sEl?.rearEndpointStyle ?? 'Arrow', frontEndpointStyle: sEl?.frontEndpointStyle ?? 'None',
     };
     if (a.label) { const t = new Y.Text(); t.insert(0, String(a.label)); props.text = t; props.labelDisplay = true; }
-    const id = surf.addElement(props);
+    const id = addEl(props);
     created.push(id);
   }
   function write(a: Action) {
@@ -385,18 +390,20 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   // ── More parts: votes, numbers, plotting, timelines, mind maps, curves, circles, funnels, bars, clusters ──
   const SYS = { blue: INK.blue, orange: INK.orange, red: INK.red, green: INK.green, gray: TEXT.muted, ink: TEXT.ink, fill: '#f2f2f2' };
   const sysOf = (c?: string) => (c ? DOT[base(c)] ?? (c.startsWith('#') ? c : SYS.blue) : SYS.blue);
-  const groupIds = (ids: string[], title = '') => { const gid = surf.addElement({ type: 'group', children: Object.fromEntries(ids.map(i => [i, true])), title: new Y.Text(title) }); created.push(gid); return gid; };
+  const groupIds = (ids: string[], title = '') => { const gid = addEl({ type: 'group', children: Object.fromEntries(ids.map(i => [i, true])), title: new Y.Text(title) }); created.push(gid); return gid; };
 
+  
+  const top = nextTop;
   // votes: dots along the top-right inside edge, in the board's existing vote colour
   function vote(a: Action) {
     const existing = reading.items.find(i => i.kind === 'dot' && reading.relations.attached.has(i.ref));
     const colour = existing?.hex ?? sysOf(a.colour);
     for (const ref of a.refs ?? []) {
       const b = boxOfRef(ref); if (!b) continue;
-      const have = reading.items.filter(i => i.kind === 'dot' && reading.relations.attached.get(i.ref) === ref).length + newBoxes.filter(nb => nb.w === 12 && nb.y === b.y + 12 && nb.x > b.x && nb.x < b.x + b.w).length;
+      const have = reading.items.filter(i => i.kind === 'dot' && reading.relations.attached.get(i.ref) === ref).length + newBoxes.filter(nb => nb.w === 12 && nb.y === b.y - 6 && nb.x > b.x && nb.x < b.x + b.w).length;
       for (let i = 0; i < (a.n ?? 1); i++) {
-        const x = b.x + b.w - 12 - 12 - (have + i) * 16, y = b.y + 12;
-        const id = surf.addElement({ type: 'shape', shapeType: 'ellipse', xywh: xywh({ x, y, w: 12, h: 12 }), filled: true, fillColor: colour, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() });
+        const x = b.x + b.w - 12 - 12 - (have + i) * 16, y = b.y - 6;
+        const id = addEl({ type: 'shape', shapeType: 'ellipse', index: top(), xywh: xywh({ x, y, w: 12, h: 12 }), filled: true, fillColor: colour, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() });
         created.push(id); newBoxes.push({ x, y, w: 12, h: 12 });
       }
     }
@@ -406,7 +413,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     (a.refs ?? []).forEach((ref: string, i: number) => {
       const b = boxOfRef(ref); if (!b) return;
       const t = new Y.Text(); t.insert(0, String((a.start ?? 1) + i));
-      const id = surf.addElement({ type: 'shape', shapeType: 'ellipse', xywh: xywh({ x: b.x - 11, y: b.y - 11, w: 26, h: 26 }), filled: true, fillColor: SYS.ink, strokeColor: '#ffffff', strokeWidth: 2,
+      const id = addEl({ type: 'shape', shapeType: 'ellipse', index: top(), xywh: xywh({ x: b.x - 11, y: b.y - 11, w: 26, h: 26 }), filled: true, fillColor: SYS.ink, strokeColor: '#ffffff', strokeWidth: 2,
         color: '#ffffff', fontSize: 12, fontWeight: '600', fontFamily: 'blocksuite:surface:Inter', textAlign: 'center', textHorizontalAlign: 'center', textVerticalAlign: 'center', padding: [0, 0], text: t });
       created.push(id);
     });
@@ -421,7 +428,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       if (p.ref) { const id = idOf(p.ref), bb = boxOfRef(p.ref); if (id && bb) { const s0 = Math.min(bb.w, 140) / bb.w; setBox(id, { x: cx - bb.w * s0 / 2, y: cy - bb.h * s0 / 2, w: bb.w * s0, h: bb.h * s0 }); } continue; }
       const size = 120, fill = fillOf(p.colour) ?? STICKY.yellow;
       const t = new Y.Text(); t.insert(0, String(p.text ?? ''));
-      const id = surf.addElement({ type: 'shape', shapeType: 'rect', xywh: xywh({ x: cx - size / 2, y: cy - size / 2, w: size, h: size }), radius: 0.04, filled: true, fillColor: fill, strokeColor: 'transparent', strokeWidth: 0,
+      const id = addEl({ type: 'shape', shapeType: 'rect', xywh: xywh({ x: cx - size / 2, y: cy - size / 2, w: size, h: size }), radius: 0.04, filled: true, fillColor: fill, strokeColor: 'transparent', strokeWidth: 0,
         color: TEXT.ink, fontSize: fitSize(size, String(p.text ?? '')), fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', textHorizontalAlign: 'left', textVerticalAlign: 'top', padding: [12, 12], shadow: SHADOW.sticky, text: t });
       created.push(id); newBoxes.push({ x: cx - size / 2, y: cy - size / 2, w: size, h: size });
     }
@@ -442,8 +449,8 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const x = A[0] + (Z[0] - A[0]) * t, y = A[1] + (Z[1] - A[1]) * t;
     const like = reading.items.find(i => i.kind === 'dot' && Math.abs(i.box.y + i.box.h / 2 - y) < 20);
     const d = like?.box.w ?? 12;
-    const ids = [surf.addElement({ type: 'shape', shapeType: 'ellipse', xywh: xywh({ x: x - d / 2, y: y - d / 2, w: d, h: d }), filled: true, fillColor: like?.hex ?? SYS.ink, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() })];
-    const lab = (txt: string, yy: number, weight: string, colour: string) => { const m = new Y.Text(); m.insert(0, txt); const w = textWidth(txt, 13) + 4; return surf.addElement({ type: 'text', xywh: xywh({ x: x - w / 2, y: yy, w, h: 18 }), text: m, fontSize: 13, fontWeight: weight, color: colour, fontFamily: 'blocksuite:surface:Inter', textAlign: 'center' }); };
+    const ids = [addEl({ type: 'shape', shapeType: 'ellipse', xywh: xywh({ x: x - d / 2, y: y - d / 2, w: d, h: d }), filled: true, fillColor: like?.hex ?? SYS.ink, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() })];
+    const lab = (txt: string, yy: number, weight: string, colour: string) => { const m = new Y.Text(); m.insert(0, txt); const w = textWidth(txt, 13) + 4; return addEl({ type: 'text', xywh: xywh({ x: x - w / 2, y: yy, w, h: 18 }), text: m, fontSize: 13, fontWeight: weight, color: colour, fontFamily: 'blocksuite:surface:Inter', textAlign: 'center' }); };
     if (a.label) ids.push(lab(String(a.label), y + d / 2 + 10, '400', '#3a3a3c'));
     if (a.callout) ids.push(lab(String(a.callout), y - d / 2 - 30, '600', SYS.ink));
     created.push(...ids);
@@ -469,7 +476,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
         out.push([0, 1].map(j => 0.5 * (2 * p1[j] + (-p0[j] + p2[j]) * t + (2 * p0[j] - 5 * p1[j] + 4 * p2[j] - p3[j]) * t2 + (-p0[j] + 3 * p1[j] - 3 * p2[j] + p3[j]) * t3))); }
     }
     out.push(pts[pts.length - 1]);
-    created.push(surf.addElement({ type: 'brush', points: out, color: sysOf(a.colour), lineWidth: 4 }));
+    created.push(addEl({ type: 'brush', points: out, color: sysOf(a.colour), lineWidth: 4 }));
   }
   // a loose hand-drawn loop around things to say "look here"
   function circle(a: Action) {
@@ -477,7 +484,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const u = union(boxes), cx = u.x + u.w / 2, cy = u.y + u.h / 2, rx = u.w / 2 + 22, ry = u.h / 2 + 22;
     const pts: number[][] = [];
     for (let t = -0.15; t <= Math.PI * 2 + 0.25; t += 0.08) { const wob = 1 + 0.025 * Math.sin(t * 3.1); pts.push([cx + Math.cos(t) * rx * wob, cy + Math.sin(t) * ry * wob]); }
-    created.push(surf.addElement({ type: 'brush', points: pts, color: sysOf(a.colour ?? 'orange'), lineWidth: 3 }));
+    created.push(addEl({ type: 'brush', points: pts, color: sysOf(a.colour ?? 'orange'), lineWidth: 3 }));
   }
   // funnel: stages as centred bars, narrowing by value, with the drop between stages
   function funnel(a: Action) {
@@ -486,14 +493,14 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const box = place(a.place, W + 140, st.length * (H + G) - G + (a.title ? 48 : 0), anchorOf(a) ?? reading.selection[0]);
     const ids: string[] = []; let y = box.y;
     const ramp = [FILL.blue, '#c4e5ff', TINTH.blue, '#ecf7ff', '#f5fbff'];
-    if (a.title) { const t = new Y.Text(); t.insert(0, String(a.title)); ids.push(surf.addElement({ type: 'text', xywh: xywh({ x: box.x, y, w: textWidth(String(a.title), 20) + 8, h: 28 }), text: t, fontSize: 20, fontWeight: '700', color: SYS.ink, fontFamily: 'blocksuite:surface:Inter' })); y += 48; }
+    if (a.title) { const t = new Y.Text(); t.insert(0, String(a.title)); ids.push(addEl({ type: 'text', xywh: xywh({ x: box.x, y, w: textWidth(String(a.title), 20) + 8, h: 28 }), text: t, fontSize: 20, fontWeight: '700', color: SYS.ink, fontFamily: 'blocksuite:surface:Inter' })); y += 48; }
     st.forEach((s, i) => {
       const w = Math.max(200, W * Math.sqrt((+s.value || 0) / max)), x = box.x + (W - w) / 2;
       const t = new Y.Text(); t.insert(0, `${s.label}  ${s.value}`);
-      ids.push(surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.22, xywh: xywh({ x, y, w, h: H }), filled: true, fillColor: ramp[Math.min(i, ramp.length - 1)], strokeColor: 'transparent', strokeWidth: 0,
+      ids.push(addEl({ type: 'shape', shapeType: 'rect', radius: 0.22, xywh: xywh({ x, y, w, h: H }), filled: true, fillColor: ramp[Math.min(i, ramp.length - 1)], strokeColor: 'transparent', strokeWidth: 0,
         color: SYS.ink, fontSize: 14, fontWeight: '500', fontFamily: 'blocksuite:surface:Inter', textAlign: 'center', textHorizontalAlign: 'center', textVerticalAlign: 'center', text: t }));
       if (i > 0 && +st[i - 1].value) { const pct = Math.round((1 - (+s.value) / (+st[i - 1].value)) * 100); const m = new Y.Text(); m.insert(0, `−${pct}%`);
-        ids.push(surf.addElement({ type: 'text', xywh: xywh({ x: box.x + W + 16, y: y - G / 2 - 9, w: 60, h: 18 }), text: m, fontSize: 12, color: SYS.gray, fontFamily: 'blocksuite:surface:Inter' })); }
+        ids.push(addEl({ type: 'text', xywh: xywh({ x: x + w + 12, y: y + H / 2 - 9, w: 64, h: 18 }), text: m, fontSize: TYPE.caption, color: SYS.gray, fontFamily: 'blocksuite:surface:Inter' })); }
       y += H + G;
     });
     created.push(...ids); groupIds(ids, String(a.title ?? 'Funnel')); newBoxes.push(box);
@@ -504,15 +511,15 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const W = 360, rowH = 34, padX = 20, top = a.title ? 56 : 20;
     const H = top + rows.length * rowH + 14;
     const box = place(a.place, W, H, anchorOf(a) ?? reading.selection[0]);
-    const ids = [surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.06, xywh: xywh({ ...box }), filled: true, fillColor: '#ffffff', strokeColor: 'transparent', strokeWidth: 0, shadow: { blur: 7, offsetX: 0, offsetY: 4, color: 'rgba(0,0,0,0.12)' }, text: new Y.Text() })];
-    const txt = (s: string, x: number, y: number, w: number, size: number, weight: string, colour: string, align = 'left') => { const t = new Y.Text(); t.insert(0, s); return surf.addElement({ type: 'text', xywh: xywh({ x, y, w, h: Math.round(size * 1.4) }), text: t, fontSize: size, fontWeight: weight, color: colour, fontFamily: 'blocksuite:surface:Inter', textAlign: align }); };
+    const ids = [addEl({ type: 'shape', shapeType: 'rect', radius: 0.06, xywh: xywh({ ...box }), filled: true, fillColor: '#ffffff', strokeColor: 'transparent', strokeWidth: 0, shadow: { blur: 7, offsetX: 0, offsetY: 4, color: 'rgba(0,0,0,0.12)' }, text: new Y.Text() })];
+    const txt = (s: string, x: number, y: number, w: number, size: number, weight: string, colour: string, align = 'left') => { const t = new Y.Text(); t.insert(0, s); return addEl({ type: 'text', xywh: xywh({ x, y, w, h: Math.round(size * 1.4) }), text: t, fontSize: size, fontWeight: weight, color: colour, fontFamily: 'blocksuite:surface:Inter', textAlign: align }); };
     if (a.title) ids.push(txt(String(a.title), box.x + padX, box.y + 18, W - padX * 2, 15, '600', SYS.ink));
     const labelW = 110, trackX = box.x + padX + labelW, trackW = W - padX * 2 - labelW - 40;
     rows.forEach((r, i) => {
       const y = box.y + top + i * rowH, v = Math.max(0, Math.min(1, (+r.value || 0) / (r.max ?? a.max ?? 5)));
       ids.push(txt(String(r.label), box.x + padX, y + 2, labelW - 8, 13, '400', '#3a3a3c'));
-      ids.push(surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.5, xywh: xywh({ x: trackX, y: y + 8, w: trackW, h: 6 }), filled: true, fillColor: SYS.fill, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() }));
-      if (v > 0) ids.push(surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.5, xywh: xywh({ x: trackX, y: y + 8, w: Math.max(6, trackW * v), h: 6 }), filled: true, fillColor: sysOf(a.colour), strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() }));
+      ids.push(addEl({ type: 'shape', shapeType: 'rect', radius: 0.5, xywh: xywh({ x: trackX, y: y + 8, w: trackW, h: 6 }), filled: true, fillColor: SYS.fill, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() }));
+      if (v > 0) ids.push(addEl({ type: 'shape', shapeType: 'rect', radius: 0.5, xywh: xywh({ x: trackX, y: y + 8, w: Math.max(6, trackW * v), h: 6 }), filled: true, fillColor: sysOf(a.colour), strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() }));
       ids.push(txt(String(r.value), trackX + trackW + 10, y + 2, 30, 12, '500', SYS.gray));
     });
     created.push(...ids); groupIds(ids, String(a.title ?? 'Scores')); newBoxes.push(box);
@@ -527,11 +534,11 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   const pillW = (label: string, dot: boolean) => Math.ceil(textWidth(label, TYPE.caption)) + (dot ? 28 : 20);
   function pill(x: number, y: number, label: string, dot?: string): string[] {
     const w = pillW(label, !!dot);
-    const ids = [surf.addElement({ type: 'shape', shapeType: 'rect', radius: RADIUS.pill, xywh: xywh({ x, y, w, h: PILL_H }), filled: true,
+    const ids = [addEl({ type: 'shape', shapeType: 'rect', radius: RADIUS.pill, xywh: xywh({ x, y, w, h: PILL_H }), filled: true,
       fillColor: '#ffffff', strokeColor: TEXT.line, strokeWidth: 1, text: new Y.Text() })];
-    if (dot) ids.push(surf.addElement({ type: 'shape', shapeType: 'ellipse', xywh: xywh({ x: x + 10, y: y + 9, w: 6, h: 6 }), filled: true, fillColor: dot, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() }));
+    if (dot) ids.push(addEl({ type: 'shape', shapeType: 'ellipse', xywh: xywh({ x: x + 10, y: y + 9, w: 6, h: 6 }), filled: true, fillColor: dot, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() }));
     const t = new Y.Text(); t.insert(0, label);
-    ids.push(surf.addElement({ type: 'text', xywh: xywh({ x: x + (dot ? 21 : 10), y: y + 5, w: w - (dot ? 28 : 20), h: 15 }), text: t, color: TEXT.body, fontSize: TYPE.caption, fontWeight: '500', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' }));
+    ids.push(addEl({ type: 'text', xywh: xywh({ x: x + (dot ? 21 : 10), y: y + 5, w: w - (dot ? 28 : 20), h: 15 }), text: t, color: TEXT.body, fontSize: TYPE.caption, fontWeight: '500', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' }));
     return ids;
   }
   // Tags sit beside a thing, not on it: a row just under its bottom edge (8px), left-aligned,
@@ -548,8 +555,10 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       let st = tagRows.get(ref);
       if (!st) {
         const below = { x: b.x, y: b.y + b.h + 8, w: b.w, h: PILL_H };
-        const blocked = obstacles().some(o => !(o.x === b.x && o.y === b.y && o.w === b.w) && overlaps(below, o, 0));
-        st = { x: 0, row: 0, side: blocked ? 'right' : 'below' };
+        const holds = (o: Box) => o.x <= b.x && o.y <= b.y && o.x + o.w >= b.x + b.w && o.y + o.h >= b.y + b.h;   // a section around it
+        const hit = (r: Box) => obstacles().some(o => !(o.x === b.x && o.y === b.y && o.w === b.w) && !holds(o) && overlaps(r, o, 0));
+        const right = { x: b.x + b.w + 8, y: b.y, w: 90, h: PILL_H };
+        st = { x: 0, row: 0, side: hit(below) && !hit(right) ? 'right' : 'below' };
       }
       let x: number, y: number;
       if (st.side === 'below') {
@@ -615,16 +624,19 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     if (k === 'section') return buildSection(it, links);
     if (k === 'sticky') {
       const t = new Y.Text(); t.insert(0, String(it.text ?? it.title ?? ''));
-      const id = surf.addElement({ type: 'shape', shapeType: 'rect', xywh: xywh({ x: 0, y: 0, w: stickySize, h: stickySize }), radius: 0.04, filled: true,
+      const id = addEl({ type: 'shape', shapeType: 'rect', xywh: xywh({ x: 0, y: 0, w: stickySize, h: stickySize }), radius: 0.04, filled: true,
         fillColor: fillOf(it.colour) ?? STICKY.yellow, strokeColor: 'transparent', strokeWidth: 0, color: TEXT.ink, fontSize: fitSize(stickySize, String(it.text ?? it.title ?? '')), fontFamily: 'blocksuite:surface:Inter',
         textAlign: 'left', textHorizontalAlign: 'left', textVerticalAlign: 'top', padding: [16, 16], shadow: SHADOW.sticky, text: t });
       created.push(id); return { kind: k, id, w: stickySize, h: stickySize, spec: it };
     }
     if (k === 'summary') { it = { ...it, title: it.title ?? '', body: it.body ?? it.text }; }
     if (k === 'text') {
-      const size = it.size === 'large' ? 22 : 15; const m = measure(it.text ?? '', size, 400, 440);
+      // on the shared type scale: caption 12 · small 14 · body 16 · title 20 · heading 28
+      const size = it.px ?? (it.size === 'large' ? TYPE.title : it.size === 'small' ? TYPE.small : TYPE.body);
+      const weight = it.bold || size >= TYPE.title ? 700 : 400;
+      const m = measure(it.text ?? '', size, weight, it.width ?? 440);
       const t = new Y.Text(); t.insert(0, String(it.text ?? ''));
-      const id = surf.addElement({ type: 'text', xywh: xywh({ x: 0, y: 0, w: m.w, h: m.h }), text: t, color: '#2a2926', fontSize: size, fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', hasMaxWidth: true });
+      const id = addEl({ type: 'text', xywh: xywh({ x: 0, y: 0, w: m.w, h: m.h }), text: t, color: it.muted ? TEXT.muted : TEXT.ink, fontSize: size, fontWeight: String(weight), fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', hasMaxWidth: true });
       created.push(id); return { kind: k, id, w: m.w, h: m.h, spec: it };
     }
     if (k === 'image' && it.url) {
@@ -632,7 +644,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
         const blob = await (await fetch(it.url)).blob(); if (!blob.type.startsWith('image/')) throw 0;
         const sourceId = await store.blobSync.set(blob);
         const bmp = await createImageBitmap(blob); const w = 300, h = Math.round(300 * bmp.height / bmp.width);
-        const id = store.addBlock('affine:image', { sourceId, xywh: xywh({ x: 0, y: 0, w, h }), width: bmp.width, height: bmp.height, caption: it.caption ?? null, index: gfx.layer.generateIndex(false) } as any, surf.id);
+        const id = store.addBlock('affine:image', { sourceId, xywh: xywh({ x: 0, y: 0, w, h }), width: bmp.width, height: bmp.height, caption: it.caption ?? null, index: nextTop() } as any, surf.id);
         created.push(id); return { kind: k, id, w, h, spec: it };
       } catch { errors.push(`image: could not load ${it.url}`); return null; }
     }
@@ -641,7 +653,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       const desc = [it.meta ?? it.source, it.note ?? it.description ?? pv.description].filter(Boolean).join('\n') || null;
       rememberLink(it.url, { title: it.title ?? pv.title, description: desc });
       const id = store.addBlock('affine:bookmark', { url: it.url, style: 'vertical', title: it.title ?? pv.title ?? null, description: desc,
-        image: pv.image, icon: pv.icon ?? null, xywh: xywh({ x: 0, y: 0, w: 300, h: 330 }), index: gfx.layer.generateIndex(false) } as any, surf.id);
+        image: pv.image, icon: pv.icon ?? null, xywh: xywh({ x: 0, y: 0, w: 300, h: 330 }), index: nextTop() } as any, surf.id);
       created.push(id); return { kind: k, id, w: 300, h: 330, spec: it };
     }
     // an existing thing of the user's, moved into this section (regrouping, sorting, clustering)
@@ -651,7 +663,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       containers.add(it.ref);
       return { kind: 'ref', id, w: el.elementBound.w, h: el.elementBound.h, spec: it };
     }
-    const noteCard = (w: number) => store.addBlock('affine:note', { xywh: xywh({ x: 0, y: 0, w, h: 80 }), background: '#ffffff', index: gfx.layer.generateIndex(false),
+    const noteCard = (w: number) => store.addBlock('affine:note', { xywh: xywh({ x: 0, y: 0, w, h: 80 }), background: '#ffffff', index: nextTop(),
       edgeless: { style: CARD_STYLE } } as any, store.root.id);
     const gray = { color: 'var(--affine-text-secondary-color)' };
     if (k === 'metric') {      // a number that matters: label, big value, change, one line of context
@@ -688,7 +700,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     }
     // card (also a link card without a picture): a white note with meta, title, body
     const w = it.kind === 'summary' || it.span === 'full' ? (it._fullW ?? 632) : it.wide ? 420 : 300;
-    const id = store.addBlock('affine:note', { xywh: xywh({ x: 0, y: 0, w, h: 80 }), background: '#ffffff', index: gfx.layer.generateIndex(false),
+    const id = store.addBlock('affine:note', { xywh: xywh({ x: 0, y: 0, w, h: 80 }), background: '#ffffff', index: nextTop(),
       edgeless: { style: CARD_STYLE } } as any, store.root.id);
     const meta = it.meta ?? it.source ?? (it.url ? domain(it.url) : '');
     if (meta) store.addBlock('affine:paragraph', { text: P(String(meta), { color: 'var(--affine-text-secondary-color)' }) }, id);
@@ -746,6 +758,12 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const rowH = rows.map(r => Math.max(...r.map(k => k.h)));
     // equal card heights within a row (FigJam reflow rule)
     rows.forEach((r, ri) => r.forEach(k => { if ((k.kind === 'card') && k.id) { const el: any = gfx.getElementById(k.id); if (el && el.elementBound.h < rowH[ri] - 1) { const b = el.elementBound; store.updateBlock(el, { xywh: xywh({ x: b.x, y: b.y, w: b.w, h: rowH[ri] }), edgeless: { ...el.props.edgeless, collapse: true, collapsedHeight: rowH[ri] } }); k.h = rowH[ri]; } } }));
+    rows.forEach((r, ri) => r.forEach((k, c) => {
+      if (k.kind !== 'section') return;
+      k.h = rowH[ri];                                   // same height across a row
+      if (cols === 1) k.w = Math.max(colW[0] ?? k.w, gridW);   // same width down a column
+      else k.w = colW[c];
+    }));
     const contentW = Math.max(gridW, ...kids.filter(k => k.kind === 'full').map(k => k.w));
     const headH = n.head!.th ? n.head!.th + SEC.headGap : 0;
     const top = SEC.padTop + headH;
@@ -760,27 +778,30 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     n.h = top + contentH + SEC.padBottom;
   }
   // absolute positions; frames and headings are made last so they sit behind / above correctly
-  function commit(n: N, x: number, y: number, depth: number): string[] {
+  const tintOf = (n: N, depth: number) => TINT[base(n.spec.colour ?? (depth ? 'gray' : 'white'))] ?? TINT.white;
+  function commit(n: N, x: number, y: number, depth: number, parentTint = '#f5f5f5'): string[] {
     const ids: string[] = [];
     for (const k of n.kids!) {
       const p = pos.get(k)!; const ax = x + p.x, ay = y + p.y;
-      if (k.kind === 'section') ids.push(...commit(k, ax, ay, depth + 1));
+      if (k.kind === 'section') ids.push(...commit(k, ax, ay, depth + 1, tintOf(n, depth)));
       else if (k.id) { const el: any = gfx.getElementById(k.id); if (el) setBox(k.id, { x: ax, y: ay, w: el.elementBound.w, h: el.elementBound.h }); ids.push(k.id); }
     }
     const hd = n.head!;
     if (hd.title) {
       const t = new Y.Text(); t.insert(0, hd.title);
-      const tid = surf.addElement({ type: 'text', xywh: xywh({ x: x + SEC.padX, y: y + SEC.padTop, w: measure(hd.title, SEC.title, 700).w, h: Math.ceil(SEC.title * 1.35) }),
+      const tid = addEl({ type: 'text', xywh: xywh({ x: x + SEC.padX, y: y + SEC.padTop, w: measure(hd.title, SEC.title, 700).w, h: Math.ceil(SEC.title * 1.35) }),
         text: t, color: '#1e1e1e', fontSize: depth ? 22 : SEC.title, fontWeight: '700', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' });
       created.push(tid); ids.push(tid);
     }
     if (hd.sub) {
-      const m = measure(hd.sub, SEC.sub, 400, 640); const t = new Y.Text(); t.insert(0, hd.sub);
-      const sid = surf.addElement({ type: 'text', xywh: xywh({ x: x + SEC.padX, y: y + SEC.padTop + Math.ceil(SEC.title * 1.35) + SEC.subGap, w: m.w, h: m.h }),
+      const avail = Math.max(240, n.w - SEC.padX * 2);
+      const m = measure(hd.sub, SEC.sub, 400, avail); const t = new Y.Text(); t.insert(0, hd.sub);
+      const sid = addEl({ type: 'text', xywh: xywh({ x: x + SEC.padX, y: y + SEC.padTop + Math.ceil(SEC.title * 1.35) + SEC.subGap, w: Math.min(avail, Math.max(m.w, 120)), h: m.h }),
         text: t, color: '#8a8984', fontSize: SEC.sub, fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', hasMaxWidth: true });
       created.push(sid); ids.push(sid);
     }
-    const tint = TINT[base(n.spec.colour ?? (depth ? 'gray' : 'white'))] ?? (n.spec.colour?.startsWith?.('#') ? n.spec.colour : TINT.white);
+    let tint = TINT[base(n.spec.colour ?? (depth ? 'gray' : 'white'))] ?? (n.spec.colour?.startsWith?.('#') ? n.spec.colour : TINT.white);
+    if (tint === parentTint) tint = parentTint === TINT.white ? TINT.gray : TINT.white;
     const fid = store.addBlock('affine:frame', { xywh: xywh({ x, y, w: snap(n.w), h: snap(n.h) }), title: new Text(''), background: tint,
       childElementIds: Object.fromEntries(ids.map(i => [i, true])), index: gfx.layer.generateIndex(true) } as any, surf.id);
     created.push(fid);
@@ -854,8 +875,14 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
         case 'circle': circle(a); break;
         case 'funnel': funnel(a); break;
         case 'bars': bars(a); break;
-        case 'cluster': await section({ do: 'section', title: a.title, subtitle: a.subtitle, colour: 'white', layout: 'row', place: a.place ?? { below: (a.groups?.[0]?.refs ?? [])[0] },
-          items: (a.groups ?? []).map((g: any, i: number) => ({ kind: 'section', title: g.title, colour: g.colour ?? ['yellow', 'blue', 'green', 'purple', 'orange', 'teal'][i % 6], layout: 'grid', cols: g.cols ?? 2, items: (g.refs ?? []).map((r: string) => ({ kind: 'ref', ref: r })) })) }); break;
+        case 'cluster': {
+          // the clusters take the place the loose notes occupied (they are moving anyway)
+          const all = (a.groups ?? []).flatMap((g: any) => g.refs ?? []).map((r: string) => boxOfRef(r)).filter(Boolean) as Box[];
+          const u = all.length ? union(all) : null;
+          await section({ do: 'section', name: a.name, title: a.title, subtitle: a.subtitle, colour: 'white', layout: 'row', place: a.place ?? (u ? { at: [u.x, u.y] } : undefined),
+          items: (a.groups ?? []).map((g: any, i: number) => ({ kind: 'section', title: g.title, colour: g.colour ?? ['yellow', 'blue', 'green', 'purple', 'orange', 'teal'][i % 6], layout: 'grid', cols: g.cols ?? 2, items: (g.refs ?? []).map((r: string) => ({ kind: 'ref', ref: r })) })) });
+          break;
+        }
         default: errors.push(`unknown part "${a.do}"`);
       }
     } catch (e: any) { errors.push(`${a.do}: ${e?.message ?? e}`); }

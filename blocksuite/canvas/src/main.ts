@@ -18,6 +18,7 @@ import './stickers';
 import { aiToolbarExtension, mountAiBar } from './ai-bar';
 import { mountToolbar } from './toolbar';
 import { mountInspector } from './ai/inspect';
+import { mountDemos } from './ai/demo';
 import { createAssistant } from './ai/assistant';
 import { linkPreviewExtension } from './ai/links';
 import { ImageProxyService } from '@blocksuite/affine/shared/adapters';
@@ -82,6 +83,7 @@ async function main() {
   await mountToolbar(rootEl);
   mountAiBar(rootEl, createAssistant(rootEl));
   mountInspector(rootEl);
+  mountDemos(rootEl);
   (window as any).editor = editor; (window as any).collection = collection; (window as any).cxDev = { Text, Y: Y.Text, rootEl };
 }
 
