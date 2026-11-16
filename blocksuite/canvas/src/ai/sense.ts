@@ -167,10 +167,14 @@ export function mountSense(rootEl: any) {
     let task = '', exclude = new Set<string>();
     if (intent.type === 'section') {
       exclude = new Set([...intent.inside, intent.frame.id]);
-      task = `The user drew a section and named it "${intent.title}". Pick the things on the board, outside it, that belong in it.`;
+      const inside = r.items.filter(o => intent.inside.has(o.id));
+      const material = inside.filter(o => o.kind !== 'sticky');
+      task = `The user drew a section and named it "${intent.title}".` + (material.length
+        ? ` They already put ${material.map(o => o.ref).join(', ')} in it` + (inside.some(o => o.kind === 'sticky') ? `, and a sticky that labels it (${inside.filter(o => o.kind === 'sticky').map(o => o.ref).join(', ')}): that sticky is the criterion, not content` : '') + `. Find more material of the same kind (papers, links, cases) for it: pick such things on the board outside it, never stickies, and add sources.`
+        : ` Pick the things on the board, outside it, that belong in it.`);
     } else if (intent.type === 'group') {
       exclude = new Set([intent.anchor.id, ...intent.members.map(m => m.id)]);
-      task = `The user put a sticky "${intent.anchor.text.trim()}" (${intent.anchor.ref}) in open space and set ${intent.members.map(m => m.ref).join(', ')} beside it. The sticky names a topic, and what sits beside it is material on that topic. Gather more for this topic to sit beside it: things already on the board (refs) and literature or cases on the topic (found). Then sort the rest of the board the same way: propose other topics (more), each a short sticky title with its own refs and found, so every loose thing ends up in some topic.`;
+      task = `The user put a sticky "${intent.anchor.text.trim()}" (${intent.anchor.ref}) in open space and set ${intent.members.map(m => m.ref).join(', ')} beside it. The sticky names a topic, and what sits beside it is material on that topic. Gather more for this topic to sit beside it: things already on the board (refs) and literature or cases on the topic (found). Only this one topic: do not sort the rest of the board.`;
     } else {
       exclude = new Set(intent.marks.flatMap(l => [l.host.id, l.mark.id]));
       task = `The user marked ${intent.marks.map(l => l.host.ref).join(', ')} with the same mark (${intent.label}): it labels them as one kind. Work out what they have in common, then pick the other things on the board that deserve the same mark, each with a one-line reason.`;
@@ -184,7 +188,7 @@ Answer with JSON only:
  "more":[{"title":"2–4 word topic","refs":["n4"],"found":[…]}]}
 - refs: things already on the board that clearly belong. Judge by their words and pictures, not by position. At most 8. Never refs that are marks, frames or lines, never the ones listed as already in. "why": only for the one or two picks whose tie is not obvious, a few words in the user's language; leave it out for the rest.
 - found: up to ${intent.type === 'mark' ? 0 : 3}; ${foundRule}. In the language the board uses for its titles.
-- more: ${intent.type === 'group' ? 'up to 4 other topics that sort the remaining loose things on the board (each ref appears once overall); 1–2 found each' : 'always []'}.
+- more: always [].
 - Few and right beats many: if nothing fits, return {"refs":[],"found":[],"more":[]}.`;
     const user = `BOARD\n${reading}\n\nCATEGORY\n${task}\nAlready in it: ${[...exclude].map(refOf).filter(Boolean).join(', ') || 'nothing'}`;
     const mock = (window as any).cxMockSense;
@@ -197,81 +201,75 @@ Answer with JSON only:
       if (!it || used.has(it.id) || ['frame', 'connector', 'group'].includes(it.kind) || r.relations.attached.has(it.ref)) return null;
       used.add(it.id); return { it, why: typeof x === 'string' ? '' : String(x?.why ?? '') };
     }).filter(Boolean) as any;
-    const picks = take(ans.refs);
+    const norm = (t: string) => t.toLowerCase().replace(/\s+/g, ' ').trim();
+    const have = new Set([...exclude].map(id => norm(r.byId.get(id)?.text ?? '')).filter(Boolean));
+    const holdsMaterial = intent.type === 'section' ? r.items.some(o => intent.inside.has(o.id) && o.kind !== 'sticky')
+      : intent.type === 'group' ? intent.members.some(m => m.kind !== 'sticky') : false;
+    const picks = take(ans.refs).filter(p => {
+      if (holdsMaterial && p.it.kind === 'sticky') return false;          // stickies are labels here, not content
+      const t = norm(p.it.text); if (t && have.has(t)) return false;       // already there (a copy of a copy)
+      if (t) have.add(t); return true;
+    });
     const found: any[] = Array.isArray(ans.found) ? ans.found.slice(0, 3) : [];
-    const more = intent.type === 'group' && Array.isArray(ans.more) ? ans.more.slice(0, 4).map((m: any) => ({ title: String(m.title ?? '').trim(), picks: take(m.refs), found: Array.isArray(m.found) ? m.found.slice(0, 2) : [] })).filter((m: any) => m.title && (m.picks.length || m.found.length)) : [];
+    const more = false && Array.isArray(ans.more) ? ans.more.slice(0, 4).map((m: any) => ({ title: String(m.title ?? '').trim(), picks: take(m.refs), found: Array.isArray(m.found) ? m.found.slice(0, 2) : [] })).filter((m: any) => m.title && (m.picks.length || m.found.length)) : [];
     if (!picks.length && !found.length && !more.length) return;
     store.captureSync();
-    const made = intent.type === 'mark' ? placeMarks(intent, picks) : intent.type === 'group' ? placeGroup(intent, picks.map(p => p.it), found, more, r) : placeCopies(intent, picks.map(p => p.it), found, r);
+    const made = intent.type === 'mark' ? placeMarks(intent, picks) : intent.type === 'group' ? await placeGroup(intent, picks.map(p => p.it), found, r) : await placeCopies(intent, picks.map(p => p.it), found, r);
     store.captureSync();
     if (made.ids.length) pending = new Pending(rootEl, made, intent, () => { pending = null; rebase(); });
   }
 
   // ── placing: copies in a grid inside the section, or close beside the group ──
   type Made = { ids: string[]; restore?: () => void; label: string; onKeep?: () => void; notes?: readonly (readonly [string, string])[] };
-  function placeCopies(intent: Intent, picks: Item[], found: any[], r: Reading): Made {
-    const sizes = picks.map(p => p.box);
-    const foundW = 260;
-    const all = [...sizes.map(b => ({ w: b.w, h: b.h })), ...found.map(() => ({ w: foundW, h: 140 }))];
-    const GAP = 16;
-    let x0: number, y0: number, width: number, restore: (() => void) | undefined;
-    if (intent.type === 'section') {
-      const f = intent.frame, fb = box(f);
-      const inside = r.items.filter(o => intent.inside.has(o.id));
-      x0 = fb.x + 32; y0 = inside.length ? Math.max(...inside.map(o => o.box.y + o.box.h)) + 24 : fb.y + 32;
-      width = Math.max(fb.w - 64, Math.max(...all.map(a => a.w)));
-      const needH = flowHeight(all, width, GAP);
-      const old = prop(f, 'xywh');
-      const nb = { x: fb.x, y: fb.y, w: Math.max(fb.w, width + 64), h: Math.max(fb.h, y0 - fb.y + needH + 32) };
-      if (nb.w !== fb.w || nb.h !== fb.h) { store.updateBlock(f, { xywh: xywh(nb) }); restore = () => store.updateBlock(f, { xywh: old }); }
-    } else {
-      const cl = union([intent.anchor.box, ...intent.members.map(m => m.box)]);
-      width = Math.max(cl.w, 520);
-      const below = { x: cl.x, y: cl.y + cl.h + GAP, w: width, h: flowHeight(all, width, GAP) };
-      const others = r.items.filter(o => !['frame', 'connector'].includes(o.kind) && !contains(cl, o.box));
-      const vb = gfx.viewport.viewportBounds;
-      const offView = below.y + below.h > vb.y + vb.h && cl.x + cl.w + 40 + width < vb.x + vb.w;   // keep the offer where the user is looking
-      if (offView || others.some(o => overlaps(o.box, below))) { x0 = cl.x + cl.w + 40; y0 = cl.y; } else { x0 = below.x; y0 = below.y; }
-    }
-    const spots = flow(all, x0, y0, width, GAP);
+  const frames2 = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+  // Make the copies where the user is looking (off-screen notes never get their real height), wait for the
+  // words to lay out, then place them by their real sizes.
+  async function build(picks: Item[], found: any[]): Promise<{ ids: string[]; sizes: { w: number; h: number }[] }> {
+    const vb = gfx.viewport.viewportBounds; const stage = { x: vb.x + vb.w * 0.4, y: vb.y + vb.h * 0.3 };
     const ids: string[] = [];
-    picks.forEach((p, i) => { const id = duplicate(p.id, spots[i]); if (id) ids.push(id); });
-    found.forEach((s, i) => ids.push(sourceCard(s, spots[picks.length + i])));
-    if (intent.type === 'section') {
-      const f = intent.frame; const kids = { ...(prop(f, 'childElementIds') ?? {}) }; ids.forEach(id => { kids[id] = true; });
-      try { store.updateBlock(f, { childElementIds: kids }); } catch { /* older frame model */ }
-    }
-    const n = ids.length, label = intent.type === 'section' ? `for “${intent.title}”` : `for “${intent.anchor.text.trim()}”`;
-    return { ids, restore, label: `${n} ${label}` };
+    for (const p of picks) { const id = duplicate(p.id, { ...stage, w: p.box.w, h: p.box.h }); if (id) ids.push(id); }
+    for (const f of found) ids.push(sourceCard(f, { ...stage, w: 260, h: 120 }));
+    await frames2(); await frames2();
+    return { ids, sizes: ids.map(id => { const e: any = gfx.getElementById(id); const b = e?.elementBound; return { w: b?.w ?? 260, h: b?.h ?? 140 }; }) };
+  }
+  const moveTo = (id: string, b: Box) => { const e: any = gfx.getElementById(id); if (!e) return; const v = xywh(b); if (e.flavour) store.updateBlock(e, { xywh: v }); else surf.updateElement(id, { xywh: v }); };
+
+  async function placeCopies(intent: Extract<Intent, { type: 'section' }>, picks: Item[], found: any[], r: Reading): Promise<Made> {
+    const GAP = 16, PAD = 32;
+    const { ids, sizes } = await build(picks, found);
+    const f = intent.frame, fb = box(f);
+    const inside = r.items.filter(o => intent.inside.has(o.id));
+    const x0 = fb.x + PAD, y0 = inside.length ? Math.max(...inside.map(o => o.box.y + o.box.h)) + 24 : fb.y + PAD;
+    const width = Math.max(fb.w - PAD * 2, ...sizes.map(a => a.w));
+    const spots = flow(sizes, x0, y0, width, GAP);
+    ids.forEach((id, i) => moveTo(id, { ...spots[i], w: sizes[i].w, h: sizes[i].h }));
+    await frames2();
+    // the section grows to wrap everything it now holds
+    const all = [...ids.map(id => box(gfx.getElementById(id))), ...inside.map(o => o.box)];
+    const u = union(all);
+    const old = prop(f, 'xywh');
+    const nb = { x: fb.x, y: fb.y, w: Math.max(fb.w, u.x + u.w + PAD - fb.x), h: Math.max(fb.h, u.y + u.h + PAD - fb.y) };
+    let restore: (() => void) | undefined;
+    if (nb.w !== fb.w || nb.h !== fb.h) { store.updateBlock(f, { xywh: xywh(nb) }); restore = () => store.updateBlock(f, { xywh: old }); }
+    const kids = { ...(prop(f, 'childElementIds') ?? {}) }; ids.forEach(id => { kids[id] = true; });
+    try { store.updateBlock(f, { childElementIds: kids }); } catch { /* older frame model */ }
+    return { ids, restore, label: `${ids.length} for “${intent.title}”` };
   }
 
-  // A topic sticky with its material: more of the same right beside it, then the rest of the board sorted
-  // into new topics laid out the same way underneath (a new sticky, its things to the right).
-  function placeGroup(intent: Extract<Intent, { type: 'group' }>, picks: Item[], found: any[], more: { title: string; picks: { it: Item }[]; found: any[] }[], r: Reading): Made {
-    const GAP = 16, CARD = 260;
+  // A topic sticky with its material: more of the same, close beside it, nothing else on the board touched.
+  async function placeGroup(intent: Extract<Intent, { type: 'group' }>, picks: Item[], found: any[], r: Reading): Promise<Made> {
+    const GAP = 16;
     const a = intent.anchor, cl = union([a.box, ...intent.members.map(m => m.box)]);
-    const sz = (list: Item[], f: any[]) => [...list.map(p => ({ w: p.box.w, h: p.box.h })), ...f.map(() => ({ w: CARD, h: 140 }))];
-    const W = Math.max(3 * CARD + 2 * GAP, cl.w - a.box.w - GAP);
-    const ids: string[] = [];
-    const lay = (list: Item[], f: any[], x0: number, y0: number) => {
-      const spots = flow(sz(list, f), x0, y0, W, GAP);
-      list.forEach((p, i) => { const id = duplicate(p.id, spots[i]); if (id) ids.push(id); });
-      f.forEach((s0, i) => ids.push(sourceCard(s0, spots[list.length + i])));
-      return spots.length ? Math.max(...spots.map(b => b.y + b.h)) : y0;
-    };
-    // 1 · more for the user's own topic: next to what they already put there
-    let bottom = cl.y + cl.h;
-    if (picks.length || found.length) bottom = Math.max(bottom, lay(picks, found, cl.x + cl.w + GAP, cl.y));
-    // 2 · the other topics, one row each, starting under the user's
-    let y = bottom + 56;
-    for (const m of more) {
-      const sid = duplicate(a.id, { x: a.box.x, y, w: a.box.w, h: a.box.h }, m.title);
-      if (sid) ids.push(sid);
-      const end = lay(m.picks.map(p => p.it), m.found, a.box.x + a.box.w + GAP, y);
-      y = Math.max(end, y + a.box.h) + 48;
-    }
-    const n = picks.length + found.length;
-    return { ids, label: `${n} for “${a.text.trim()}”` + (more.length ? ` · ${more.length} more topics` : '') };
+    const { ids, sizes } = await build(picks, found);
+    const W = Math.max(cl.w, 3 * 260 + 2 * GAP);
+    const h = (x: number, y: number) => { const sp = flow(sizes, x, y, W, GAP); return { sp, box: union(sp) }; };
+    const others = r.items.filter(o => !['frame', 'connector'].includes(o.kind) && o.id !== a.id && !intent.members.some(m => m.id === o.id));
+    const clearOf = (b: Box) => !others.some(o => overlaps(o.box, { x: b.x - 8, y: b.y - 8, w: b.w + 16, h: b.h + 16 }));
+    // below the group if there is room, else to its right, else further down
+    const tries = [h(cl.x, cl.y + cl.h + GAP), h(cl.x + cl.w + GAP * 2, cl.y)];
+    const pick = tries.find(t => sizes.length && clearOf(t.box)) ?? tries[0];
+    ids.forEach((id, i) => moveTo(id, { ...pick.sp[i], w: sizes[i].w, h: sizes[i].h }));
+    return { ids, label: `${ids.length} for “${a.text.trim()}”` };
   }
 
   function placeMarks(intent: Extract<Intent, { type: 'mark' }>, picksWhy: { it: Item; why: string }[]): Made {
