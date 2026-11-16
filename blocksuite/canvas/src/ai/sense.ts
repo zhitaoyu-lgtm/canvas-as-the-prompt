@@ -244,8 +244,8 @@ export function mountSense(rootEl: any) {
 Answer with JSON only:
 {"refs":[{"ref":"s3","why":"one short line"}],"found":[{"title":"…","meta":"venue · year · authors","summary":"one line on why it matters here","url":"https://… (optional)"}],
  "more":[{"title":"2–4 word topic","refs":["n4"],"found":[…]}]}
-- refs: things already on the board that clearly belong. Judge by their words and pictures, not by position. At most 8. Never refs that are marks, frames or lines, never the ones listed as already in. "why": only for the one or two picks where the tie is an insight (a tension, a link to a person or goal on the board, something non-obvious), a few words in the user's language; never bookkeeping (missing year, author, format); leave it out for the rest.
-- found: up to ${intent.type === 'mark' ? 0 : 3}; ${foundRule}. In the language the board uses for its titles.
+- refs: things already on the board that clearly belong. Judge by their words and pictures, not by position. At most 8. Never refs that are marks, frames or lines, never the ones listed as already in. "why": only for the one or two picks where the tie is an insight (a tension, a link to a person or goal on the board, something non-obvious), a few words in English; never bookkeeping (missing year, author, format); leave it out for the rest.
+- found: up to ${intent.type === 'mark' ? 0 : 3}; ${foundRule}. In English.
 - more: always [].
 - Few and right beats many: if nothing fits, return {"refs":[],"found":[],"more":[]}.`;
     const byText = new Map<string, string[]>();
@@ -377,7 +377,7 @@ Answer with JSON only:
     const sys = `Someone drew a ${intent.style} on a whiteboard from one thing to another. Read what the two things are and say what the line means.
 Answer with JSON only: {"label":"2–4 words","comment":"","extensions":[{"type":"bridge|next|counter","ref":"s3 (optional, a thing already on the board)","title":"…","meta":"venue · year · authors","summary":"one line"}]}
 - Never write internal refs (s3, n12 …) in label, comment or summaries: name things by their words.
-- label: the relation, in the language of the board, short enough to sit on the line ("instruction → vision", "反例", "same idea, 30 years apart"). An arrow reads from the first thing to the second.
+- label: the relation, in English, short enough to sit on the line ("instruction → vision", "counterexample", "same idea, 30 years apart"). An arrow reads from the first thing to the second.
 - comment: 1–2 sentences, only an insight: a tension, a shift, a conflict with the people or goals on the board, a step that is missing. Never bookkeeping (missing year or author, format) and never a restatement of the label. Otherwise "".
 - extensions: up to 3 things worth adding because of this link: a bridge between the two, the next step after the second, or a counterpoint. Prefer things already on the board (ref); otherwise ${online() ? 'real sources you verified with search, with url' : 'only well-known real works you are sure of, no url'}.`;
     const user = `BOARD\n${toPrompt(r)}\n\nLINE\n${intent.style} from ${intent.from.ref} (${intent.from.text.slice(0, 160)}) to ${intent.to.ref} (${intent.to.text.slice(0, 160)}).`;
@@ -413,7 +413,7 @@ Answer with JSON only: {"label":"2–4 words","comment":"","extensions":[{"type"
   async function respondStress(intent: Extract<Intent, { type: 'stress' }>) {
     const r = readBoard(gfx);
     const sys = `Someone underlined one thing on a whiteboard: it matters to them. Say in 1–2 sentences the insight about it that the board supports: what it connects to, what it conflicts with (people, goals, other material), or what follows from it. Never bookkeeping, never a summary of the thing. If there is no insight, answer "".
-Answer with JSON only: {"comment":"…"}. In the language of the board. Never write refs (s3, n12): name things by their words.`;
+Answer with JSON only: {"comment":"…"}. In English. Never write refs (s3, n12): name things by their words.`;
     const user = `BOARD\n${toPrompt(r)}\n\nUNDERLINED\n${intent.item.ref}: ${intent.item.text.slice(0, 300)}`;
     const mock = (window as any).cxMockSense;
     const raw = mock ? (typeof mock === 'function' ? await mock(intent, user) : mock) : await ask(sys, user);
@@ -428,7 +428,7 @@ Answer with JSON only: {"comment":"…"}. In the language of the board. Never wr
     const r = readBoard(gfx);
     const sys = `Someone gathered a few things on a whiteboard into one group by hand, without naming it. Name the group.
 Answer with JSON only: {"title":"2–4 words","subtitle":"what unites them, at most 8 words","colour":"blue|teal|green|yellow|orange|red|pink|violet"}
-- Specific, not generic ("AI answers away from the board", not "Group 1"). In the language of the board. Never write refs (s3, n12).`;
+- Specific, not generic ("AI answers away from the board", not "Group 1"). In English. Never write refs (s3, n12).`;
     const user = `BOARD\n${toPrompt(r)}\n\nGROUP\n${intent.members.map(m => `${m.ref}: ${m.text.replace(/\s+/g, ' ').slice(0, 140)}`).join('\n')}`;
     const mock = (window as any).cxMockSense;
     const raw = mock ? (typeof mock === 'function' ? await mock(intent, user) : mock) : await ask(sys, user);
