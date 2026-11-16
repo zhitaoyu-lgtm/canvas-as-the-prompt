@@ -13,6 +13,7 @@ import { Text } from '@blocksuite/affine/store';
 import { generateKeyBetween } from '@blocksuite/affine/std/gfx';
 import { ask, online, parseAnswer } from './model';
 import { readBoard, toPrompt, type Box, type Item, type Reading } from './reading';
+import { cleanRefs } from './actions';
 import { addComment, removeCommentsOn } from './comments';
 import { toast } from './proposals';
 
@@ -227,7 +228,7 @@ Answer with JSON only:
     const take = (list: any[]): { it: Item; why: string }[] => (list ?? []).map((x: any) => {
       const ref = typeof x === 'string' ? x : x?.ref; const it = r.byRef.get(String(ref));
       if (!it || used.has(it.id) || ['frame', 'connector', 'group'].includes(it.kind) || r.relations.attached.has(it.ref)) return null;
-      used.add(it.id); return { it, why: typeof x === 'string' ? '' : String(x?.why ?? '') };
+      used.add(it.id); return { it, why: typeof x === 'string' ? '' : cleanRefs(String(x?.why ?? ''), r) };
     }).filter(Boolean) as any;
     const norm = (t: string) => t.toLowerCase().replace(/\s+/g, ' ').trim();
     const have = new Set([...exclude].map(id => norm(r.byId.get(id)?.text ?? '')).filter(Boolean));
@@ -343,6 +344,7 @@ Answer with JSON only:
     const r = readBoard(gfx);
     const sys = `Someone drew a ${intent.style} on a whiteboard from one thing to another. Read what the two things are and say what the line means.
 Answer with JSON only: {"label":"2–4 words","comment":"","extensions":[{"type":"bridge|next|counter","ref":"s3 (optional, a thing already on the board)","title":"…","meta":"venue · year · authors","summary":"one line"}]}
+- Never write internal refs (s3, n12 …) in label, comment or summaries: name things by their words.
 - label: the relation, in the language of the board, short enough to sit on the line ("instruction → vision", "反例", "same idea, 30 years apart"). An arrow reads from the first thing to the second.
 - comment: 2–3 sentences only when the relation has something non-obvious (a tension, a shift, a missing step); otherwise "".
 - extensions: up to 3 things worth adding because of this link: a bridge between the two, the next step after the second, or a counterpoint. Prefer things already on the board (ref); otherwise ${online() ? 'real sources you verified with search, with url' : 'only well-known real works you are sure of, no url'}.`;
@@ -351,7 +353,7 @@ Answer with JSON only: {"label":"2–4 words","comment":"","extensions":[{"type"
     const raw = mock ? (typeof mock === 'function' ? await mock(intent, user) : mock) : await ask(sys, user);
     const ans = typeof raw === 'string' ? parseAnswer(raw) : raw;
     dev.log.unshift({ intent: intent.key, answer: ans }); dev.log.length = Math.min(dev.log.length, 10);
-    const label = String(ans.label ?? '').trim(); if (!label) return;
+    const label = cleanRefs(String(ans.label ?? ''), r); if (!label) return;
     store.captureSync();
     let lineId: string, made: Made;
     if (intent.drawn) {
@@ -368,7 +370,7 @@ Answer with JSON only: {"label":"2–4 words","comment":"","extensions":[{"type"
         restore: () => { surf.updateElement(lineId, { text: new Y.Text(), labelDisplay: false }); removeCommentsOn(store, [lineId]); } };
     }
     store.captureSync();
-    const comment = String(ans.comment ?? '').trim(); if (comment) addComment(store, lineId, comment);
+    const comment = cleanRefs(String(ans.comment ?? ''), r); if (comment) addComment(store, lineId, comment);
     const ext = Array.isArray(ans.extensions) ? ans.extensions.slice(0, 3) : [];
     const keep0 = made.onKeep;
     made.onKeep = () => { keep0?.(); if (ext.length) chip(lineId, ext, r, intent); };

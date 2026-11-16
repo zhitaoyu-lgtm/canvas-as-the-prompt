@@ -4,6 +4,7 @@
 
 import { TableDataManager } from '@blocksuite/affine/blocks/table';
 import { Text } from '@blocksuite/affine/store';
+import { addComment } from './comments';
 import { generateKeyBetween } from '@blocksuite/affine/std/gfx';
 import * as Y from 'yjs';
 
@@ -43,7 +44,25 @@ const textWidth = (s: string, size: number) => {
   return Math.max(...s.split('\n').map(l => c.measureText(l).width)) + 8;
 };
 
+// Words shown to the user never carry our internal refs (s3, n12 …): they become the thing's own words.
+const SHOWN = new Set(['text', 'title', 'subtitle', 'body', 'label', 'note', 'meta', 'summary', 'comment', 'why', 'key', 'caption', 'callout', 'who', 'role', 'value', 'delta', 'name_shown']);
+export function cleanRefs(text: string, reading: Reading): string {
+  return text.replace(/\(?\b([a-z]{1,2}\d{1,3}|G\d{1,3}|L\d{1,3}|col \d+|row \d+)\b\)?/g, (m, ref) => {
+    const it = reading.byRef.get(ref); if (!it) return m.startsWith('(') ? '' : m;
+    const words = it.text.replace(/\s+/g, ' ').trim(); if (!words) return '';
+    return `“${words.length > 28 ? words.slice(0, 26).trim() + '…' : words}”`;
+  }).replace(/\s{2,}/g, ' ').trim();
+}
+function cleanAction(v: any, reading: Reading, key = ''): any {
+  if (typeof v === 'string') return SHOWN.has(key) ? cleanRefs(v, reading) : v;
+  if (Array.isArray(v)) return v.map(x => cleanAction(x, reading, key === 'items' || key === 'tags' ? 'text' : key));
+  if (v && typeof v === 'object') { const o: any = {}; for (const [k, x] of Object.entries(v)) o[k] = cleanAction(x, reading, k); return o; }
+  return v;
+}
+
 export async function execute(rootEl: any, reading: Reading, answer: Answer): Promise<Result> {
+  answer = { ...answer, actions: (answer.actions ?? []).map(a => cleanAction(a, reading)) };
+  const clean = (t: string) => cleanRefs(t, reading);
   const gfx = rootEl.gfx, std = rootEl.std, store = std.store, surf = gfx.surface;
   const created: string[] = [], changed = new Set<string>(), errors: string[] = [];
   let topKey: string | null = null;
@@ -390,6 +409,9 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     newBoxes.push({ x: origin.x, y: origin.y, w: cols * (w + gap) - gap, h: rows * (h + gap) - gap });
   }
   function note(a: Action) {
+    // a remark about one thing is a comment on it (Figma-style pin), not loose text on the board
+    const onId = idOf(a.on);
+    if (onId) { addComment(store, onId, clean(String(a.text ?? ''))); return; }
     const on = boxOfRef(a.on);
     const text = String(a.text ?? '');
     const size = 13;
@@ -424,23 +446,23 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   }
   // order numbers: a small dark circle on the top-left corner of each thing, in the given order
   function number(a: Action) {
-    (a.refs ?? []).forEach((ref: string, i: number) => {
+    (a.refs ?? []).slice(0, 6).forEach((ref: string, i: number) => {    // a few at most: order is for the first things to look at
       const b = boxOfRef(ref); if (!b) return;
-      const t = new Y.Text(); t.insert(0, String((a.start ?? 1) + i));
-      const id = addEl({ type: 'shape', shapeType: 'ellipse', index: top(), xywh: xywh({ x: b.x - 11, y: b.y - 11, w: 26, h: 26 }), filled: true, fillColor: SYS.ink, strokeColor: '#ffffff', strokeWidth: 2,
-        color: '#ffffff', fontSize: 12, fontWeight: '600', fontFamily: 'blocksuite:surface:Inter', textAlign: 'center', textHorizontalAlign: 'center', textVerticalAlign: 'center', padding: [0, 0], text: t });
-      created.push(id);
+      badge(b.x - 11, b.y - 11, 24, String((a.start ?? 1) + i), SYS.ink, '#ffffff', '#ffffff');
     });
+  }
+  // a round badge with its digit truly centred (a separate text box, sized to the digit's line)
+  function badge(x: number, y: number, d: number, label: string, fill: string, ink: string, ring: string) {
+    created.push(addEl({ type: 'shape', shapeType: 'ellipse', index: top(), xywh: xywh({ x, y, w: d, h: d }), filled: true, fillColor: fill, strokeColor: ring, strokeWidth: 1.5, text: new Y.Text() }));
+    const fs = d <= 20 ? 10 : 11, lh = Math.round(fs * 1.2), t = new Y.Text(); t.insert(0, label);
+    created.push(addEl({ type: 'text', index: top(), xywh: xywh({ x, y: y + (d - lh) / 2 + (d <= 20 ? 1 : 0), w: d, h: lh }), text: t, color: ink, fontSize: fs, fontWeight: '600', fontFamily: 'blocksuite:surface:Inter', textAlign: 'center' }));
   }
   // the same small number on a new thing and the user's thing it answers: a link without a line
   function pair(a: Action) {
-    (a.pairs ?? []).forEach((pr: string[], i: number) => {
+    (a.pairs ?? []).slice(0, 5).forEach((pr: string[], i: number) => {
       for (const ref of pr) {
         const b = boxOfRef(ref); if (!b) { errors.push(`pair: unknown ${ref}`); continue; }
-        const t = new Y.Text(); t.insert(0, String((a.start ?? 1) + i));
-        const id = addEl({ type: 'shape', shapeType: 'ellipse', index: top(), xywh: xywh({ x: b.x + b.w - 11, y: b.y - 9, w: 20, h: 20 }), filled: true, fillColor: '#ffffff', strokeColor: LINE.color, strokeWidth: 1,
-          color: LINE.color, fontSize: 11, fontWeight: '600', fontFamily: 'blocksuite:surface:Inter', textAlign: 'center', textHorizontalAlign: 'center', textVerticalAlign: 'center', padding: [0, 0], text: t });
-        created.push(id);
+        badge(b.x + b.w - 10, b.y - 10, 20, String((a.start ?? 1) + i), '#ffffff', LINE.color, LINE.color);
       }
     });
   }
@@ -567,57 +589,61 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     ids.push(addEl({ type: 'text', xywh: xywh({ x: x + (dot ? 21 : 10), y: y + 5, w: w - (dot ? 28 : 20), h: 15 }), text: t, color: TEXT.body, fontSize: TYPE.caption, fontWeight: '500', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' }));
     return ids;
   }
-  // Tags sit beside a thing, not on it: a row just under its bottom edge (8px), left-aligned,
-  // wrapping into further rows; if something is directly below, they go to its right instead.
-  const tagRows = new Map<string, { x: number; row: number; side: 'below' | 'right' }>();
+  // Marks, not pills: a colour dot straddling the top-right corner of the thing (a second one steps left),
+  // and the meaning of each colour said once, in a key beside the marked things.
+  const marksOn = new Map<string, number>();
+  const keyEntries = new Map<string, string>();   // colour → meaning
+  const keyBoxes: Box[] = [];
+  let legendDrawn = false;
   function tag(a: Action) {
     const refs: string[] = a.refs ?? (a.ref ? [a.ref] : a.on ? [a.on] : []);
+    const label = String(a.text ?? a.label ?? '').trim();
+    const c = DOT[base(a.colour ?? 'blue')] ?? DOT.blue;
     for (const ref of refs) {
       const b = boxOfRef(ref);
       if (!b) { errors.push(`tag: unknown ${ref}`); continue; }
-      const label = String(a.text ?? a.label ?? '').trim(); if (!label) continue;
-      const dot = a.colour ? DOT[base(a.colour)] : undefined;
-      const w = pillW(label, !!dot), gapX = 6, gapY = 6;
-      let st = tagRows.get(ref);
-      if (!st) {
-        const below = { x: b.x, y: b.y + b.h + 8, w: b.w, h: PILL_H };
-        const holds = (o: Box) => o.x <= b.x && o.y <= b.y && o.x + o.w >= b.x + b.w && o.y + o.h >= b.y + b.h;   // a section around it
-        const hit = (r: Box) => obstacles().some(o => !(o.x === b.x && o.y === b.y && o.w === b.w) && !holds(o) && overlaps(r, o, 0));
-        const right = { x: b.x + b.w + 8, y: b.y, w: 90, h: PILL_H };
-        st = { x: 0, row: 0, side: hit(below) && !hit(right) ? 'right' : 'below' };
-      }
-      let x: number, y: number;
-      if (st.side === 'below') {
-        if (st.x && st.x + w > Math.max(b.w, 160)) { st.x = 0; st.row++; }
-        x = b.x + st.x; y = b.y + b.h + 8 + st.row * (PILL_H + gapY); st.x += w + gapX;
-      } else {
-        x = b.x + b.w + 8; y = b.y + st.row * (PILL_H + gapY); st.row++;
-      }
-      tagRows.set(ref, st);
-      // no group element: the reading layer recognises pill + word (+ dot) as one tag
-      created.push(...pill(x, y, label, dot)); newBoxes.push({ x, y, w, h: PILL_H });
+      const n = marksOn.get(ref) ?? 0; marksOn.set(ref, n + 1);
+      const s0 = 14, x = b.x + b.w - s0 / 2 - n * (s0 + 4), y = b.y - s0 / 2;
+      created.push(addEl({ type: 'shape', shapeType: 'ellipse', index: nextTop(), xywh: xywh({ x, y, w: s0, h: s0 }), filled: true, fillColor: c, strokeColor: '#ffffff', strokeWidth: 2, text: new Y.Text() }));
+      keyBoxes.push(b);
     }
+    if (label && !keyEntries.has(c)) keyEntries.set(c, label);
+  }
+  // the key: a small white card, one row per colour (dot + meaning), placed beside the marked things
+  function key(entries: { colour: string; label: string }[], near?: Box, at?: Box) {
+    if (!entries.length) return;
+    const rowH = 22, pad = 14, title = 'Key';
+    const w = Math.max(...entries.map(e => textWidth(e.label, TYPE.caption))) + pad * 2 + 22, h = pad * 2 + 18 + entries.length * rowH;
+    let box0: Box;
+    if (at) box0 = { ...at, w, h };
+    else if (near) {
+      const cands = [{ x: near.x + near.w + 32, y: near.y, w, h }, { x: near.x, y: near.y - h - 24, w, h }, { x: near.x, y: near.y + near.h + 24, w, h }];
+      box0 = cands.find(c0 => free(c0)) ?? cands[0];
+    } else box0 = place(undefined, w, h, reading.selection[0]);
+    const ids = [addEl({ type: 'shape', shapeType: 'rect', radius: 0.12, index: nextTop(), xywh: xywh(box0), filled: true, fillColor: '#ffffff', strokeColor: TEXT.line, strokeWidth: 1, text: new Y.Text() })];
+    const tt = new Y.Text(); tt.insert(0, title);
+    ids.push(addEl({ type: 'text', index: nextTop(), xywh: xywh({ x: box0.x + pad, y: box0.y + pad - 2, w: 60, h: 16 }), text: tt, color: TEXT.muted, fontSize: 11, fontWeight: '600', fontFamily: 'blocksuite:surface:Inter' }));
+    entries.forEach((e, i) => {
+      const y = box0.y + pad + 18 + i * rowH;
+      ids.push(addEl({ type: 'shape', shapeType: 'ellipse', index: nextTop(), xywh: xywh({ x: box0.x + pad, y: y + 4, w: 10, h: 10 }), filled: true, fillColor: e.colour, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() }));
+      const t = new Y.Text(); t.insert(0, e.label);
+      ids.push(addEl({ type: 'text', index: nextTop(), xywh: xywh({ x: box0.x + pad + 18, y: y + 1, w: textWidth(e.label, TYPE.caption) + 4, h: 16 }), text: t, color: TEXT.body, fontSize: TYPE.caption, fontFamily: 'blocksuite:surface:Inter' }));
+    });
+    created.push(...ids); newBoxes.push(box0);
+    return { id: ids[0], box: box0 };
   }
 
   function legend(a: Action) {
-    const entries: { colour: string; label: string }[] = a.entries ?? [];
-    if (!entries.length) return;
-    const gap = 8;
-    const widths = entries.map(e => pillW(e.label, true));
-    const total = widths.reduce((s, w) => s + w, 0) + gap * (entries.length - 1);
-    const box = place(a.place, total, PILL_H, Object.keys(a.place ?? {}).length ? undefined : reading.selection[0]);
-    const ids: string[] = [];
-    let x = box.x;
-    entries.forEach((e, i) => {
-      const c = base(e.colour);
-      // a legend for text highlights shows the highlight colour; for stickies, the sticky colour in use
+    const entries = (a.entries ?? []).map((e: any) => {
+      const c = base(e.colour ?? 'gray');
       const hl = getComputedStyle(document.documentElement).getPropertyValue(`--affine-text-highlight-${HL.includes(c) ? c : 'yellow'}`).trim();
       const isMark = reading.items.some(i => i.marks?.some(m => base(m.colour) === c));
-      const dot = (isMark && hl && /^#|rgb/.test(hl) ? hl : undefined) ?? userHex.get(c) ?? fillOf(e.colour)!;
-      ids.push(...pill(x, box.y, e.label, dot)); x += widths[i] + gap;
-    });
-    created.push(...ids); newBoxes.push(box);
-    if (a.name) named.set(a.name, { id: ids[0], box });
+      return { colour: (isMark && hl && /^#|rgb/.test(hl) ? hl : undefined) ?? userHex.get(c) ?? fillOf(e.colour)!, label: String(e.label ?? '') };
+    }).filter((e: any) => e.label);
+    const at = Object.keys(a.place ?? {}).length ? place(a.place, 160, 40 + entries.length * 22) : undefined;
+    legendDrawn = true;
+    const k = key(entries, at ? undefined : (reading.selection[0] ? boxOfRef(reading.selection[0]) : undefined), at);
+    if (k && a.name) named.set(a.name, k);
   }
 
   // ── Sections: a titled container holding cards, link cards, stickies, text or more sections ──
@@ -1099,5 +1125,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   }
   markAi(store, created);
   const touched = [...created, ...changed].map(id => gfx.getElementById(id)).filter(Boolean).map((e: any) => ({ ...e.elementBound }));
+  // one key for every colour the answer used as a mark (unless the answer drew its own legend)
+  if (keyEntries.size && !legendDrawn && keyBoxes.length) { try { key([...keyEntries].map(([colour, label]) => ({ colour, label })), union(keyBoxes)); } catch (e: any) { errors.push('key: ' + e?.message); } }
   return { created, changed: [...changed].filter(id => !created.includes(id)), errors, box: touched.length ? union(touched) : null };
 }

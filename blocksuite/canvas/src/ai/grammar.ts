@@ -54,10 +54,13 @@ Answer with a list of actions. Use only these parts; combine them freely. Refer 
 {"do":"ref", "from":"card-name", "to":"t27", "label":"依据 / evidence for"}   a quiet dashed line from your new thing to the user's thing it builds on
 {"do":"pair", "pairs":[["n1","card-a"],["t27","card-b"]]}   the same small number on both ends of each pair: a link without a line (use when lines would cross)
 {"do":"frame", "refs":["s1","s2"], "title":"…"}            name a set by wrapping it
-{"do":"note", "on":"s2", "text":"short remark"}             a small side remark beside a thing
-{"do":"tag", "refs":["s1","s3"], "text":"P1", "colour":"orange"}   a small label pill on things (priority, status, theme, owner)
+{"do":"note", "on":"s2", "text":"short remark"}             a comment pin on that thing (opens on click), for a remark only it needs; few
+{"do":"tag", "refs":["s1","s3"], "text":"Pain point", "colour":"red"}   a colour dot on the corner of each thing; the text goes once into a Key card
+                                                              beside them (never written on the thing). Use sparingly: only when the colour carries a
+                                                              category the user will scan for (pain / hope, must / nice). Prefer comments or a new sticky
+                                                              to explain one thing.
 {"do":"vote", "refs":["s2"], "n":1}                         add vote dots (in the board's vote colour)
-{"do":"number", "refs":["s3","s1","s2"]}                     number things in this order (small dark circles)
+{"do":"number", "refs":["s3","s1","s2"]}                     number things in this order (small dark circles); only when order matters, at most 5
 {"do":"plot", "chart":"L1", "items":[{"ref":"s4","x":0.8,"y":0.2},{"text":"New idea","x":0.3,"y":0.9}]}
                                                               place by value on a chart/2×2 (x 0→1 right, y 0→1 up)
 {"do":"milestone", "line":"c1", "at":0.4 | "after":"dt2", "label":"May", "callout":"Pilot"}   a new point on a timeline
@@ -112,6 +115,9 @@ PLACE (relative; code works out exact positions, spacing and sizes from the user
 `;
 
 export const LINKS = `
+WORDS THE USER READS: never write refs (s3, n12, G2, col 2) in any text, label, comment or card; name things by
+their own words ("the 'Answer in my colours' note"). Refs are only for the fields that point at things.
+
 LINKS: tie what you add back to what the user made. An answer that only sits next to their work is half an answer.
 Every answer that builds on the user's things shows, in space, which of their things each part answers, using
 the lightest form that is clear:
