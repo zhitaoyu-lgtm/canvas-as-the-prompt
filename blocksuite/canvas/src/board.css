@@ -230,14 +230,22 @@ affine-link-preview-details { display: none !important; }
 /* Comment pins (Figma-like): a bubble with a square bottom-left corner; click to read why */
 .cx-pins { position: fixed; inset: 0; pointer-events: none; z-index: 33; }
 .cx-pin { position: absolute; left: 0; top: 0; pointer-events: auto; }
-.cx-pin-dot { width: 24px; height: 24px; padding: 0; border: 0; cursor: pointer; border-radius: 12px 12px 12px 2px; background: #fff;
-  box-shadow: 0 0 0 .5px rgba(0,0,0,.18), 0 2px 6px rgba(0,0,0,.12); display: grid; place-items: center; transition: transform .15s ease; }
-.cx-pin-dot span { width: 10px; height: 10px; border-radius: 50%; background: #1d1d1f; }
-.cx-pin-dot:hover { transform: scale(1.08); }
-.cx-pin.open .cx-pin-dot { background: #1d1d1f; } .cx-pin.open .cx-pin-dot span { background: #fff; }
+.cx-pin-dot { width: 26px; height: 22px; padding: 0; border: 0; cursor: pointer; border-radius: 11px 11px 11px 3px; background: #fff;
+  box-shadow: 0 0 0 .5px rgba(0,0,0,.14), 0 1px 4px rgba(0,0,0,.08); display: grid; place-items: center; transition: transform .15s ease; }
+.cx-pin-dot span { width: 12px; height: 7px; background: linear-gradient(#aeaeb2, #aeaeb2) 0 0 / 12px 1.5px no-repeat, linear-gradient(#aeaeb2, #aeaeb2) 0 100% / 8px 1.5px no-repeat; border-radius: 1px; }
+.cx-pin-dot:hover { transform: scale(1.06); }
+.cx-pin.open .cx-pin-dot { box-shadow: 0 0 0 1px rgba(30,136,229,.45), 0 1px 4px rgba(0,0,0,.08); }
 .cx-pin-card { position: absolute; left: 30px; top: -2px; width: max-content; max-width: 240px; display: flex; gap: 10px; align-items: flex-start;
   padding: 10px 10px 10px 12px; background: #fff; border-radius: 12px; box-shadow: 0 0 0 .5px rgba(0,0,0,.14), 0 6px 18px rgba(0,0,0,.12);
   font: 400 12.5px/1.45 Inter, -apple-system, "PingFang SC", sans-serif; color: #1d1d1f; }
 .cx-pin-card[hidden] { display: none; }
 .cx-pin-card p { margin: 0; }
 .cx-pin-done { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 1px solid #e6e6e6; background: #fff; color: #6e6e73; display: grid; place-items: center; cursor: pointer; padding: 0; }
+
+/* Claude is thinking about this spot: the 2×2 dots breathe, nothing else */
+.cx-sense-think { position: fixed; z-index: 31; pointer-events: none; display: grid; grid-template-columns: 3.5px 3.5px; gap: 3px; }
+.cx-sense-think i { width: 3.5px; height: 3.5px; border-radius: 50%; background: rgba(30,136,229,.78); display: block; }
+@media (prefers-reduced-motion: no-preference) {
+  .cx-sense-think i:nth-child(1), .cx-sense-think i:nth-child(4) { animation: cx-diag 1.4s cubic-bezier(.45,0,.55,1) infinite; }
+  .cx-sense-think i:nth-child(2), .cx-sense-think i:nth-child(3) { animation: cx-diag 1.4s cubic-bezier(.45,0,.55,1) -.7s infinite; }
+}

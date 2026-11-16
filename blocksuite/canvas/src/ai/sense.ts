@@ -14,6 +14,7 @@ import { generateKeyBetween } from '@blocksuite/affine/std/gfx';
 import { ask, online, parseAnswer } from './model';
 import { readBoard, toPrompt, type Box, type Item, type Reading } from './reading';
 import { addComment, removeCommentsOn } from './comments';
+import { toast } from './proposals';
 
 const STABLE_MS = 1800, POLL_MS = 600, NEAR = 48;
 const DEFAULT_FRAME = /^(frame|section|untitled)(\s*\d+)?$/i;
@@ -35,6 +36,8 @@ const str = (v: any) => (v == null ? '' : typeof v === 'string' ? v : v.toString
 export function mountSense(rootEl: any) {
   const gfx = rootEl.gfx, store = rootEl.std.store, surf = gfx.surface;
   const handled = new Set<string>();
+  const failed = new Map<string, number>();   // key → when it failed; tried again after a minute
+  const retry = (key: string) => { const t = failed.get(key); return !!t && Date.now() - t > 60_000; };
   let base = new Map<string, string>(), last = new Map<string, string>(), recent = new Set<string>();
   let quietSince = 0, busy = false, pointerDown = false, pending: Pending | null = null;
   const dev: any = (window as any).cxSense = { log: [] as any[], enabled: true };
@@ -70,8 +73,25 @@ export function mountSense(rootEl: any) {
     const intent = detect(touched);
     if (!intent) return;
     busy = true;
-    try { await respond(intent); } catch (e) { console.warn('[sense]', e); } finally { busy = false; rebase(); }
+    const stop = thinking(intent);
+    try { await respond(intent); failed.delete(intent.key); }
+    catch (e: any) {
+      console.warn('[sense]', e); failed.set(intent.key, Date.now());
+      const code = e?.code ?? '';
+      toast(code === 'no_model' ? 'Connect Claude in settings to let the board help.' : code === 'not_granted' ? 'Claude was not allowed for this page.' : 'Couldn’t reach Claude just now.', undefined);
+    }
+    finally { stop(); busy = false; rebase(); }
   }, POLL_MS);
+
+  // While Claude thinks: the 2×2 dots breathe at the top-left of the place it is thinking about. Nothing else.
+  function thinking(intent: Intent): () => void {
+    const area = intent.type === 'section' ? box(intent.frame) : intent.type === 'group' ? union([intent.anchor.box, ...intent.members.map(m => m.box)]) : intent.marks[intent.marks.length - 1].host.box;
+    const d = document.createElement('div'); d.className = 'cx-sense-think'; d.innerHTML = '<i></i><i></i><i></i><i></i>'; document.body.append(d);
+    let raf = 0;
+    const tick = () => { const rr = rootEl.getBoundingClientRect(); const [x, y] = gfx.viewport.toViewCoord(area.x, area.y); d.style.left = (rr.left + x - 16) + 'px'; d.style.top = (rr.top + y - 16) + 'px'; raf = requestAnimationFrame(tick); };
+    tick();
+    return () => { cancelAnimationFrame(raf); d.remove(); };
+  }
 
   // ── reading the settled board for a category ──
   function detect(touched: Set<string>): Intent | null {
@@ -98,20 +118,27 @@ export function mountSense(rootEl: any) {
       const key = `mark:${sig}`; if (handled.has(key)) continue;
       return { type: 'mark', key, sig, label: markSig(list[0].mark)!.label, marks: list };
     }
-    // 3 · a named sticky in open space with the first thing set beside it
+    // 3 · a named sticky with material set close to it, standing apart from the rest: a topic.
+    // The group is everything chained to the sticky by short gaps (a card beside a card beside the sticky).
     const free = (i: Item) => !['frame', 'connector', 'group'].includes(i.kind) && !r.relations.attached.has(i.ref);
-    for (const moved of touchedItems.filter(free)) {
-      const anchors = r.items.filter(s => s.kind === 'sticky' && s.id !== moved.id && s.text.trim().length > 1 && free(s) && gap(s.box, moved.box) <= NEAR);
-      for (const a of anchors) {
-        const members = r.items.filter(o => o.id !== a.id && free(o) && o.kind !== 'sticky' && gap(o.box, a.box) <= NEAR);
-        const near = r.items.filter(o => o.id !== a.id && free(o) && gap(o.box, a.box) <= NEAR);
-        if (!members.length || near.length > 4) continue;     // a crowd is a pile, not a new category
-        const cl = union([a.box, ...near.map(o => o.box)]);
-        const clear = r.items.every(o => o.id === a.id || near.includes(o) || !free(o) || gap(o.box, cl) >= 96);
-        if (!clear) continue;                                  // it has to stand apart, in open space
-        const key = `group:${a.id}:${a.text.trim().toLowerCase()}`; if (handled.has(key)) continue;
-        return { type: 'group', key, anchor: a, members: near };
-      }
+    const loose = r.items.filter(free);
+    const chainFrom = (start: Item) => {
+      const seen = new Set<Item>([start]), queue = [start];
+      while (queue.length && seen.size <= 9) { const c = queue.shift()!; for (const o of loose) if (!seen.has(o) && gap(o.box, c.box) <= NEAR) { seen.add(o); queue.push(o); } }
+      return [...seen];
+    };
+    const stickies = loose.filter(s => s.kind === 'sticky' && s.text.trim().length > 1);
+    for (const a of stickies) {
+      const comp = chainFrom(a);
+      if (comp.length < 2 || comp.length > 9) continue;                    // alone, or part of a pile
+      if (!comp.some(o => touched.has(o.id))) continue;                     // nothing here just changed
+      if (comp.filter(o => o.kind === 'sticky').length > 2) continue;       // several notes together read as a cluster of ideas
+      if (!comp.some(o => o.kind !== 'sticky')) continue;                   // needs material beside it
+      const cl = union(comp.map(o => o.box));
+      const clear = loose.every(o => comp.includes(o) || gap(o.box, cl) >= 72);
+      if (!clear) continue;                                                 // it has to stand apart, in open space
+      const key = `group:${a.id}:${a.text.trim().toLowerCase()}`; if (handled.has(key) && !retry(key)) continue;
+      return { type: 'group', key, anchor: a, members: comp.filter(o => o !== a) };
     }
     return null;
   }
@@ -155,7 +182,7 @@ export function mountSense(rootEl: any) {
 Answer with JSON only:
 {"refs":[{"ref":"s3","why":"one short line"}],"found":[{"title":"…","meta":"venue · year · authors","summary":"one line on why it matters here","url":"https://… (optional)"}],
  "more":[{"title":"2–4 word topic","refs":["n4"],"found":[…]}]}
-- refs: things already on the board that clearly belong. Judge by their words and pictures, not by position. At most 8. Never refs that are marks, frames or lines, never the ones listed as already in. "why" says in a few words what ties it to the category, in the user's language.
+- refs: things already on the board that clearly belong. Judge by their words and pictures, not by position. At most 8. Never refs that are marks, frames or lines, never the ones listed as already in. "why": only for the one or two picks whose tie is not obvious, a few words in the user's language; leave it out for the rest.
 - found: up to ${intent.type === 'mark' ? 0 : 3}; ${foundRule}. In the language the board uses for its titles.
 - more: ${intent.type === 'group' ? 'up to 4 other topics that sort the remaining loose things on the board (each ref appears once overall); 1–2 found each' : 'always []'}.
 - Few and right beats many: if nothing fits, return {"refs":[],"found":[],"more":[]}.`;
@@ -260,7 +287,7 @@ Answer with JSON only:
       const id = duplicate(mark.id, { x, y, w: mark.box.w, h: mark.box.h }); if (id) ids.push(id);
     }
     // why each one got the mark: a comment pin on the new mark, opened with a click
-    const notes = picksWhy.map((p, i) => [ids[i], p.why] as const).filter(([id, why]) => id && why);
+    const notes = picksWhy.map((p, i) => [ids[i], p.why] as const).filter(([id, why]) => id && why).slice(0, 2);   // comments only where they matter
     notes.forEach(([id, why]) => addComment(store, id, why));   // shown at once, so the reason is there before deciding
     return { ids, label: `${ids.length} more get ${intent.label}` };
   }
@@ -333,7 +360,9 @@ class Pending {
   private spread: boolean;
   constructor(private rootEl: any, private made: { ids: string[]; restore?: () => void; label: string; onKeep?: () => void; notes?: readonly (readonly [string, string])[] }, intent: Intent, private done: () => void) {
     // marks are scattered over the user's things: each copy fades on its own and only the bar carries the dots
-    this.spread = intent.type === 'mark';
+    // marks and topic groups sit among the user's own things: each copy fades on its own (one box would
+    // fade the user's things too), and the bar carries the dots
+    this.spread = intent.type !== 'section';
     this.ring.className = 'cx-sense-ring';
     this.ring.innerHTML = '<span class="cx-sense-dots"><i></i><i></i><i></i><i></i></span>';
     this.bar.className = 'cx-sense-bar';
@@ -360,7 +389,7 @@ class Pending {
     if (this.spread) bs.forEach((b, i) => this.veils[i] && set(this.veils[i], this.screen(b, 2)));
     else { set(this.veils[0], u); set(this.ring, u); }
     const bw = this.bar.offsetWidth || 220;
-    if (this.spread) { const l = this.screen(bs[bs.length - 1], 2); Object.assign(this.bar.style, { left: (l.L + l.W + 10) + 'px', top: (l.T + l.H / 2 - 17) + 'px' }); }   // beside the last new mark
+    if (this.spread && this.made.label.includes('get ')) { const l = this.screen(bs[bs.length - 1], 2); Object.assign(this.bar.style, { left: (l.L + l.W + 10) + 'px', top: (l.T + l.H / 2 - 17) + 'px' }); }   // beside the last new mark
     else Object.assign(this.bar.style, { left: Math.max(8, u.L + u.W - bw) + 'px', top: (u.T + u.H + 10) + 'px' });
   }
   private close() { cancelAnimationFrame(this.raf); this.veils.forEach(v => v.remove()); this.ring.remove(); this.bar.remove(); }
