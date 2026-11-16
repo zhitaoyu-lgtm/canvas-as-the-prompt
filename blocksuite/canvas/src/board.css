@@ -230,12 +230,12 @@ affine-link-preview-details { display: none !important; }
 /* Comment pins (Figma-like): a bubble with a square bottom-left corner; click to read why */
 .cx-pins { position: fixed; inset: 0; pointer-events: none; z-index: 33; }
 .cx-pin { position: absolute; left: 0; top: 0; pointer-events: auto; }
-.cx-pin-dot { width: 30px; height: 30px; padding: 0; border: 0; cursor: pointer; border-radius: 15px 15px 15px 2px; background: #1d1d1f;
-  box-shadow: 0 1px 3px rgba(0,0,0,.18); display: flex; align-items: center; justify-content: center; gap: 3px; transition: transform .15s ease; }
-.cx-pin-dot i { width: 4px; height: 4px; border-radius: 50%; background: #fff; display: block; }
+.cx-pin-dot { width: 22px; height: 22px; padding: 0; border: 0; cursor: pointer; border-radius: 11px 11px 11px 2px; background: #1d1d1f;
+  box-shadow: 0 1px 3px rgba(0,0,0,.18); display: flex; align-items: center; justify-content: center; gap: 2px; transition: transform .15s ease; }
+.cx-pin-dot i { width: 3px; height: 3px; border-radius: 50%; background: #fff; display: block; }
 .cx-pin-dot:hover { transform: scale(1.06); }
 .cx-pin.open .cx-pin-dot { box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px rgba(30,136,229,.6); }
-.cx-pin-card { position: absolute; left: 36px; top: 0; width: max-content; max-width: 240px; display: flex; gap: 10px; align-items: flex-start;
+.cx-pin-card { position: absolute; left: 28px; top: 0; width: max-content; max-width: 240px; display: flex; gap: 10px; align-items: flex-start;
   padding: 10px 10px 10px 12px; background: #fff; border-radius: 12px; box-shadow: 0 0 0 .5px rgba(0,0,0,.1), 0 4px 12px rgba(0,0,0,.06);
   font: 400 12.5px/1.45 Inter, -apple-system, "PingFang SC", sans-serif; color: #1d1d1f; }
 .cx-pin-card[hidden] { display: none; }

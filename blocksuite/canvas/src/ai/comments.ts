@@ -45,7 +45,7 @@ export function mountComments(rootEl: any) {
       // on a line, the pin sits at the end of its label; elsewhere at the top-right corner
       const l = el.labelDisplay && el.labelXYWH; const b = l ? { x: l[0], y: l[1] + 4, w: l[2] + 30, h: l[3] } : el.elementBound;
       const [vx, vy] = gfx.viewport.toViewCoord(b.x + b.w, b.y);
-      const x = rr.left + vx + 2, y = rr.top + vy - 30;   // the square corner points at the thing
+      const x = rr.left + vx + 2, y = rr.top + vy - 22;   // the square corner points at the thing
       const visible = x > rr.left - 30 && x < rr.right && y > rr.top - 30 && y < rr.bottom;   // same size at every zoom, like Figma
       pin.hidden = !visible;
       pin.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
