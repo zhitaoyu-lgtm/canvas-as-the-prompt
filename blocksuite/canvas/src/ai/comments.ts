@@ -19,18 +19,6 @@ export function removeCommentsOn(store: any, ids: string[]) {
   for (const [cid, c] of [...m.entries()] as [string, C][]) if (set.has(c.on)) m.delete(cid);
 }
 
-// The avatar: a white ring around a solid colour, taken from where the comment sits (a sticky's own hue,
-// a section's tint deepened), so it belongs to that part of the board; calm blue-gray elsewhere.
-const DEEP: [RegExp, string][] = [[/^#ff(af|d2|bd|a8)/i, '#ff7b6b'], [/^#ffd3a8|^#ffdfc2|^#ffd/i, '#ff9e42'], [/^#ffe2|^#fff2|^#ffe5/i, '#f5b82e'],
-  [/^#b3ef|^#e9f8|^#d9f/i, '#4cc76a'], [/^#b3f4|^#e3f8/i, '#2fb5aa'], [/^#a8da|^#e8f4|^#d9e7/i, '#4a9df0'], [/^#d3bd|^#f3ed/i, '#8a63f0'], [/^#ffa8db|^#ffee/i, '#ef6fc4']];
-const avatarColour = (gfx: any, el: any) => {
-  const own = el?.fillColor ?? el?.props?.background;
-  const tryHex = (h?: string) => typeof h === 'string' ? DEEP.find(([re]) => re.test(h))?.[1] : undefined;
-  let c = tryHex(own);
-  if (!c) { const b = el?.elementBound; const f = b && (gfx.gfxElements as any[]).find(e => e.flavour === 'affine:frame' && e.elementBound.contains?.(b)); c = tryHex(f?.props?.background); }
-  return c ?? '#7f95b8';
-};
-
 export function mountComments(rootEl: any) {
   const store = rootEl.std.store, gfx = rootEl.gfx;
   const layer = document.createElement('div'); layer.className = 'cx-pins'; document.body.append(layer);
@@ -48,11 +36,10 @@ export function mountComments(rootEl: any) {
       let pin = pins.get(cid);
       if (!pin) {
         pin = document.createElement('div'); pin.className = 'cx-pin';
-        pin.innerHTML = `<button class="cx-pin-dot" aria-label="Comment"><span class="cx-pin-av"></span></button><div class="cx-pin-card" hidden><p></p><button class="cx-pin-done" aria-label="Resolve"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L19 7"/></svg></button></div>`;
+        pin.innerHTML = `<button class="cx-pin-dot" aria-label="Comment"><i></i><i></i><i></i></button><div class="cx-pin-card" hidden><p></p><button class="cx-pin-done" aria-label="Resolve"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L19 7"/></svg></button></div>`;
         (pin.querySelector('p') as HTMLElement).textContent = c.text;
         (pin.querySelector('.cx-pin-dot') as HTMLElement).onclick = e => { e.stopPropagation(); open = open === cid ? null : cid; };
         (pin.querySelector('.cx-pin-done') as HTMLElement).onclick = e => { e.stopPropagation(); m.delete(cid); };
-        (pin.querySelector('.cx-pin-av') as HTMLElement).style.background = avatarColour(gfx, el);
         layer.append(pin); pins.set(cid, pin);
       }
       // on a line, the pin sits at the end of its label; elsewhere at the top-right corner
