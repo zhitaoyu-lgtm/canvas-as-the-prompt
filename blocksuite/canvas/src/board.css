@@ -214,3 +214,6 @@ affine-link-preview-details { display: none !important; }
 .affine-list-block__prefix { color: #8a8984 !important; }
 /* equal-height cards keep their height quietly: no collapse chevron */
 [data-testid="edgeless-note-collapse-button"] { display: none !important; }
+
+/* Selection in light gray, like the sorting sketch: the selected-rect, its handles and resize dots */
+edgeless-selected-rect { --affine-blue: #c7c7cc; --affine-primary-color: #c7c7cc; }
