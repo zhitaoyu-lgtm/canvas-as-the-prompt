@@ -17,7 +17,7 @@ export function attachmentsOf(items: Item[], ownerOf: Map<string, Item>): Map<st
   const out = new Map<string, string>();
   const owns = new Set([...ownerOf.values()].map(o => o.id));
   for (const a of items) {
-    if (!SMALL.has(a.kind) || owns.has(a.id)) continue;
+    if (!SMALL.has(a.kind) || (owns.has(a.id) && a.kind !== 'tag') || ['tag'].includes(ownerOf.get(a.id)?.kind ?? '')) continue;
     if (a.kind === 'shape' && area(a.box) > 9000) continue;
     let best: Item | undefined, bestScore = 0;
     for (const b of items) {

@@ -6,6 +6,7 @@ import { TableDataManager } from '@blocksuite/affine/blocks/table';
 import { Text } from '@blocksuite/affine/store';
 import * as Y from 'yjs';
 
+import { CARD_STYLE, FILL, INK as INKH, RADIUS, SHADOW, TEXT, TINT as TINTH, TYPE, fitSize, snap } from '../design';
 import { lookup, remember as rememberLink } from './links';
 import { markAi } from './provenance';
 import type { Box, Item, Reading } from './reading';
@@ -20,14 +21,10 @@ export type Answer = { read?: string; say?: string; actions: Action[] };
 export type Result = { created: string[]; changed: string[]; errors: string[]; box: Box | null };
 
 // ── Colours ─────────────────────────────────────────────────────────────────────────────
-const STICKY: Record<string, string> = {
-  white: '#ffffff', gray: '#e6e6e6', grey: '#e6e6e6', red: '#ffafa3', orange: '#ffd3a8', yellow: '#ffe299',
-  green: '#b3efbd', teal: '#b3f4ef', blue: '#a8daff', purple: '#d3bdff', violet: '#d3bdff', pink: '#ffa8db',
-};
-const INK: Record<string, string> = {
-  black: '#1e1e1e', gray: '#8a8984', grey: '#8a8984', red: '#f24822', orange: '#ff9e42', yellow: '#ffc943',
-  green: '#66d575', teal: '#3dc3b8', blue: '#3dadff', purple: '#874fff', violet: '#874fff', pink: '#ff7ad9', white: '#ffffff',
-};
+// Every colour comes from the shared design system (../design.ts), the same one the toolbar uses.
+const alias = (m: Record<string, string>) => ({ ...m, grey: m.gray, purple: m.violet });
+const STICKY: Record<string, string> = alias(FILL as any);
+const INK: Record<string, string> = { ...alias(INKH as any), black: TEXT.ink };
 const HL = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'grey'];
 const base = (c: string) => c.toLowerCase().replace(/^light\s+/, '').replace('gray', 'grey').trim();
 
@@ -92,6 +89,12 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     return [Math.max(48, Math.round(w * k)), Math.max(48, Math.round(h * k))];
   }
   function place(p: Place | undefined, w: number, h: number, fallbackRef?: string): Box {
+    const b = placeRaw(p, w, h, fallbackRef);
+    if (p?.cell || p?.venn || p?.slot) return b;          // fitted inside a shape: keep exact
+    const s0 = { ...b, x: snap(b.x), y: snap(b.y) };
+    return free(s0) || !free(b) ? s0 : b;
+  }
+  function placeRaw(p: Place | undefined, w: number, h: number, fallbackRef?: string): Box {
     p = p ?? {};
     const dirOf = (ref: string) => {
       const g = groupOfRef(ref);
@@ -111,10 +114,12 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     };
     const walk = (anchor: Box, dir: string, gap: number, strict = true) => {
       let b = step(anchor, dir, gap);
-      for (let i = 0; i < 30 && !free(b); i++) {
+      for (let i = 0; i < 200 && !free(b); i++) {
         // beside something (not continuing a line): don't wander far; try the other sides first
-        if (!strict && i === 1) for (const d of ['below', 'right', 'above', 'left']) { const c = step(anchor, d, gap); if (free(c)) return c; }
-        b = step(b, dir, gap);
+        if (!strict && i === 12) for (const d of ['below', 'right', 'above', 'left']) { const c = step(anchor, d, gap); if (free(c)) return c; }
+        // continuing a line steps a whole item (keeps the rhythm); beside something, nudge 24px at a time
+        if (strict) b = step(b, dir, gap);
+        else { const dx = dir === 'right' ? 24 : dir === 'left' ? -24 : 0, dy = dir === 'below' ? 24 : dir === 'above' ? -24 : 0; b = { ...b, x: b.x + dx, y: b.y + dy }; }
       }
       return b;
     };
@@ -201,10 +206,10 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const copy = (k: string, d: any) => (likeEl && likeEl[k] !== undefined ? likeEl[k] : d);
     const id = surf.addElement({
       type: 'shape', shapeType: 'rect', xywh: xywh(box), radius: copy('radius', 0.04), filled: true, fillColor: fill,
-      strokeColor: 'transparent', strokeWidth: 0, color: copy('color', '#1e1e1e'), fontSize: copy('fontSize', 16),
+      strokeColor: 'transparent', strokeWidth: 0, color: copy('color', TEXT.ink), fontSize: likeEl?.fontSize ?? fitSize(w, String(a.text ?? '')),
       fontFamily: copy('fontFamily', 'blocksuite:surface:Inter'), fontWeight: copy('fontWeight', '400'),
       textAlign: copy('textAlign', 'left'), textHorizontalAlign: copy('textHorizontalAlign', 'left'), textVerticalAlign: copy('textVerticalAlign', 'top'),
-      padding: copy('padding', [16, 16]), shadow: copy('shadow', { blur: 12, offsetX: 0, offsetY: 4, color: 'rgba(0,0,0,0.12)' }), text: t,
+      padding: copy('padding', [16, 16]), shadow: copy('shadow', SHADOW.sticky), text: t,
     });
     remember(a, id, box, like);
   }
@@ -378,7 +383,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     addText({ ...a, text }, size, '#8a8984', box);
   }
   // ── More parts: votes, numbers, plotting, timelines, mind maps, curves, circles, funnels, bars, clusters ──
-  const SYS = { blue: '#007aff', orange: '#ff9500', red: '#ff3b30', green: '#34c759', gray: '#8e8e93', ink: '#1d1d1f', fill: '#f2f2f7' };
+  const SYS = { blue: INK.blue, orange: INK.orange, red: INK.red, green: INK.green, gray: TEXT.muted, ink: TEXT.ink, fill: '#f2f2f2' };
   const sysOf = (c?: string) => (c ? DOT[base(c)] ?? (c.startsWith('#') ? c : SYS.blue) : SYS.blue);
   const groupIds = (ids: string[], title = '') => { const gid = surf.addElement({ type: 'group', children: Object.fromEntries(ids.map(i => [i, true])), title: new Y.Text(title) }); created.push(gid); return gid; };
 
@@ -417,7 +422,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       const size = 120, fill = fillOf(p.colour) ?? STICKY.yellow;
       const t = new Y.Text(); t.insert(0, String(p.text ?? ''));
       const id = surf.addElement({ type: 'shape', shapeType: 'rect', xywh: xywh({ x: cx - size / 2, y: cy - size / 2, w: size, h: size }), radius: 0.04, filled: true, fillColor: fill, strokeColor: 'transparent', strokeWidth: 0,
-        color: '#1d1d1f', fontSize: 14, fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', textHorizontalAlign: 'left', textVerticalAlign: 'top', padding: [12, 12], shadow: { blur: 10, offsetX: 0, offsetY: 3, color: 'rgba(0,0,0,0.10)' }, text: t });
+        color: TEXT.ink, fontSize: fitSize(size, String(p.text ?? '')), fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', textHorizontalAlign: 'left', textVerticalAlign: 'top', padding: [12, 12], shadow: SHADOW.sticky, text: t });
       created.push(id); newBoxes.push({ x: cx - size / 2, y: cy - size / 2, w: size, h: size });
     }
   }
@@ -480,7 +485,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const max = Math.max(...st.map(s => +s.value || 0)) || 1, W = 560, H = 48, G = 6;
     const box = place(a.place, W + 140, st.length * (H + G) - G + (a.title ? 48 : 0), anchorOf(a) ?? reading.selection[0]);
     const ids: string[] = []; let y = box.y;
-    const ramp = ['#cfe2ff', '#dbe9ff', '#e5efff', '#edf4ff', '#f3f8ff'];
+    const ramp = [FILL.blue, '#c4e5ff', TINTH.blue, '#ecf7ff', '#f5fbff'];
     if (a.title) { const t = new Y.Text(); t.insert(0, String(a.title)); ids.push(surf.addElement({ type: 'text', xywh: xywh({ x: box.x, y, w: textWidth(String(a.title), 20) + 8, h: 28 }), text: t, fontSize: 20, fontWeight: '700', color: SYS.ink, fontFamily: 'blocksuite:surface:Inter' })); y += 48; }
     st.forEach((s, i) => {
       const w = Math.max(200, W * Math.sqrt((+s.value || 0) / max)), x = box.x + (W - w) / 2;
@@ -516,74 +521,76 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   // Tags: small quiet pills inside a thing's bottom edge. On a coloured thing the pill is white (one
   // accent is enough); on a white thing it is soft gray. The tag's own colour is only a small dot.
   // Pills keep a 12px inset from every edge and wrap upward into a new row when a row is full.
-  const DOT: Record<string, string> = { red: '#ff3b30', orange: '#ff9500', yellow: '#ffcc00', green: '#34c759', teal: '#30b0c7', blue: '#007aff', purple: '#af52de', violet: '#af52de', pink: '#ff2d55', gray: '#8e8e93', grey: '#8e8e93' };
-  const tagRows = new Map<string, { x: number; row: number }>();
+  const DOT: Record<string, string> = INK;
+  // One pill for tags and legends alike: white, hairline border, a small dot for the hue, caption text.
+  const PILL_H = 24;
+  const pillW = (label: string, dot: boolean) => Math.ceil(textWidth(label, TYPE.caption)) + (dot ? 28 : 20);
+  function pill(x: number, y: number, label: string, dot?: string): string[] {
+    const w = pillW(label, !!dot);
+    const ids = [surf.addElement({ type: 'shape', shapeType: 'rect', radius: RADIUS.pill, xywh: xywh({ x, y, w, h: PILL_H }), filled: true,
+      fillColor: '#ffffff', strokeColor: TEXT.line, strokeWidth: 1, text: new Y.Text() })];
+    if (dot) ids.push(surf.addElement({ type: 'shape', shapeType: 'ellipse', xywh: xywh({ x: x + 10, y: y + 9, w: 6, h: 6 }), filled: true, fillColor: dot, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() }));
+    const t = new Y.Text(); t.insert(0, label);
+    ids.push(surf.addElement({ type: 'text', xywh: xywh({ x: x + (dot ? 21 : 10), y: y + 5, w: w - (dot ? 28 : 20), h: 15 }), text: t, color: TEXT.body, fontSize: TYPE.caption, fontWeight: '500', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' }));
+    return ids;
+  }
+  // Tags sit beside a thing, not on it: a row just under its bottom edge (8px), left-aligned,
+  // wrapping into further rows; if something is directly below, they go to its right instead.
+  const tagRows = new Map<string, { x: number; row: number; side: 'below' | 'right' }>();
   function tag(a: Action) {
     const refs: string[] = a.refs ?? (a.ref ? [a.ref] : a.on ? [a.on] : []);
     for (const ref of refs) {
-      const b = boxOfRef(ref); const host = item(ref) ?? named.get(ref)?.like;
+      const b = boxOfRef(ref);
       if (!b) { errors.push(`tag: unknown ${ref}`); continue; }
-      const hostEl: any = idOf(ref) && gfx.getElementById(idOf(ref)!);
-      const hostFill = String(hostEl?.fillColor ?? hostEl?.props?.background ?? '#ffffff').toLowerCase();
-      const onWhite = hostFill === '#ffffff' || hostFill === 'white' || hostFill.startsWith('--') || host?.kind === 'doc' || host?.kind === 'card';
       const label = String(a.text ?? a.label ?? '').trim(); if (!label) continue;
-      const size = 11, h = 22, inset = 12, gapX = 6, gapY = 6;
-      const c = a.colour ? base(a.colour) : '';
-      const dot = DOT[c];
-      const w = Math.ceil(textWidth(label, size)) + (dot ? 28 : 20);
-      const st = tagRows.get(ref) ?? { x: 0, row: 0 };
-      if (st.x && st.x + w > b.w - inset * 2) { st.x = 0; st.row++; }
-      if (w > b.w - inset * 2) { errors.push(`tag: "${label}" is wider than ${ref}`); continue; }
-      const x = b.x + inset + st.x, y = b.y + b.h - inset - h - st.row * (h + gapY);
-      st.x += w + gapX; tagRows.set(ref, st);
-      const pill = surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.5, xywh: xywh({ x, y, w, h }), filled: true,
-        fillColor: onWhite ? '#f2f2f7' : '#ffffff', strokeColor: 'transparent', strokeWidth: 0,
-        shadow: onWhite ? undefined : { blur: 2, offsetX: 0, offsetY: 1, color: 'rgba(0,0,0,0.06)' }, text: new Y.Text() });
-      const ids = [pill];
-      if (dot) ids.push(surf.addElement({ type: 'shape', shapeType: 'ellipse', xywh: xywh({ x: x + 9, y: y + 8, w: 6, h: 6 }), filled: true, fillColor: dot, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() }));
-      const t = new Y.Text(); t.insert(0, label);
-      ids.push(surf.addElement({ type: 'text', xywh: xywh({ x: x + (dot ? 20 : 10), y: y + 4, w: w - (dot ? 28 : 20), h: 14 }), text: t, color: '#3a3a3c', fontSize: size, fontWeight: '500', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' }));
-      const gid = surf.addElement({ type: 'group', children: Object.fromEntries(ids.map(i => [i, true])), title: new Y.Text(label) });
-      created.push(...ids, gid);
+      const dot = a.colour ? DOT[base(a.colour)] : undefined;
+      const w = pillW(label, !!dot), gapX = 6, gapY = 6;
+      let st = tagRows.get(ref);
+      if (!st) {
+        const below = { x: b.x, y: b.y + b.h + 8, w: b.w, h: PILL_H };
+        const blocked = obstacles().some(o => !(o.x === b.x && o.y === b.y && o.w === b.w) && overlaps(below, o, 0));
+        st = { x: 0, row: 0, side: blocked ? 'right' : 'below' };
+      }
+      let x: number, y: number;
+      if (st.side === 'below') {
+        if (st.x && st.x + w > Math.max(b.w, 160)) { st.x = 0; st.row++; }
+        x = b.x + st.x; y = b.y + b.h + 8 + st.row * (PILL_H + gapY); st.x += w + gapX;
+      } else {
+        x = b.x + b.w + 8; y = b.y + st.row * (PILL_H + gapY); st.row++;
+      }
+      tagRows.set(ref, st);
+      // no group element: the reading layer recognises pill + word (+ dot) as one tag
+      created.push(...pill(x, y, label, dot)); newBoxes.push({ x, y, w, h: PILL_H });
     }
   }
 
   function legend(a: Action) {
     const entries: { colour: string; label: string }[] = a.entries ?? [];
     if (!entries.length) return;
-    const size = 13, chipH = 28, gap = 8;
-    const widths = entries.map(e => textWidth(e.label, size) + 34);
+    const gap = 8;
+    const widths = entries.map(e => pillW(e.label, true));
     const total = widths.reduce((s, w) => s + w, 0) + gap * (entries.length - 1);
-    const box = place(a.place, total, chipH, Object.keys(a.place ?? {}).length ? undefined : reading.selection[0]);
+    const box = place(a.place, total, PILL_H, Object.keys(a.place ?? {}).length ? undefined : reading.selection[0]);
     const ids: string[] = [];
     let x = box.x;
     entries.forEach((e, i) => {
       const c = base(e.colour);
+      // a legend for text highlights shows the highlight colour; for stickies, the sticky colour in use
       const hl = getComputedStyle(document.documentElement).getPropertyValue(`--affine-text-highlight-${HL.includes(c) ? c : 'yellow'}`).trim();
-      // a legend for highlights uses the highlight colour; for stickies, the user's sticky colour
       const isMark = reading.items.some(i => i.marks?.some(m => base(m.colour) === c));
       const dot = (isMark && hl && /^#|rgb/.test(hl) ? hl : undefined) ?? userHex.get(c) ?? fillOf(e.colour)!;
-      const pill = surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.5, xywh: xywh({ x, y: box.y, w: widths[i], h: chipH }), filled: true, fillColor: '#ffffff', strokeColor: '#e3e2dd', strokeWidth: 1, text: new Y.Text() });
-      const d = surf.addElement({ type: 'shape', shapeType: 'ellipse', xywh: xywh({ x: x + 12, y: box.y + 9, w: 10, h: 10 }), filled: true, fillColor: dot, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() });
-      const t = new Y.Text(); t.insert(0, e.label);
-      const lbl = surf.addElement({ type: 'text', xywh: xywh({ x: x + 28, y: box.y + 5, w: widths[i] - 34, h: 18 }), text: t, color: '#3a3a3c', fontSize: size, fontWeight: '500', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' });
-      ids.push(pill, d, lbl); x += widths[i] + gap;
+      ids.push(...pill(x, box.y, e.label, dot)); x += widths[i] + gap;
     });
-    const gid = surf.addElement({ type: 'group', children: Object.fromEntries(ids.map(i => [i, true])), title: new Y.Text('Legend') });
-    created.push(...ids, gid); newBoxes.push(box);
-    if (a.name) named.set(a.name, { id: gid, box });
+    created.push(...ids); newBoxes.push(box);
+    if (a.name) named.set(a.name, { id: ids[0], box });
   }
-
 
   // ── Sections: a titled container holding cards, link cards, stickies, text or more sections ──
   // Built like a FigJam board: size from content outward, white cards inside tinted containers,
   // one grid per container with even gaps, a real heading. Words are measured after they render.
   // One quiet palette for everything the AI makes (Apple-like: white cards on soft system tints)
-  const TINT: Record<string, string> = {
-    white: '#ffffff', gray: '#f2f2f7', grey: '#f2f2f7', blue: '#eaf2ff', teal: '#e6f6f5', green: '#e8f7ec',
-    yellow: '#fff6dc', orange: '#fff0e0', red: '#ffecea', pink: '#fdebf4', purple: '#f1edfd', violet: '#f1edfd',
-  };
-  const SEC = { padX: 40, padTop: 36, padBottom: 44, headGap: 24, gap: 32, subGap: 6, title: 28, sub: 15 };
+  const TINT: Record<string, string> = alias(TINTH as any);
+  const SEC = { padX: 40, padTop: 40, padBottom: 40, headGap: 24, gap: 32, subGap: 8, title: TYPE.heading, sub: TYPE.small };
   type N = { kind: string; id?: string; w: number; h: number; spec: any; kids?: N[]; head?: { title?: string; sub?: string; tw: number; th: number } };
   const frame2 = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
   const domain = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
@@ -609,8 +616,8 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     if (k === 'sticky') {
       const t = new Y.Text(); t.insert(0, String(it.text ?? it.title ?? ''));
       const id = surf.addElement({ type: 'shape', shapeType: 'rect', xywh: xywh({ x: 0, y: 0, w: stickySize, h: stickySize }), radius: 0.04, filled: true,
-        fillColor: fillOf(it.colour) ?? STICKY.yellow, strokeColor: 'transparent', strokeWidth: 0, color: '#1e1e1e', fontSize: 16, fontFamily: 'blocksuite:surface:Inter',
-        textAlign: 'left', textHorizontalAlign: 'left', textVerticalAlign: 'top', padding: [16, 16], shadow: { blur: 12, offsetX: 0, offsetY: 4, color: 'rgba(0,0,0,0.12)' }, text: t });
+        fillColor: fillOf(it.colour) ?? STICKY.yellow, strokeColor: 'transparent', strokeWidth: 0, color: TEXT.ink, fontSize: fitSize(stickySize, String(it.text ?? it.title ?? '')), fontFamily: 'blocksuite:surface:Inter',
+        textAlign: 'left', textHorizontalAlign: 'left', textVerticalAlign: 'top', padding: [16, 16], shadow: SHADOW.sticky, text: t });
       created.push(id); return { kind: k, id, w: stickySize, h: stickySize, spec: it };
     }
     if (k === 'summary') { it = { ...it, title: it.title ?? '', body: it.body ?? it.text }; }
@@ -645,7 +652,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       return { kind: 'ref', id, w: el.elementBound.w, h: el.elementBound.h, spec: it };
     }
     const noteCard = (w: number) => store.addBlock('affine:note', { xywh: xywh({ x: 0, y: 0, w, h: 80 }), background: '#ffffff', index: gfx.layer.generateIndex(false),
-      edgeless: { style: { borderRadius: 16, borderSize: 0, borderStyle: 'none', shadowType: '--affine-note-shadow-box' } } } as any, store.root.id);
+      edgeless: { style: CARD_STYLE } } as any, store.root.id);
     const gray = { color: 'var(--affine-text-secondary-color)' };
     if (k === 'metric') {      // a number that matters: label, big value, change, one line of context
       const mw = it._unit ?? (it.wide ? 300 : 220);
@@ -682,7 +689,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     // card (also a link card without a picture): a white note with meta, title, body
     const w = it.kind === 'summary' || it.span === 'full' ? (it._fullW ?? 632) : it.wide ? 420 : 300;
     const id = store.addBlock('affine:note', { xywh: xywh({ x: 0, y: 0, w, h: 80 }), background: '#ffffff', index: gfx.layer.generateIndex(false),
-      edgeless: { style: { borderRadius: 16, borderSize: 0, borderStyle: 'none', shadowType: '--affine-note-shadow-box' } } } as any, store.root.id);
+      edgeless: { style: CARD_STYLE } } as any, store.root.id);
     const meta = it.meta ?? it.source ?? (it.url ? domain(it.url) : '');
     if (meta) store.addBlock('affine:paragraph', { text: P(String(meta), { color: 'var(--affine-text-secondary-color)' }) }, id);
     const title = it.title ?? it.text ?? '';
@@ -774,7 +781,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       created.push(sid); ids.push(sid);
     }
     const tint = TINT[base(n.spec.colour ?? (depth ? 'gray' : 'white'))] ?? (n.spec.colour?.startsWith?.('#') ? n.spec.colour : TINT.white);
-    const fid = store.addBlock('affine:frame', { xywh: xywh({ x, y, w: n.w, h: n.h }), title: new Text(''), background: tint,
+    const fid = store.addBlock('affine:frame', { xywh: xywh({ x, y, w: snap(n.w), h: snap(n.h) }), title: new Text(''), background: tint,
       childElementIds: Object.fromEntries(ids.map(i => [i, true])), index: gfx.layer.generateIndex(true) } as any, surf.id);
     created.push(fid);
     return [fid, ...ids];

@@ -307,7 +307,15 @@ export function readBoard(gfx: any, opts: { selection?: string[] } = {}): Readin
   }
 
   // A plain box holding words is a card (title + body made of separate texts)
-  for (const it of items) if (it.kind === 'shape' && !it.text && items.some(o => ownerOf.get(o.id) === it && (o.kind === 'text' || o.kind === 'tag'))) it.kind = 'card';
+  for (const it of items) if (it.kind === 'shape' && !it.text && items.some(o => ownerOf.get(o.id) === it && (o.kind === 'text' || o.kind === 'tag'))) {
+    const kids = items.filter(o => ownerOf.get(o.id) === it);
+    if (it.box.h <= 32 && it.box.w / it.box.h >= 1.4) {
+      // a pill holding a word (and maybe a colour dot) is one tag, as the app draws them
+      it.kind = 'tag'; it.text = kids.filter(k => k.kind === 'text').map(k => k.text).join(' ');
+      const d = kids.find(k => k.kind === 'dot'); if (d) { it.hex = d.hex; it.colour = colourName(d.hex); }
+      for (const k of kids) { k.kind = k.kind === 'text' ? 'text' : k.kind; (k as any)._partOfTag = true; }
+    } else it.kind = 'card';
+  }
 
   // Size, relative to things of the same kind.
   const byKind = new Map<Kind, Item[]>();
@@ -323,7 +331,7 @@ export function readBoard(gfx: any, opts: { selection?: string[] } = {}): Readin
   // ── L2: spatial groups, per container ──────────────────────────────────────────────
   // small marks riding on a bigger thing (tags, votes, badges) travel with it and are not grouped on their own
   const attachedIds = attachmentsOf(items, ownerOf);
-  const placeable = (it: Item) => !['connector', 'frame', 'group'].includes(it.kind) && !(ownerOf.get(it.id)?.kind === 'mindmap') && !attachedIds.has(it.id) && ownerOf.get(it.id)?.kind !== 'card';
+  const placeable = (it: Item) => !['connector', 'frame', 'group'].includes(it.kind) && !(ownerOf.get(it.id)?.kind === 'mindmap') && !attachedIds.has(it.id) && ownerOf.get(it.id)?.kind !== 'card' && ownerOf.get(it.id)?.kind !== 'tag';
   const scopes = new Map<string, Item[]>();       // container id ('' = board) → items
   for (const it of items) {
     if (!placeable(it)) continue;

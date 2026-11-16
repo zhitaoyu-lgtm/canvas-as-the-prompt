@@ -1,3 +1,4 @@
+import { CARD_STYLE, FILL, HUES, INK, TEXT, stickyProps, type Hue } from './design';
 // Bottom toolbar, built from the Figma "FigJam · Home (empty board)" toolbar (google-2026, node 2052:2316)
 // and its trays ("Tool tray / Sticky", "Tool tray / Shape"). It drives AFFiNE's own tools, so drawing,
 // zoom, snapping and undo stay the engine's.
@@ -13,14 +14,10 @@ import { GfxControllerIdentifier } from '@blocksuite/affine/std/gfx';
 import { GLYPH, ICON, PEN_3D, STICKY_3D } from './icons';
 import { STAMPS } from './stickers';
 
-const STICKY = [
-  ['White', '#ffffff'], ['Gray', '#e6e6e6'], ['Red', '#ffafa3'], ['Orange', '#ffd3a8'], ['Yellow', '#ffe299'],
-  ['Green', '#b3efbd'], ['Teal', '#b3f4ef'], ['Blue', '#a8daff'], ['Violet', '#d3bdff'], ['Pink', '#ffa8db'],
-] as const;
-const MARKER = [
-  ['Black', '#1e1e1e'], ['Red', '#f24822'], ['Orange', '#ff9e42'], ['Yellow', '#ffc943'],
-  ['Green', '#66d575'], ['Blue', '#3dadff'], ['Violet', '#874fff'], ['White', '#ffffff'],
-] as const;
+// Palettes come from the shared design system, so hand-made and AI-made things share one hue set.
+const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
+const STICKY = HUES.map(h => [cap(h), FILL[h]] as const);
+const MARKER = [['Black', TEXT.ink] as const, ...(['red', 'orange', 'yellow', 'green', 'blue', 'violet', 'white'] as Hue[]).map(h => [cap(h), INK[h]] as const)];
 const HILITE = [
   ['Gray', '#b2b2b2'], ['Pink', '#ffa0f9'], ['Orange', '#ffb868'], ['Yellow', '#fff234'],
   ['Green', '#aeff61'], ['Teal', '#7efff7'], ['Violet', '#bc9bff'], ['White', '#ffffff'],
@@ -316,12 +313,7 @@ export async function mountToolbar(rootEl: any) {
     addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up);
   });
   function makeSticky(x: number, y: number) {
-    return crud.addElement('shape', {
-      shapeType: 'rect', xywh: `[${x - 92},${y - 92},184,184]`, radius: 0.04, filled: true, fillColor: sticky,
-      strokeColor: 'transparent', strokeWidth: 0, color: '#1e1e1e', fontSize: 16, fontFamily: 'blocksuite:surface:Inter',
-      textAlign: 'left', textHorizontalAlign: 'left', textVerticalAlign: 'top', padding: [16, 16],
-      shadow: { blur: 8, offsetX: 0, offsetY: 3, color: 'rgba(0,0,0,0.10)' },
-    }) as string;
+    return crud.addElement('shape', stickyProps(sticky, x - 92, y - 92) as any) as string;
   }
 
   function done() { placing = null; mode = 'select'; openTray(null); setTool('default'); paint(); }
@@ -345,7 +337,7 @@ export async function mountToolbar(rootEl: any) {
     const w = 560;
     const noteId = store.addBlock('affine:note', {
       xywh: `[${x - w / 2},${y - 40},${w},80]`, background: '#ffffff', index: gfx.layer.generateIndex(true),
-      edgeless: { style: { borderRadius: 24, borderSize: 0, borderStyle: 'none', shadowType: '--affine-note-shadow-box' } },
+      edgeless: { style: CARD_STYLE },
     } as any, store.root!.id);
     const pid = store.addBlock('affine:paragraph', {}, noteId);
     setTool('default');
