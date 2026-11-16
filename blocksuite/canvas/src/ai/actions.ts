@@ -457,6 +457,126 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const fs = d <= 20 ? 10 : 11, lh = Math.round(fs * 1.2), t = new Y.Text(); t.insert(0, label);
     created.push(addEl({ type: 'text', index: top(), xywh: xywh({ x, y: y + (d - lh) / 2 + (d <= 20 ? 1 : 0), w: d, h: lh }), text: t, color: ink, fontSize: fs, fontWeight: '600', fontFamily: 'blocksuite:surface:Inter', textAlign: 'center' }));
   }
+  // Tidy a container in place: keep its own structure (its sections, their titles, which card belongs where)
+  // and its order, and only repair the layout: titles at the top, cards on an even grid, every section wrapping
+  // what it holds, sections stacked with even gaps, the outer frame grown or shrunk to fit. Adds nothing.
+  async function tidy(a: Action) {
+    const roots = ((a.refs ?? (a.in ? [a.in] : a.ref ? [a.ref] : reading.selection)) as string[]).map(r0 => idOf(r0)).filter(Boolean) as string[];
+    const frames = roots.map(id => gfx.getElementById(id)).filter((e: any) => e?.flavour === 'affine:frame');
+    if (!frames.length) { errors.push('tidy: no section selected'); return; }
+    await frame2();
+    for (const f of frames) tidyFrame(f);
+  }
+  const PAD = 40, GAP = 24;
+  type T = { id: string; el: any; kind: 'frame' | 'title' | 'sub' | 'full' | 'item'; w: number; h: number; kids?: T[] };
+  const isText = (e: any) => !e.flavour && e.type === 'text';
+  // Who belongs where: frames nest by their own child lists (or by sitting inside); every other thing goes to the
+  // deepest frame that lists it, else the deepest frame its centre sits in. Things that spilled out stay home.
+  let owner = new Map<string, string>();
+  let riders: { id: string; host: string; dx: number; dy: number; w: number; h: number }[] = [];
+  function assign(rootF: any) {
+    owner = new Map();
+    const inside = (o: Box, i: Box) => i.x >= o.x - 2 && i.y >= o.y - 2 && i.x + i.w <= o.x + o.w + 2 && i.y + i.h <= o.y + o.h + 2;
+    // every frame inside the root, then each one's parent: the smallest frame that lists it or holds it
+    const rb0 = rootF.elementBound;
+    const all = (gfx.gfxElements as any[]).filter(e => e.flavour === 'affine:frame' && e.id !== rootF.id && (inside(rb0, e.elementBound) || (rootF.childIds ?? []).includes(e.id)));
+    const frames: any[] = [rootF, ...all];
+    const area = (f: any) => f.elementBound.w * f.elementBound.h;
+    for (const f of all) {
+      const cands = frames.filter(p0 => p0 !== f && ((p0.childIds ?? []).includes(f.id) || inside(p0.elementBound, f.elementBound)));
+      owner.set(f.id, (cands.sort((p0, q0) => area(p0) - area(q0))[0] ?? rootF).id);
+    }
+    const depth = new Map<string, number>();
+    const dOf = (id: string): number => { if (id === rootF.id) return 0; if (depth.has(id)) return depth.get(id)!; const d = dOf(owner.get(id)!) + 1; depth.set(id, d); return d; };
+    depth.set(rootF.id, 0); for (const f of all) dOf(f.id);
+    const listedBy = new Map<string, string>();
+    for (const f of frames) for (const id of Object.keys(f.props?.childElementIds ?? {})) {
+      const prev = listedBy.get(id); if (!prev || depth.get(f.id)! > depth.get(prev)!) listedBy.set(id, f.id);
+    }
+    const rb = rootF.elementBound;
+    for (const e of gfx.gfxElements as any[]) {
+      if (depth.has(e.id) || e.flavour === 'affine:surface' || (!e.flavour && e.type === 'connector')) continue;
+      let o = listedBy.get(e.id);
+      if (!o) {
+        const b = e.elementBound, cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+        const hits = frames.filter(f => { const fb = f.elementBound; return cx >= fb.x && cx <= fb.x + fb.w && cy >= fb.y && cy <= fb.y + fb.h; });
+        if (!hits.length || !inside({ x: rb.x - 40, y: rb.y - 40, w: rb.w + 80, h: rb.h + 80 }, b)) continue;
+        o = hits.sort((p, q) => depth.get(q.id)! - depth.get(p.id)!)[0].id;
+      }
+      owner.set(e.id, o!);
+    }
+  }
+  function membersOf(f: any, _taken: Set<string>): any[] {
+    return [...owner].filter(([, o]) => o === f.id).map(([id]) => gfx.getElementById(id)).filter(Boolean);
+  }
+  function measureTree(f: any, taken: Set<string>): T {
+    const ms = membersOf(f, taken);
+    const subFrames = ms.filter(e => e.flavour === 'affine:frame').sort((p, q) => p.elementBound.y - q.elementBound.y || p.elementBound.x - q.elementBound.x);
+    // small marks (badges, dots, stamps) ride along with the thing they sit on
+    const small = (e: any) => !e.flavour || e.flavour === 'affine:image' ? e.elementBound.w <= 32 && e.elementBound.h <= 32 : false;
+    const big = ms.filter(e => e.flavour !== 'affine:frame' && !small(e));
+    for (const m of ms.filter(small)) {
+      const mb = m.elementBound, cx = mb.x + mb.w / 2, cy = mb.y + mb.h / 2;
+      const host = big.map(h0 => ({ h0, d: Math.max(0, h0.elementBound.x - cx, cx - h0.elementBound.x - h0.elementBound.w) + Math.max(0, h0.elementBound.y - cy, cy - h0.elementBound.y - h0.elementBound.h) })).sort((p, q) => p.d - q.d)[0];
+      if (host && host.d <= 24) { const hb = host.h0.elementBound; riders.push({ id: m.id, host: host.h0.id, dx: mb.x - hb.x, dy: mb.y - hb.y, w: mb.w, h: mb.h }); }
+    }
+    const riding = new Set(riders.map(r0 => r0.id));
+    const kids: T[] = subFrames.map(sf => measureTree(sf, taken));
+    // texts at the top of the frame are its heading (largest first); other members keep their reading order
+    const texts = ms.filter(isText).sort((p, q) => (q.fontSize ?? 0) - (p.fontSize ?? 0));
+    const head: T[] = [];
+    if (texts[0] && (texts[0].fontSize ?? 0) >= 18) head.push({ id: texts[0].id, el: texts[0], kind: 'title', w: texts[0].elementBound.w, h: texts[0].elementBound.h });
+    for (const t of texts.slice(head.length)) if ((t.fontSize ?? 0) <= 16 && t.elementBound.w > 0 && head.length < 2 && t.elementBound.y < (texts[0]?.elementBound.y ?? 0) + 120) head.push({ id: t.id, el: t, kind: 'sub', w: t.elementBound.w, h: t.elementBound.h });
+    const rest = ms.filter(e => e.flavour !== 'affine:frame' && !small(e) && !head.some(h0 => h0.id === e.id))   // a stray mark with no host stays where it is
+      .sort((p, q) => p.elementBound.y - q.elementBound.y || p.elementBound.x - q.elementBound.x)
+      .map(e => ({ id: e.id, el: e, kind: 'item' as const, w: e.elementBound.w, h: e.elementBound.h }));
+    // a card much wider than the others is a full-width row (a summary)
+    const widths = rest.map(r0 => r0.w).sort((p, q) => p - q); const median = widths[widths.length >> 1] ?? 0;
+    for (const r0 of rest) if (rest.length > 2 && r0.w > median * 1.6) (r0 as any).kind = 'full';
+    const node: T = { id: f.id, el: f, kind: 'frame', w: 0, h: 0, kids: [...head, ...rest, ...kids] };
+    sizeT(node);
+    return node;
+  }
+  const ROWS = new Map<T, { cols: number; colW: number; rowH: number[]; inner: number }>();
+  function sizeT(n: T) {
+    const kids = n.kids!; const head = kids.filter(k => k.kind === 'title' || k.kind === 'sub');
+    const full = kids.filter(k => k.kind === 'full'), items = kids.filter(k => k.kind === 'item'), frames = kids.filter(k => k.kind === 'frame');
+    const headH = head.reduce((s0, k) => s0 + k.h, 0) + (head.length > 1 ? 8 : 0);
+    const cnt = items.length, cols = Math.max(1, Math.min(cnt, cnt <= 4 ? cnt : cnt <= 6 ? 3 : 4));
+    const colW = items.length ? Math.max(...items.map(k => k.w)) : 0;
+    const rows: number[] = []; for (let i = 0; i < cnt; i += cols) rows.push(Math.max(...items.slice(i, i + cols).map(k => k.h)));
+    const gridW = cnt ? cols * colW + (cols - 1) * GAP : 0, gridH = rows.reduce((s0, h) => s0 + h, 0) + Math.max(0, rows.length - 1) * GAP;
+    const frameW = frames.length ? Math.max(...frames.map(k => k.w)) : 0;
+    const inner = Math.max(gridW, frameW, ...full.map(k => k.w), ...head.map(k => k.w), 200);
+    frames.forEach(k => { k.w = inner; });                           // sections down a column share one width
+    const blocks = [headH, ...full.map(k => k.h), cnt ? gridH : 0, ...frames.map(k => k.h)].filter(v => v > 0);
+    n.w = inner + PAD * 2; n.h = PAD * 2 + blocks.reduce((s0, v) => s0 + v, 0) + Math.max(0, blocks.length - 1) * (frames.length ? GAP + 8 : GAP);
+    ROWS.set(n, { cols, colW, rowH: rows, inner });
+  }
+  function placeT(n: T, x: number, y: number) {
+    const L = ROWS.get(n)!; const kids = n.kids!;
+    setBox(n.id, { x, y, w: snap(n.w), h: snap(n.h) });
+    let cy = y + PAD; const blockGap = kids.some(k => k.kind === 'frame') ? GAP + 8 : GAP;
+    const head = kids.filter(k => k.kind === 'title' || k.kind === 'sub');
+    head.forEach((k, i) => { setBox(k.id, { x: x + PAD, y: cy, w: k.w, h: k.h }); cy += k.h + (i < head.length - 1 ? 8 : 0); });
+    if (head.length) cy += blockGap;
+    for (const k of kids.filter(k0 => k0.kind === 'full')) { setBox(k.id, { x: x + PAD, y: cy, w: k.w, h: k.h }); cy += k.h + blockGap; }
+    const items = kids.filter(k => k.kind === 'item');
+    items.forEach((k, i) => { const c = i % L.cols, r0 = Math.floor(i / L.cols); const ry = cy + L.rowH.slice(0, r0).reduce((s0, h) => s0 + h + GAP, 0); setBox(k.id, { x: x + PAD + c * (L.colW + GAP), y: ry, w: k.w, h: k.h }); });
+    if (items.length) cy += L.rowH.reduce((s0, h) => s0 + h, 0) + Math.max(0, L.rowH.length - 1) * GAP + blockGap;
+    for (const k of kids.filter(k0 => k0.kind === 'frame')) {
+      // the sub-section was sized for its own content; widen its box to the shared column width
+      placeT(k, x + PAD, cy); cy += k.h + blockGap;
+    }
+  }
+  function tidyFrame(f: any) {
+    assign(f); riders = [];
+    const root = measureTree(f, new Set([f.id]));
+    const b = f.elementBound;
+    placeT(root, b.x, b.y);
+    for (const r0 of riders) { const h0: any = gfx.getElementById(r0.host); if (h0) { const hb = h0.elementBound; setBox(r0.id, { x: hb.x + r0.dx, y: hb.y + r0.dy, w: r0.w, h: r0.h }); } }
+  }
+
   // the same small number on a new thing and the user's thing it answers: a link without a line
   function pair(a: Action) {
     (a.pairs ?? []).slice(0, 5).forEach((pr: string[], i: number) => {
@@ -1092,6 +1212,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
         case 'recolour': case 'recolor': recolour(a); break;
         case 'move': move(a); break;
         case 'arrange': arrange(a); break;
+        case 'tidy': await tidy(a); break;
         case 'connect': connect(a); break;
         case 'ref': connect({ ...a, dashed: a.dashed ?? true, curve: a.curve ?? true }); break;
         case 'pair': pair(a); break;

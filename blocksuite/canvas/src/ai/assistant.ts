@@ -12,8 +12,18 @@ export function createAssistant(rootEl: any) {
   const log: any[] = [];
   (window as any).cxLog = log;    // last exchanges, for the developer view
 
+  const TIDY = /(tidy|clean\s*up|organi[sz]e|align|fix the layout|neaten|整理|排版|对齐|理一下|收拾)/i, MORE = /(find|add|more|search|suggest|找|添加|补充|更多|搜|推荐)/i;
   return async function onSubmit(request: string, ids: string[]) {
     const reading = readBoard(gfx, { selection: ids });
+    // "tidy this" on a selected section is a layout repair, done exactly and at once, with no model in between
+    const frames = ids.filter(id => (gfx.getElementById(id) as any)?.flavour === 'affine:frame');
+    if (frames.length && TIDY.test(request) && !MORE.test(request) && request.length <= 40) {
+      store.captureSync();
+      const res = await execute(rootEl, reading, { actions: [{ do: 'tidy', refs: frames.map(id => reading.byId.get(id)?.ref).filter(Boolean) as string[] }] });
+      store.captureSync();
+      if (res.errors.length) console.warn('[ai] tidy:', res.errors);
+      return false;
+    }
     const text = toPrompt(reading);
     // always look as well as read: a quiet off-screen picture of what is asked about (or the view)
     const focusBoxes = [...reading.focus.map(r => reading.byRef.get(r)?.box), ...reading.structures.filter(st => reading.focus.includes(st.ref)).map(st => st.box)].filter(Boolean) as Box[];

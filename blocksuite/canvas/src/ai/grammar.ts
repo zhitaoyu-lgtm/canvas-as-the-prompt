@@ -49,6 +49,9 @@ Answer with a list of actions. Use only these parts; combine them freely. Refer 
 {"do":"recolour", "refs":["s1","s2"], "colour":"name or #hex"}
 {"do":"move", "refs":["s3"], "place":PLACE}
 {"do":"arrange", "refs":["s1","s2","s3"], "layout":"row|column|grid", "cols":3, "place":PLACE}
+{"do":"tidy", "refs":["f1"]}                                 repair a section's layout in place: titles on top, even grid, every
+                                                              sub-section wrapping its cards, the frame fitted. Keeps structure,
+                                                              order and words; adds nothing. The answer to "tidy / clean up / 整理".
 {"do":"connect", "from":"s3", "to":"new1", "label":"2–3 words on the line", "dashed":false, "both":false, "arrow":true}
                                                               thin gray elbow line, open arrow; label sits on the line; dashed = async / weaker / planned
 {"do":"ref", "from":"card-name", "to":"t27", "label":"依据 / evidence for"}   a quiet dashed line from your new thing to the user's thing it builds on
@@ -135,6 +138,16 @@ Use at least one of these whenever your answer refers to something already on th
 `;
 
 export const FORMATS = `
+First read the verb. Do exactly what was asked, on what is already there:
+- tidy, clean up, organise, align, fix the layout, 整理, 排版, 对齐 → {"do":"tidy"} on the selected section (or arrange /
+  move the selected things). Add nothing, rewrite nothing, find nothing.
+- sort, group, cluster, classify → cluster / move / tag the user's own things. Add nothing new.
+- summarise, explain, compare → cards with your words, beside the material.
+- find, add, more, search, suggest → new material.
+When the verb is vague, change what exists rather than add to it, and add only what fills an open slot.
+Every board is different: match the scene the user is in (a journey, a plan, a retro, a design critique, a
+literature map …) and its own parts; do not reach for link cards unless the content is sources.
+
 Choose the format by what the content is, not by habit. Stickies are not the default.
 - Sources found (articles, papers, reports, products, projects, people) → a section of link cards. One card per
   source: real title, real URL, meta "venue · year · author", one line on why it matters for this board.
