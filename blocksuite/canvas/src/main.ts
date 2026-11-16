@@ -19,6 +19,7 @@ import { aiToolbarExtension, mountAiBar } from './ai-bar';
 import { mountToolbar } from './toolbar';
 import { mountInspector } from './ai/inspect';
 import { mountDemos } from './ai/demo';
+import { mountSense } from './ai/sense';
 import { createAssistant } from './ai/assistant';
 import { linkPreviewExtension } from './ai/links';
 import { ImageProxyService } from '@blocksuite/affine/shared/adapters';
@@ -84,6 +85,7 @@ async function main() {
   mountAiBar(rootEl, createAssistant(rootEl));
   mountInspector(rootEl);
   mountDemos(rootEl);
+  mountSense(rootEl);
   (window as any).editor = editor; (window as any).collection = collection; (window as any).cxDev = { Text, Y: Y.Text, rootEl };
 }
 

@@ -9,7 +9,7 @@ const area = (b: Box) => b.w * b.h;
 const inter = (a: Box, b: Box) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
 const gap = (a: Box, b: Box) => Math.hypot(Math.max(0, Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w)), Math.max(0, Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h)));
 const q = (s: string) => JSON.stringify(s.length > 40 ? s.slice(0, 39) + '…' : s);
-const SMALL = new Set(['tag', 'dot', 'badge', 'sticker', 'text', 'shape']);
+const SMALL = new Set(['tag', 'dot', 'badge', 'sticker', 'text', 'shape', 'sticky']);
 const HOST = new Set(['sticky', 'card', 'doc', 'table', 'image', 'shape', 'embed', 'text']);
 
 /** Small marks on or touching a bigger thing (tags, dots, badges, stickers, small notes). Keyed by id. */
@@ -25,10 +25,10 @@ export function attachmentsOf(items: Item[], ownerOf: Map<string, Item>): Map<st
       if (area(a.box) > area(b.box) * (a.kind === 'text' ? 0.35 : 0.3)) continue;
       const ov = inter(a.box, b.box) / Math.max(1, area(a.box));
       const touch = gap(a.box, b.box);
-      const score = ov >= 0.25 ? 1 + ov : touch <= (a.kind === 'text' ? 4 : 10) ? 0.5 - touch / 100 : 0;
+      const score = ov >= 0.25 ? 1 + ov : touch <= (a.kind === 'text' ? 12 : 10) ? 0.5 - touch / 100 : 0;
       if (score > bestScore) { bestScore = score; best = b; }
     }
-    if (best && (a.kind !== 'text' || bestScore > 1)) out.set(a.id, best.id);
+    if (best && (a.kind !== 'text' || bestScore > 1 || (a.text.trim().length <= 24 && !a.text.includes('\n')))) out.set(a.id, best.id);
   }
   return out;
 }

@@ -217,3 +217,15 @@ affine-link-preview-details { display: none !important; }
 
 /* Selection in light gray, like the sorting sketch: the selected-rect, its handles and resize dots */
 edgeless-selected-rect { --affine-blue: #c7c7cc; --affine-primary-color: #c7c7cc; }
+
+/* Spatial intent: a set of copies waiting for one decision */
+.cx-sense-veil { position: fixed; z-index: 30; pointer-events: none; background: rgba(255,255,255,.5); border-radius: 14px; }
+.cx-sense-ring { position: fixed; z-index: 31; pointer-events: none; border: 1px solid rgba(30,136,229,.42); border-radius: 14px; }
+.cx-sense-ring .cx-sense-dots { position: absolute; left: -14px; top: -14px; }
+.cx-sense-dots { display: inline-grid; grid-template-columns: 3.5px 3.5px; gap: 3px; }
+.cx-sense-dots i { width: 3.5px; height: 3.5px; border-radius: 50%; background: rgba(30,136,229,.78); display: block; }
+.cx-sense-bar { position: fixed; z-index: 32; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 4px 0 12px; background: #fff; border-radius: 999px;
+  font: 500 12px Inter, -apple-system, sans-serif; color: #3a3a3c; white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.08), 0 0 .5px rgba(0,0,0,.18); }
+.cx-sense-bar button { width: 26px; height: 26px; border-radius: 50%; border: 1px solid #e6e6e6; background: #fff; display: grid; place-items: center; cursor: pointer; padding: 0; }
+.cx-sense-bar button.ok { background: #1d1d1f; border-color: #1d1d1f; }

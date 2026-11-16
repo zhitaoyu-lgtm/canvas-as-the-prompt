@@ -4,7 +4,8 @@
 // Both run through the same code paths as a real answer (reading → execute).
 
 import * as Y from 'yjs';
-import { FILL, HUES, stickyProps } from '../design';
+import { Text } from '@blocksuite/affine/store';
+import { CARD_STYLE, FILL, HUES, stickyProps } from '../design';
 import { execute, type Answer } from './actions';
 import { readBoard } from './reading';
 
@@ -135,12 +136,54 @@ export async function templates(rootEl: any) {
   fit(gfx);
 }
 
+// A research pile for trying spatial sorting: papers, links and the user's own notes, heaped loosely,
+// with open space beside it for a section, an anchor sticky or a few marks.
+export async function sortingBoard(rootEl: any) {
+  const gfx = rootEl.gfx, s = gfx.surface, store = rootEl.std.store;
+  const b = gfx.elementsBound; const ox = b && b.w ? b.x + b.w + 600 : 0, oy = b && b.w ? b.y : 0;
+  const yt = (t: string) => { const y = new Y.Text(); y.insert(0, t); return y; };
+  const gray = { color: 'var(--affine-text-secondary-color)' };
+  const P = (t: string, a?: any) => new Text(a ? [{ insert: t, attributes: a }] as any : t);
+  const card = (x: number, y: number, w: number, lines: [string, any?][]) => {
+    const id = store.addBlock('affine:note', { xywh: `[${ox + x},${oy + y},${w},80]`, background: '#ffffff', edgeless: { style: CARD_STYLE } } as any, store.root.id);
+    for (const [t, a] of lines) store.addBlock('affine:paragraph', { text: P(t, a) }, id);
+  };
+  const paper = (x: number, y: number, kind: string, title: string, by: string, sum: string) => card(x, y, 260, [[kind, gray], [title, { bold: true }], [by, gray], [sum]]);
+  const link = (x: number, y: number, title: string, site: string) => card(x, y, 260, [[title, { bold: true }], [site, gray]]);
+  const note = (x: number, y: number, c: keyof typeof FILL, t: string) => s.addElement({ type: 'shape', ...stickyProps(FILL[c], ox + x, oy + y, 160), text: yt(t) });
+  s.addElement({ type: 'text', xywh: `[${ox},${oy - 80},700,40]`, text: yt('Research pile · AI on the canvas'), fontSize: 28, fontWeight: '700', color: '#1e1e1e' });
+  // columns 300 apart; links are ~100 tall, papers ~240, stickies 160, with 32+ between
+  note(0, 0, 'orange', 'Answer in my colours');
+  note(0, 200, 'yellow', 'Leave my notes where I put them');
+  note(0, 400, 'orange', 'Arrows are ignored as structure');
+  note(0, 600, 'red', 'Clusters, but in its own colours');
+  note(0, 800, 'orange', 'Show what the AI read before it acts');
+  link(200, 0, 'ChatGPT Canvas edits a doc beside the chat', 'openai.com');
+  paper(200, 140, 'PAPER · 1995', 'Spatial Hypertext', 'Marshall & Shipman · ACM Hypertext', 'Layout itself carries meaning; structure emerges from where things are placed.');
+  paper(200, 420, 'PAPER · 1980', 'Put-That-There', 'Richard A. Bolt · SIGGRAPH', 'Voice plus pointing commands a wall-sized display: “this”, “there”.');
+  link(200, 700, 'Stickies pasted as a prompt', 'forum thread');
+  paper(200, 840, 'PDF · 1963', 'Sketchpad', 'Ivan E. Sutherland', 'Drawing with constraints the computer understands.');
+  link(500, 0, 'Miro AI clusters by topic', 'miro.com');
+  note(500, 140, 'red', 'Answers land in a side panel');
+  link(500, 340, 'Figma Make: prompt → app', 'figma.com');
+  link(500, 480, 'Gemini Live sees through the camera', 'video · google.com');
+  note(500, 620, 'red', 'Reads the photo, not the board');
+  link(500, 820, 'Notion AI rewrites in place', 'notion.so');
+  link(500, 960, 'Screenshot Q&A', 'blog post');
+  link(800, 0, 'Project Astra', 'video · deepmind.google');
+  (window as any).cxSense?.rebase?.();   // the pile is the starting point, not something the user just did
+  try { gfx.viewport.setViewportByBound({ x: ox - 80, y: oy - 140, w: 2000, h: 1240 }, [40, 40, 120, 40], true); } catch { /* keep view */ }
+}
+
 export function mountDemos(rootEl: any) {
   addEventListener('keydown', e => {
     if (!(e.altKey && e.shiftKey)) return;
     if (e.code === 'KeyS') { e.preventDefault(); void styleSheet(rootEl); }
     if (e.code === 'KeyF') { e.preventDefault(); void templates(rootEl); }
+    if (e.code === 'KeyP') { e.preventDefault(); void sortingBoard(rootEl); }
     if (e.code === 'KeyB') { e.preventDefault(); void brainstorm(rootEl); }
   });
-  (window as any).cxDemo = { styleSheet: () => styleSheet(rootEl), brainstorm: () => brainstorm(rootEl), templates: () => templates(rootEl) };
+  (window as any).cxDemo = { styleSheet: () => styleSheet(rootEl), brainstorm: () => brainstorm(rootEl), templates: () => templates(rootEl), sorting: () => sortingBoard(rootEl) };
+  // first run of this build: put the research pile beside whatever is on the board, once per browser
+  try { if (!localStorage.getItem('cx:seed-sorting-1')) { localStorage.setItem('cx:seed-sorting-1', '1'); setTimeout(() => void sortingBoard(rootEl), 800); } } catch { /* storage blocked */ }
 }
