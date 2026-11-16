@@ -25,7 +25,9 @@ type Intent =
   | { type: 'group'; key: string; anchor: Item; members: Item[] }
   | { type: 'mark'; key: string; sig: string; label: string; marks: { mark: Item; host: Item }[] }
   | { type: 'link'; key: string; from: Item; to: Item; line: Item; drawn: boolean; style: string }
-  | { type: 'label'; key: string; members: Item[] };
+  | { type: 'label'; key: string; members: Item[] }
+  | { type: 'more'; key: string; item: Item }        // one thing circled: more like it
+  | { type: 'stress'; key: string; item: Item };     // one thing underlined: why it matters
 
 const box = (e: any): Box => { const b = e.elementBound; return { x: b.x, y: b.y, w: b.w, h: b.h }; };
 const gap = (a: Box, b: Box) => Math.max(0, Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w), Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h));
@@ -88,7 +90,7 @@ export function mountSense(rootEl: any) {
 
   // While Claude thinks: the 2×2 dots breathe at the top-left of the place it is thinking about. Nothing else.
   function thinking(intent: Intent): () => void {
-    const area = intent.type === 'section' ? box(intent.frame) : intent.type === 'group' ? union([intent.anchor.box, ...intent.members.map(m => m.box)]) : intent.type === 'link' ? intent.line.box : intent.type === 'label' ? union(intent.members.map(m => m.box)) : intent.marks[intent.marks.length - 1].host.box;
+    const area = intent.type === 'section' ? box(intent.frame) : intent.type === 'group' ? union([intent.anchor.box, ...intent.members.map(m => m.box)]) : intent.type === 'link' ? intent.line.box : intent.type === 'label' ? union(intent.members.map(m => m.box)) : intent.type === 'more' || intent.type === 'stress' ? intent.item.box : intent.marks[intent.marks.length - 1].host.box;
     const d = document.createElement('div'); d.className = 'cx-sense-think'; d.innerHTML = '<i></i><i></i><i></i><i></i>'; document.body.append(d);
     let raf = 0;
     const tick = () => { const rr = rootEl.getBoundingClientRect(); const [x, y] = gfx.viewport.toViewCoord(area.x, area.y); d.style.left = (rr.left + x - 18) + 'px'; d.style.top = (rr.top + y) + 'px'; /* level with the top edge */ raf = requestAnimationFrame(tick); };
@@ -109,9 +111,6 @@ export function mountSense(rootEl: any) {
       return { type: 'section', key, frame: f, title, inside };
     }
     // 2 · a line between two things: an arrow, or a pen stroke that starts on one thing and ends on another
-    const hit = (pt: number[], not?: string) => r.items.filter(o => !['connector', 'drawing', 'frame', 'group'].includes(o.kind) && o.id !== not && !r.relations.attached.has(o.ref)
-      && pt[0] >= o.box.x - 16 && pt[0] <= o.box.x + o.box.w + 16 && pt[1] >= o.box.y - 16 && pt[1] <= o.box.y + o.box.h + 16)
-      .sort((a, b) => a.box.w * a.box.h - b.box.w * b.box.h)[0];
     for (const i of touchedItems) {
       const el: any = gfx.getElementById(i.id); if (!el) continue;
       let from: Item | undefined, to: Item | undefined, drawn = false, style = 'line';
@@ -122,10 +121,31 @@ export function mountSense(rootEl: any) {
         const head = el.rearEndpointStyle && el.rearEndpointStyle !== 'None', tail = el.frontEndpointStyle && el.frontEndpointStyle !== 'None';
         style = head && tail ? 'two-way arrow' : head || tail ? 'arrow' : 'line';
         if (el.strokeStyle === 'dash') style = 'dashed ' + style;
-      } else if (i.kind === 'drawing') {
+      } else if (i.kind === 'drawing' || i.kind === 'highlight') {
         const pts: number[][] = el.points ?? []; if (pts.length < 4) continue;
-        const b = el.elementBound, a0 = [b.x + pts[0][0], b.y + pts[0][1]], a1 = [b.x + pts[pts.length - 1][0], b.y + pts[pts.length - 1][1]];
-        from = hit(a0); to = hit(a1, from?.id); drawn = true; style = 'hand-drawn line';
+        const b = el.elementBound, P = pts.map(q => [b.x + q[0], b.y + q[1]]);
+        const things = r.items.filter(o => !['connector', 'drawing', 'highlight', 'frame', 'group'].includes(o.kind) && !r.relations.attached.has(o.ref));
+        const near = (pt: number[], o: Item, pad: number) => pt[0] >= o.box.x - pad && pt[0] <= o.box.x + o.box.w + pad && pt[1] >= o.box.y - pad && pt[1] <= o.box.y + o.box.h + pad;
+        const diag = Math.hypot(b.w, b.h), closed = Math.hypot(P[0][0] - P[P.length - 1][0], P[0][1] - P[P.length - 1][1]) < Math.max(40, diag * 0.28);
+        // a loop around things: one thing → more like it; several → name them as a group
+        if (closed && b.w > 60 && b.h > 40) {
+          const inside = things.filter(o => { const cx = o.box.x + o.box.w / 2, cy = o.box.y + o.box.h / 2; let c = false; for (let k = 0, j = P.length - 1; k < P.length; j = k++) { const [xi, yi] = P[k], [xj, yj] = P[j]; if ((yi > cy) !== (yj > cy) && cx < (xj - xi) * (cy - yi) / (yj - yi) + xi) c = !c; } return c; });
+          const key = `loop:${i.id}`; if (handled.has(key) && !retry(key)) continue;
+          if (inside.length === 1) return { type: 'more', key, item: inside[0] };
+          if (inside.length >= 2 && inside.length <= 12) return { type: 'label', key, members: inside };
+          continue;
+        }
+        // a flat stroke just under one thing: it matters
+        if (b.h < 28 && b.w > 40) {
+          const over = things.find(o => b.y >= o.box.y + o.box.h - 12 && b.y <= o.box.y + o.box.h + 28 && Math.min(b.x + b.w, o.box.x + o.box.w) - Math.max(b.x, o.box.x) > Math.min(b.w, o.box.w) * 0.5);
+          if (over && !things.some(o => o !== over && P.some(q => near(q, o, 4)))) { const key = `under:${i.id}`; if (!handled.has(key) || retry(key)) return { type: 'stress', key, item: over }; continue; }
+        }
+        // a line from one thing to another (arrow heads drawn in the same stroke are fine): the thing nearest the
+        // start, and the other thing the last part of the stroke comes closest to
+        from = things.filter(o => near(P[0], o, 24)).sort((a2, b2) => a2.box.w * a2.box.h - b2.box.w * b2.box.h)[0];
+        const tail = P.slice(Math.floor(P.length * 0.5));
+        to = things.filter(o => o.id !== from?.id && tail.some(q => near(q, o, 24))).sort((a2, b2) => Math.min(...tail.map(q => Math.hypot(q[0] - (a2.box.x + a2.box.w / 2), q[1] - (a2.box.y + a2.box.h / 2)))) - Math.min(...tail.map(q => Math.hypot(q[0] - (b2.box.x + b2.box.w / 2), q[1] - (b2.box.y + b2.box.h / 2)))))[0];
+        drawn = true; style = 'hand-drawn arrow';
       } else continue;
       if (!from || !to || from.id === to.id || ['frame', 'group'].includes(from.kind) || ['frame', 'group'].includes(to.kind)) continue;
       const key = `link:${i.id}`; if (handled.has(key) && !retry(key)) continue;
@@ -196,6 +216,8 @@ export function mountSense(rootEl: any) {
     handled.add(intent.key);
     if (intent.type === 'link') return respondLink(intent);
     if (intent.type === 'label') return respondLabel(intent);
+    if (intent.type === 'stress') return respondStress(intent);
+    if (intent.type === 'more') { const it = intent.item; return respond({ type: 'group', key: intent.key + ':g', anchor: it, members: [], circled: true } as any); }
     const r = readBoard(gfx);
     const reading = toPrompt(r);
     const refOf = (id: string) => r.byId.get(id)?.ref;
@@ -209,7 +231,8 @@ export function mountSense(rootEl: any) {
         : ` Pick the things on the board, outside it, that belong in it.`);
     } else if (intent.type === 'group') {
       exclude = new Set([intent.anchor.id, ...intent.members.map(m => m.id)]);
-      task = `The user put a sticky "${intent.anchor.text.trim()}" (${intent.anchor.ref}) in open space and set ${intent.members.map(m => m.ref).join(', ')} beside it. The sticky names a topic, and what sits beside it is material on that topic. Gather more for this topic to sit beside it: things already on the board (refs) and literature or cases on the topic (found). Only this one topic: do not sort the rest of the board.`;
+      task = (intent as any).circled ? `The user circled ${intent.anchor.ref} (${intent.anchor.text.slice(0, 120)}): they want more like it. Gather things like it: from the board (refs) and literature or cases (found), to sit beside it.` : `The user put a sticky "${intent.anchor.text.trim()}" (${intent.anchor.ref}) in open space and set ${intent.members.map(m => m.ref).join(', ')} beside it. The sticky names a topic, and what sits beside it is material on that topic. Gather more for this topic to sit beside it: things already on the board (refs) and literature or cases on the topic (found). Only this one topic: do not sort the rest of the board.`;
+      if ((intent as any).circled) task = task.split(' The user put a sticky')[0];
     } else {
       exclude = new Set(intent.marks.flatMap(l => [l.host.id, l.mark.id]));
       task = `The user marked ${intent.marks.map(l => l.host.ref).join(', ')} with the same mark (${intent.label}): it labels them as one kind. Work out what they have in common, then pick the other things on the board that deserve the same mark, each with a one-line reason.`;
@@ -386,6 +409,19 @@ Answer with JSON only: {"label":"2–4 words","comment":"","extensions":[{"type"
     pending = new Pending(rootEl, made, intent, () => { pending = null; rebase(); });
   }
 
+  // An underline says "this matters": one comment with the insight (how it connects, what it conflicts with)
+  async function respondStress(intent: Extract<Intent, { type: 'stress' }>) {
+    const r = readBoard(gfx);
+    const sys = `Someone underlined one thing on a whiteboard: it matters to them. Say in 1–2 sentences the insight about it that the board supports: what it connects to, what it conflicts with (people, goals, other material), or what follows from it. Never bookkeeping, never a summary of the thing. If there is no insight, answer "".
+Answer with JSON only: {"comment":"…"}. In the language of the board. Never write refs (s3, n12): name things by their words.`;
+    const user = `BOARD\n${toPrompt(r)}\n\nUNDERLINED\n${intent.item.ref}: ${intent.item.text.slice(0, 300)}`;
+    const mock = (window as any).cxMockSense;
+    const raw = mock ? (typeof mock === 'function' ? await mock(intent, user) : mock) : await ask(sys, user);
+    const ans = typeof raw === 'string' ? parseAnswer(raw) : raw;
+    dev.log.unshift({ intent: intent.key, answer: ans });
+    const c0 = cleanRefs(String(ans.comment ?? ''), r); if (c0) addComment(store, intent.item.id, c0);
+  }
+
   // A label for a group the user gathered by hand: a white card with a colour chip, a bold name and a quiet
   // line on what unites them, set just above the group (FigJam's section header, as a thing of its own).
   async function respondLabel(intent: Extract<Intent, { type: 'label' }>) {
@@ -403,22 +439,26 @@ Answer with JSON only: {"title":"2–4 words","subtitle":"what unites them, at m
     store.captureSync();
     const ids = labelCard(union(intent.members.map(m => m.box)), title, sub, String(ans.colour ?? 'blue'), r, intent.members);
     store.captureSync();
-    pending = new Pending(rootEl, { ids, label: `Name this group “${title}”`, focus: () => [box(gfx.getElementById(ids[0]))], spread: true, beside: true }, intent, () => { pending = null; rebase(); });
+    pending = new Pending(rootEl, { ids, label: `Name this group “${title}”`, focus: () => [box(gfx.getElementById(ids[0]))], spread: true, beside: false }, intent, () => { pending = null; rebase(); });
   }
-  const HUE: Record<string, string> = { blue: '#3dadff', teal: '#3dc3b8', green: '#66d575', yellow: '#ffc943', orange: '#ff9e42', red: '#f24822', pink: '#ff7ad9', violet: '#874fff', purple: '#874fff' };
+  const TINTS: Record<string, [string, string, string]> = {   // bar, title, subtitle
+    blue: ['#e8f4ff', '#0f4c86', '#5d87b0'], teal: ['#e3f8f6', '#0e5e58', '#4f8f89'], green: ['#e9f8ec', '#1f6b2f', '#5f9a6b'],
+    yellow: ['#fff7dd', '#7a5a00', '#a68a3c'], orange: ['#fff1e5', '#8a4b0f', '#b07a48'], red: ['#ffece8', '#8f2a17', '#bd6a5a'],
+    pink: ['#ffeef8', '#8a2463', '#b46a96'], violet: ['#f3edff', '#4b2a99', '#8a72c4'], purple: ['#f3edff', '#4b2a99', '#8a72c4'],
+  };
   function labelCard(over: Box, title: string, sub: string, colour: string, r: Reading, members: Item[]): string[] {
+    const [bar, ink, soft] = TINTS[colour.toLowerCase()] ?? TINTS.blue;
     const c = document.createElement('canvas').getContext('2d')!;
     c.font = '600 18px Inter, sans-serif'; const tw = c.measureText(title).width; c.font = '400 12px Inter, sans-serif'; const sw = sub ? c.measureText(sub).width : 0;
-    const w = Math.ceil(Math.max(tw, sw)) + 20 + 38, h = sub ? 66 : 48;
-    const others = r.items.filter(o => !members.includes(o) && !['frame', 'connector'].includes(o.kind));
-    const cands = [{ x: over.x, y: over.y - h - 16, w, h }, { x: over.x - w - 24, y: over.y, w, h }, { x: over.x, y: over.y + over.h + 16, w, h }];
-    const at = cands.find(b => !others.some(o => overlaps(o.box, b))) ?? cands[0];
-    const hue = HUE[colour.toLowerCase()] ?? HUE.blue;
-    const tx = (s0: string, y: number, size: number, weight: string, color: string, wd: number) => { const t = new Y.Text(); t.insert(0, s0); return surf.addElement({ type: 'text', index: nextTop(), xywh: xywh({ x: at.x + 38, y, w: wd + 8, h: Math.round(size * 1.3) }), text: t, color, fontSize: size, fontWeight: weight, fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' }); };
-    const ids = [surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.16, index: nextTop(), xywh: xywh(at), filled: true, fillColor: '#ffffff', strokeColor: '#e6e6e6', strokeWidth: 1, text: new Y.Text() })];
-    ids.push(surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.3, index: nextTop(), xywh: xywh({ x: at.x + 16, y: at.y + (sub ? 17 : 18), w: 12, h: 12 }), filled: true, fillColor: hue, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() }));
-    ids.push(tx(title, at.y + (sub ? 11 : 13), 18, '600', '#1d1d1f', tw));
-    if (sub) ids.push(tx(sub, at.y + 38, 12, '400', '#8a8984', sw));
+    const w = Math.max(over.w, Math.ceil(Math.max(tw, sw)) + 32), h = sub ? 62 : 44;
+    const others = r.items.filter(o => !members.includes(o) && !['frame', 'connector', 'drawing', 'highlight'].includes(o.kind));   // the user's own loop is not in the way
+    const nw = Math.ceil(Math.max(tw, sw)) + 32;   // beside the group it is only as wide as its words
+    const cands = [{ x: over.x, y: over.y - h - 12, w, h }, { x: over.x, y: over.y + over.h + 12, w, h }, { x: over.x - nw - 16, y: over.y, w: nw, h }, { x: over.x + over.w + 16, y: over.y, w: nw, h }];
+    const at = cands.find(b0 => !others.some(o => overlaps(o.box, { x: b0.x - 4, y: b0.y - 4, w: b0.w + 8, h: b0.h + 8 }))) ?? cands[0];
+    const tx = (s0: string, y: number, size: number, weight: string, color: string, wd: number) => { const t = new Y.Text(); t.insert(0, s0); return surf.addElement({ type: 'text', index: nextTop(), xywh: xywh({ x: at.x + 16, y, w: wd + 8, h: Math.round(size * 1.3) }), text: t, color, fontSize: size, fontWeight: weight, fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' }); };
+    const ids = [surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.14, index: nextTop(), xywh: xywh(at), filled: true, fillColor: bar, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() })];
+    ids.push(tx(title, at.y + (sub ? 10 : 11), 18, '600', ink, tw));
+    if (sub) ids.push(tx(sub, at.y + 37, 12, '400', soft, sw));
     return ids;
   }
 

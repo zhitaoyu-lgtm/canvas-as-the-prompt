@@ -232,7 +232,7 @@ affine-link-preview-details { display: none !important; }
 .cx-pin { position: absolute; left: 0; top: 0; pointer-events: auto; }
 .cx-pin-dot { width: 30px; height: 30px; padding: 4px; border: 0; cursor: pointer; border-radius: 15px 15px 15px 3px; background: #fff;
   box-shadow: 0 0 0 .5px rgba(0,0,0,.12), 0 1px 3px rgba(0,0,0,.08); display: grid; place-items: center; transition: transform .15s ease; }
-.cx-pin-av { display: block; border-radius: 50%; }
+.cx-pin-av { display: block; width: 22px; height: 22px; border-radius: 50%; }
 .cx-pin-dot:hover { transform: scale(1.06); }
 .cx-pin.open .cx-pin-dot { box-shadow: 0 0 0 1.5px rgba(30,136,229,.55), 0 1px 3px rgba(0,0,0,.08); }
 .cx-pin-card { position: absolute; left: 36px; top: 0; width: max-content; max-width: 240px; display: flex; gap: 10px; align-items: flex-start;
