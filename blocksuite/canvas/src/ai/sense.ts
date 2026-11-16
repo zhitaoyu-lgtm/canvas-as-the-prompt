@@ -22,7 +22,8 @@ const DEFAULT_FRAME = /^(frame|section|untitled)(\s*\d+)?$/i;
 type Intent =
   | { type: 'section'; key: string; frame: any; title: string; inside: Set<string> }
   | { type: 'group'; key: string; anchor: Item; members: Item[] }
-  | { type: 'mark'; key: string; sig: string; label: string; marks: { mark: Item; host: Item }[] };
+  | { type: 'mark'; key: string; sig: string; label: string; marks: { mark: Item; host: Item }[] }
+  | { type: 'link'; key: string; from: Item; to: Item; line: Item; drawn: boolean; style: string };
 
 const box = (e: any): Box => { const b = e.elementBound; return { x: b.x, y: b.y, w: b.w, h: b.h }; };
 const gap = (a: Box, b: Box) => Math.max(0, Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w), Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h));
@@ -85,10 +86,10 @@ export function mountSense(rootEl: any) {
 
   // While Claude thinks: the 2×2 dots breathe at the top-left of the place it is thinking about. Nothing else.
   function thinking(intent: Intent): () => void {
-    const area = intent.type === 'section' ? box(intent.frame) : intent.type === 'group' ? union([intent.anchor.box, ...intent.members.map(m => m.box)]) : intent.marks[intent.marks.length - 1].host.box;
+    const area = intent.type === 'section' ? box(intent.frame) : intent.type === 'group' ? union([intent.anchor.box, ...intent.members.map(m => m.box)]) : intent.type === 'link' ? intent.line.box : intent.marks[intent.marks.length - 1].host.box;
     const d = document.createElement('div'); d.className = 'cx-sense-think'; d.innerHTML = '<i></i><i></i><i></i><i></i>'; document.body.append(d);
     let raf = 0;
-    const tick = () => { const rr = rootEl.getBoundingClientRect(); const [x, y] = gfx.viewport.toViewCoord(area.x, area.y); d.style.left = (rr.left + x - 16) + 'px'; d.style.top = (rr.top + y - 16) + 'px'; raf = requestAnimationFrame(tick); };
+    const tick = () => { const rr = rootEl.getBoundingClientRect(); const [x, y] = gfx.viewport.toViewCoord(area.x, area.y); d.style.left = (rr.left + x - 18) + 'px'; d.style.top = (rr.top + y) + 'px'; /* level with the top edge */ raf = requestAnimationFrame(tick); };
     tick();
     return () => { cancelAnimationFrame(raf); d.remove(); };
   }
@@ -105,7 +106,30 @@ export function mountSense(rootEl: any) {
       const fb = box(f); const inside = new Set(r.items.filter(o => o.id !== i.id && contains(fb, o.box)).map(o => o.id));
       return { type: 'section', key, frame: f, title, inside };
     }
-    // 2 · the same mark beside two or more things
+    // 2 · a line between two things: an arrow, or a pen stroke that starts on one thing and ends on another
+    const hit = (pt: number[], not?: string) => r.items.filter(o => !['connector', 'drawing', 'frame', 'group'].includes(o.kind) && o.id !== not && !r.relations.attached.has(o.ref)
+      && pt[0] >= o.box.x - 16 && pt[0] <= o.box.x + o.box.w + 16 && pt[1] >= o.box.y - 16 && pt[1] <= o.box.y + o.box.h + 16)
+      .sort((a, b) => a.box.w * a.box.h - b.box.w * b.box.h)[0];
+    for (const i of touchedItems) {
+      const el: any = gfx.getElementById(i.id); if (!el) continue;
+      let from: Item | undefined, to: Item | undefined, drawn = false, style = 'line';
+      if (i.kind === 'connector') {
+        const s0 = el.source?.id, t0 = el.target?.id; if (!s0 || !t0) continue;
+        from = r.byId.get(s0); to = r.byId.get(t0);
+        if (str(el.text).trim()) continue;                                 // the user already said what it is
+        const head = el.rearEndpointStyle && el.rearEndpointStyle !== 'None', tail = el.frontEndpointStyle && el.frontEndpointStyle !== 'None';
+        style = head && tail ? 'two-way arrow' : head || tail ? 'arrow' : 'line';
+        if (el.strokeStyle === 'dash') style = 'dashed ' + style;
+      } else if (i.kind === 'drawing') {
+        const pts: number[][] = el.points ?? []; if (pts.length < 4) continue;
+        const b = el.elementBound, a0 = [b.x + pts[0][0], b.y + pts[0][1]], a1 = [b.x + pts[pts.length - 1][0], b.y + pts[pts.length - 1][1]];
+        from = hit(a0); to = hit(a1, from?.id); drawn = true; style = 'hand-drawn line';
+      } else continue;
+      if (!from || !to || from.id === to.id || ['frame', 'group'].includes(from.kind) || ['frame', 'group'].includes(to.kind)) continue;
+      const key = `link:${i.id}`; if (handled.has(key) && !retry(key)) continue;
+      return { type: 'link', key, from, to, line: i, drawn, style };
+    }
+    // 3 · the same mark beside two or more things
     const marks = new Map<string, { mark: Item; host: Item }[]>();
     for (const [mRef, hRef] of r.relations.attached) {
       const mark = r.byRef.get(mRef)!, host = r.byRef.get(hRef)!; if (!mark || !host) continue;
@@ -161,6 +185,7 @@ export function mountSense(rootEl: any) {
   // ── asking Claude which things belong ──
   async function respond(intent: Intent) {
     handled.add(intent.key);
+    if (intent.type === 'link') return respondLink(intent);
     const r = readBoard(gfx);
     const reading = toPrompt(r);
     const refOf = (id: string) => r.byId.get(id)?.ref;
@@ -190,7 +215,10 @@ Answer with JSON only:
 - found: up to ${intent.type === 'mark' ? 0 : 3}; ${foundRule}. In the language the board uses for its titles.
 - more: always [].
 - Few and right beats many: if nothing fits, return {"refs":[],"found":[],"more":[]}.`;
-    const user = `BOARD\n${reading}\n\nCATEGORY\n${task}\nAlready in it: ${[...exclude].map(refOf).filter(Boolean).join(', ') || 'nothing'}`;
+    const byText = new Map<string, string[]>();
+    for (const it of r.items) { const t = it.text.toLowerCase().replace(/\s+/g, ' ').trim(); if (t.length > 8 && !['connector', 'frame'].includes(it.kind)) (byText.get(t) ?? byText.set(t, []).get(t)!).push(it.ref); }
+    const copies = [...byText.values()].filter(v => v.length > 1).map(v => v.join(' = '));
+    const user = `BOARD\n${reading}\n` + (copies.length ? `\nCOPIES (the same thing pasted more than once; count each as one, pick at most one of them, and none if one is already in): ${copies.join('; ')}\n` : '') + `\nCATEGORY\n${task}\nAlready in it: ${[...exclude].map(refOf).filter(Boolean).join(', ') || 'nothing'}`;
     const mock = (window as any).cxMockSense;
     const raw = mock ? (typeof mock === 'function' ? await mock(intent, user) : mock) : await ask(sys, user);
     const ans = typeof raw === 'string' ? parseAnswer(raw) : raw;
@@ -220,7 +248,7 @@ Answer with JSON only:
   }
 
   // ── placing: copies in a grid inside the section, or close beside the group ──
-  type Made = { ids: string[]; restore?: () => void; label: string; onKeep?: () => void; notes?: readonly (readonly [string, string])[] };
+  type Made = { ids: string[]; restore?: () => void; label: string; onKeep?: () => void; focus?: () => Box[]; spread?: boolean; beside?: boolean };
   const frames2 = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
   // Make the copies where the user is looking (off-screen notes never get their real height), wait for the
   // words to lay out, then place them by their real sizes.
@@ -265,8 +293,18 @@ Answer with JSON only:
     const h = (x: number, y: number) => { const sp = flow(sizes, x, y, W, GAP); return { sp, box: union(sp) }; };
     const others = r.items.filter(o => !['frame', 'connector'].includes(o.kind) && o.id !== a.id && !intent.members.some(m => m.id === o.id));
     const clearOf = (b: Box) => !others.some(o => overlaps(o.box, { x: b.x - 8, y: b.y - 8, w: b.w + 16, h: b.h + 16 }));
-    // below the group if there is room, else to its right, else further down
-    const tries = [h(cl.x, cl.y + cl.h + GAP), h(cl.x + cl.w + GAP * 2, cl.y)];
+    // follow the user's own arrangement: material stacked in a column continues down that column,
+    // a row continues to the right; otherwise a grid below the group, or to its right
+    const mat = intent.members.filter(m => m.kind !== 'sticky').sort((p, q) => p.box.y - q.box.y || p.box.x - q.box.x);
+    const along = (dir: 'col' | 'row') => {
+      const last = mat[mat.length - 1].box; const sp: Box[] = []; let x = dir === 'col' ? Math.min(...mat.map(m => m.box.x)) : last.x + last.w + GAP, y = dir === 'col' ? last.y + last.h + GAP : Math.min(...mat.map(m => m.box.y));
+      for (const z of sizes) { sp.push({ x, y, w: z.w, h: z.h }); if (dir === 'col') y += z.h + GAP; else x += z.w + GAP; }
+      return { sp, box: union(sp) };
+    };
+    const xs = mat.map(m => m.box.x), ys = mat.map(m => m.box.y);
+    const isCol = mat.length >= 1 && Math.max(...xs) - Math.min(...xs) < 24 && (mat.length > 1 || mat[0].box.x > a.box.x + a.box.w - 4);
+    const isRow = mat.length >= 2 && Math.max(...ys) - Math.min(...ys) < 24;
+    const tries = [...(isCol ? [along('col')] : isRow ? [along('row')] : []), h(cl.x, cl.y + cl.h + GAP), h(cl.x + cl.w + GAP * 2, cl.y)];
     const pick = tries.find(t => sizes.length && clearOf(t.box)) ?? tries[0];
     ids.forEach((id, i) => moveTo(id, { ...pick.sp[i], w: sizes[i].w, h: sizes[i].h }));
     return { ids, label: `${ids.length} for “${a.text.trim()}”` };
@@ -290,12 +328,96 @@ Answer with JSON only:
     return { ids, label: `${ids.length} more get ${intent.label}` };
   }
 
+  // ── a line between two things: name the relation on the line, explain it when there is more to say,
+  // and offer extensions behind a small "+n" on the line (not opened until asked) ──
+  const LINE = { color: '#6e6e73', width: 2 };
+  const labelProps = (text: string) => {
+    const c = document.createElement('canvas').getContext('2d')!; c.font = '12px Inter, sans-serif';
+    const t = new Y.Text(); t.insert(0, text);
+    return { text: t, labelDisplay: true, labelOffset: { distance: 0.5, anchor: 'center' }, labelXYWH: [0, 0, Math.ceil(c.measureText(text).width) + 14, 20],
+      labelStyle: { color: '#3a3a3c', fontSize: 12, fontFamily: 'blocksuite:surface:Inter', fontWeight: '400', fontStyle: 'normal', textAlign: 'center' } };
+  };
+  const labelBox = (id: string): Box[] => { const e: any = gfx.getElementById(id); const l = e?.labelXYWH; return l ? [{ x: l[0], y: l[1], w: l[2], h: l[3] }] : e ? [box(e)] : []; };
+
+  async function respondLink(intent: Extract<Intent, { type: 'link' }>) {
+    const r = readBoard(gfx);
+    const sys = `Someone drew a ${intent.style} on a whiteboard from one thing to another. Read what the two things are and say what the line means.
+Answer with JSON only: {"label":"2–4 words","comment":"","extensions":[{"type":"bridge|next|counter","ref":"s3 (optional, a thing already on the board)","title":"…","meta":"venue · year · authors","summary":"one line"}]}
+- label: the relation, in the language of the board, short enough to sit on the line ("instruction → vision", "反例", "same idea, 30 years apart"). An arrow reads from the first thing to the second.
+- comment: 2–3 sentences only when the relation has something non-obvious (a tension, a shift, a missing step); otherwise "".
+- extensions: up to 3 things worth adding because of this link: a bridge between the two, the next step after the second, or a counterpoint. Prefer things already on the board (ref); otherwise ${online() ? 'real sources you verified with search, with url' : 'only well-known real works you are sure of, no url'}.`;
+    const user = `BOARD\n${toPrompt(r)}\n\nLINE\n${intent.style} from ${intent.from.ref} (${intent.from.text.slice(0, 160)}) to ${intent.to.ref} (${intent.to.text.slice(0, 160)}).`;
+    const mock = (window as any).cxMockSense;
+    const raw = mock ? (typeof mock === 'function' ? await mock(intent, user) : mock) : await ask(sys, user);
+    const ans = typeof raw === 'string' ? parseAnswer(raw) : raw;
+    dev.log.unshift({ intent: intent.key, answer: ans }); dev.log.length = Math.min(dev.log.length, 10);
+    const label = String(ans.label ?? '').trim(); if (!label) return;
+    store.captureSync();
+    let lineId: string, made: Made;
+    if (intent.drawn) {
+      // a pen stroke becomes a proper arrow; the stroke goes once the arrow is kept
+      lineId = surf.addElement({ type: 'connector', source: { id: intent.from.id }, target: { id: intent.to.id }, mode: 2, stroke: LINE.color, strokeWidth: LINE.width,
+        strokeStyle: 'solid', rearEndpointStyle: 'Arrow', frontEndpointStyle: 'None', index: nextTop(), ...labelProps(label) });
+      const stroke = intent.line.id;
+      made = { ids: [lineId], label: `“${label}”`, focus: () => labelBox(lineId), spread: true, beside: true,
+        onKeep: () => { try { surf.deleteElement(stroke); } catch { /* already gone */ } } };
+    } else {
+      lineId = intent.line.id;
+      surf.updateElement(lineId, labelProps(label));
+      made = { ids: [], label: `“${label}”`, focus: () => labelBox(lineId), spread: true, beside: true,
+        restore: () => { surf.updateElement(lineId, { text: new Y.Text(), labelDisplay: false }); removeCommentsOn(store, [lineId]); } };
+    }
+    store.captureSync();
+    const comment = String(ans.comment ?? '').trim(); if (comment) addComment(store, lineId, comment);
+    const ext = Array.isArray(ans.extensions) ? ans.extensions.slice(0, 3) : [];
+    const keep0 = made.onKeep;
+    made.onKeep = () => { keep0?.(); if (ext.length) chip(lineId, ext, r, intent); };
+    pending = new Pending(rootEl, made, intent, () => { pending = null; rebase(); });
+  }
+
+  // "+n" on the line: opens the extensions as a pending set below the line, tied to it by a dashed stem
+  function chip(lineId: string, ext: any[], r: Reading, intent: Extract<Intent, { type: 'link' }>) {
+    const c = document.createElement('button'); c.className = 'cx-link-chip'; c.textContent = '+' + ext.length; c.setAttribute('aria-label', `${ext.length} more on this link`);
+    document.body.append(c);
+    let raf = 0;
+    const tick = () => {
+      const e: any = gfx.getElementById(lineId); if (!e) { cancelAnimationFrame(raf); c.remove(); return; }
+      const l = labelBox(lineId)[0]; const rr = rootEl.getBoundingClientRect(); const [x, y] = gfx.viewport.toViewCoord(l.x + l.w, l.y + l.h / 2);
+      c.style.left = (rr.left + x + 6) + 'px'; c.style.top = (rr.top + y - 10) + 'px'; raf = requestAnimationFrame(tick);
+    };
+    tick();
+    c.onclick = async () => {
+      cancelAnimationFrame(raf); c.remove();
+      if (pending) return;
+      busy = true;
+      try {
+        const picks = ext.map(x => x.ref && r.byRef.get(String(x.ref))).filter(Boolean) as Item[];
+        const found = ext.filter(x => !(x.ref && r.byRef.get(String(x.ref)))).map(x => ({ ...x, meta: [x.type === 'bridge' ? 'Bridge' : x.type === 'next' ? 'Next step' : x.type === 'counter' ? 'Counterpoint' : '', x.meta].filter(Boolean).join(' · ') }));
+        store.captureSync();
+        const { ids, sizes } = await build(picks, found);
+        const e: any = gfx.getElementById(lineId); const mid: number[] = e.getPointByOffsetDistance ? e.getPointByOffsetDistance(0.5) : [box(e).x + box(e).w / 2, box(e).y + box(e).h / 2];
+        const totalW = sizes.reduce((a, b) => a + b.w, 0) + 16 * (sizes.length - 1);
+        const others = readBoard(gfx).items.filter(o => !['connector', 'frame', 'drawing'].includes(o.kind) && !ids.includes(o.id));
+        let y = Math.max(intent.from.box.y + intent.from.box.h, intent.to.box.y + intent.to.box.h, mid[1]) + 72, x0 = mid[0] - totalW / 2;
+        for (let k = 0; k < 30; k++) { const row = { x: x0, y, w: totalW, h: Math.max(...sizes.map(z => z.h)) }; if (!others.some(o => overlaps(o.box, row))) break; y += 48; }
+        let x = x0; ids.forEach((id, i) => { moveTo(id, { x, y, w: sizes[i].w, h: sizes[i].h }); x += sizes[i].w + 16; });
+        const stem = surf.addElement({ type: 'connector', source: { position: [mid[0], mid[1]] }, target: { id: ids[Math.floor(ids.length / 2)] }, mode: 2, stroke: '#aeaeb2', strokeWidth: 1.5,
+          strokeStyle: 'dash', rearEndpointStyle: 'None', frontEndpointStyle: 'None', index: nextTop() });
+        store.captureSync();
+        const cards = [...ids];
+        // bring them into view, with the line they came from
+        const shown = union([...cards.map(id => box(gfx.getElementById(id))), intent.from.box, intent.to.box]); const vb = gfx.viewport.viewportBounds;
+        if (shown.y + shown.h > vb.y + vb.h || shown.x < vb.x || shown.x + shown.w > vb.x + vb.w) try { gfx.viewport.setViewportByBound(shown, [60, 60, 140, 60], true); } catch { /* keep view */ }
+        pending = new Pending(rootEl, { ids: [...cards, stem], label: `${cards.length} from this link`, focus: () => cards.map(id => gfx.getElementById(id)).filter(Boolean).map((el: any) => box(el)) }, intent, () => { pending = null; rebase(); });
+      } finally { busy = false; }
+    };
+  }
+
   function flow(sz: { w: number; h: number }[], x0: number, y0: number, width: number, g: number): Box[] {
     const out: Box[] = []; let x = x0, y = y0, rowH = 0;
     for (const s of sz) { if (x > x0 && x + s.w > x0 + width) { x = x0; y += rowH + g; rowH = 0; } out.push({ x, y, w: s.w, h: s.h }); x += s.w + g; rowH = Math.max(rowH, s.h); }
     return out;
   }
-  const flowHeight = (sz: { w: number; h: number }[], width: number, g: number) => { const b = flow(sz, 0, 0, width, g); return b.length ? Math.max(...b.map(v => v.y + v.h)) : 0; };
 
   // ── copying anything on the board ──
   let topKey: string | null = null;
@@ -356,11 +478,11 @@ class Pending {
   private bar = document.createElement('div');
   private raf = 0;
   private spread: boolean;
-  constructor(private rootEl: any, private made: { ids: string[]; restore?: () => void; label: string; onKeep?: () => void; notes?: readonly (readonly [string, string])[] }, intent: Intent, private done: () => void) {
+  constructor(private rootEl: any, private made: { ids: string[]; restore?: () => void; label: string; onKeep?: () => void; focus?: () => Box[]; spread?: boolean; beside?: boolean }, intent: Intent, private done: () => void) {
     // marks are scattered over the user's things: each copy fades on its own and only the bar carries the dots
     // marks and topic groups sit among the user's own things: each copy fades on its own (one box would
     // fade the user's things too), and the bar carries the dots
-    this.spread = intent.type !== 'section';
+    this.spread = made.spread ?? (intent.type !== 'section' && intent.type !== 'link');
     this.ring.className = 'cx-sense-ring';
     this.ring.innerHTML = '<span class="cx-sense-dots"><i></i><i></i><i></i><i></i></span>';
     this.bar.className = 'cx-sense-bar';
@@ -368,13 +490,13 @@ class Pending {
     (this.bar.querySelector('.cx-sense-label') as HTMLElement).textContent = made.label;
     (this.bar.querySelector('.ok') as HTMLElement).onclick = () => this.keep();
     (this.bar.querySelectorAll('button')[1] as HTMLElement).onclick = () => this.drop();
-    const n = this.spread ? made.ids.length : 1;
+    const n = this.spread ? (made.focus ? made.focus().length : made.ids.length) : 1;
     for (let i = 0; i < n; i++) { const v = document.createElement('div'); v.className = 'cx-sense-veil'; this.veils.push(v); }
     document.body.append(...this.veils, ...(this.spread ? [] : [this.ring]), this.bar);
     const tick = () => { this.place(); this.raf = requestAnimationFrame(tick); };
     tick();
   }
-  private boxes(): Box[] { const g = this.rootEl.gfx; return this.made.ids.map(id => g.getElementById(id)).filter(Boolean).map((e: any) => box(e)); }
+  private boxes(): Box[] { if (this.made.focus) return this.made.focus(); const g = this.rootEl.gfx; return this.made.ids.map(id => g.getElementById(id)).filter(Boolean).map((e: any) => box(e)); }
   private screen(b: Box, pad: number) {
     const g = this.rootEl.gfx, rr = this.rootEl.getBoundingClientRect(), z = g.viewport.zoom;
     const [vx, vy] = g.viewport.toViewCoord(b.x, b.y);
@@ -387,7 +509,7 @@ class Pending {
     if (this.spread) bs.forEach((b, i) => this.veils[i] && set(this.veils[i], this.screen(b, 2)));
     else { set(this.veils[0], u); set(this.ring, u); }
     const bw = this.bar.offsetWidth || 220;
-    if (this.spread && this.made.label.includes('get ')) { const l = this.screen(bs[bs.length - 1], 2); Object.assign(this.bar.style, { left: (l.L + l.W + 10) + 'px', top: (l.T + l.H / 2 - 17) + 'px' }); }   // beside the last new mark
+    if (this.spread && (this.made.beside || this.made.label.includes('get '))) { const l = this.screen(bs[bs.length - 1], 2); Object.assign(this.bar.style, { left: (l.L + l.W + 10) + 'px', top: (l.T + l.H / 2 - 17) + 'px' }); }   // beside the last new mark
     else Object.assign(this.bar.style, { left: Math.max(8, u.L + u.W - bw) + 'px', top: (u.T + u.H + 10) + 'px' });
   }
   private close() { cancelAnimationFrame(this.raf); this.veils.forEach(v => v.remove()); this.ring.remove(); this.bar.remove(); }

@@ -181,7 +181,7 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     const L = rr.left + ax - pad, T = rr.top + ay - pad;
     pendBox.style.left = `${L}px`; pendBox.style.top = `${T}px`;
     pendBox.style.width = `${bx - ax + pad * 2}px`; pendBox.style.height = `${by - ay + pad * 2}px`;
-    badge.style.left = `${L - 22}px`; badge.style.top = `${T + 1}px`;
+    badge.style.left = `${L - 22}px`; badge.style.top = `${T + pad}px`;   // level with the top edge of the selection
   }
   function startWorking() {
     gfx.selection.clear?.() ?? gfx.selection.set({ elements: [] });
