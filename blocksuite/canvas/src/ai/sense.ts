@@ -24,7 +24,8 @@ type Intent =
   | { type: 'section'; key: string; frame: any; title: string; inside: Set<string> }
   | { type: 'group'; key: string; anchor: Item; members: Item[] }
   | { type: 'mark'; key: string; sig: string; label: string; marks: { mark: Item; host: Item }[] }
-  | { type: 'link'; key: string; from: Item; to: Item; line: Item; drawn: boolean; style: string };
+  | { type: 'link'; key: string; from: Item; to: Item; line: Item; drawn: boolean; style: string }
+  | { type: 'label'; key: string; members: Item[] };
 
 const box = (e: any): Box => { const b = e.elementBound; return { x: b.x, y: b.y, w: b.w, h: b.h }; };
 const gap = (a: Box, b: Box) => Math.max(0, Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w), Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h));
@@ -87,7 +88,7 @@ export function mountSense(rootEl: any) {
 
   // While Claude thinks: the 2×2 dots breathe at the top-left of the place it is thinking about. Nothing else.
   function thinking(intent: Intent): () => void {
-    const area = intent.type === 'section' ? box(intent.frame) : intent.type === 'group' ? union([intent.anchor.box, ...intent.members.map(m => m.box)]) : intent.type === 'link' ? intent.line.box : intent.marks[intent.marks.length - 1].host.box;
+    const area = intent.type === 'section' ? box(intent.frame) : intent.type === 'group' ? union([intent.anchor.box, ...intent.members.map(m => m.box)]) : intent.type === 'link' ? intent.line.box : intent.type === 'label' ? union(intent.members.map(m => m.box)) : intent.marks[intent.marks.length - 1].host.box;
     const d = document.createElement('div'); d.className = 'cx-sense-think'; d.innerHTML = '<i></i><i></i><i></i><i></i>'; document.body.append(d);
     let raf = 0;
     const tick = () => { const rr = rootEl.getBoundingClientRect(); const [x, y] = gfx.viewport.toViewCoord(area.x, area.y); d.style.left = (rr.left + x - 18) + 'px'; d.style.top = (rr.top + y) + 'px'; /* level with the top edge */ raf = requestAnimationFrame(tick); };
@@ -143,27 +144,34 @@ export function mountSense(rootEl: any) {
       const key = `mark:${sig}`; if (handled.has(key)) continue;
       return { type: 'mark', key, sig, label: markSig(list[0].mark)!.label, marks: list };
     }
-    // 3 · a named sticky with material set close to it, standing apart from the rest: a topic.
-    // The group is everything chained to the sticky by short gaps (a card beside a card beside the sticky).
-    const free = (i: Item) => !['frame', 'connector', 'group'].includes(i.kind) && !r.relations.attached.has(i.ref);
+    // 4 · a label with material set close to it, standing apart from the rest: a topic. A label is whatever
+    // names a group the user's way: a sticky of any shape (a narrow strip on top counts), a shape with words,
+    // a short heading, a pill. The group is everything chained to it by short gaps.
+    const free = (i: Item) => !['frame', 'connector', 'group', 'drawing'].includes(i.kind) && !r.relations.attached.has(i.ref);
     const loose = r.items.filter(free);
-    const chainFrom = (start: Item) => {
+    const isLabel = (o: Item) => o.text.trim().length > 1 && (o.kind === 'sticky' || o.kind === 'tag' || (o.kind === 'shape' && o.text.length <= 80) || (o.kind === 'text' && o.text.length <= 60));
+    const chainFrom = (start: Item, max = 13) => {
       const seen = new Set<Item>([start]), queue = [start];
-      while (queue.length && seen.size <= 9) { const c = queue.shift()!; for (const o of loose) if (!seen.has(o) && gap(o.box, c.box) <= NEAR) { seen.add(o); queue.push(o); } }
+      while (queue.length && seen.size <= max) { const c = queue.shift()!; for (const o of loose) if (!seen.has(o) && gap(o.box, c.box) <= NEAR) { seen.add(o); queue.push(o); } }
       return [...seen];
     };
-    const stickies = loose.filter(s => s.kind === 'sticky' && s.text.trim().length > 1);
-    for (const a of stickies) {
-      const comp = chainFrom(a);
+    const apart = (comp: Item[]) => { const cl = union(comp.map(o => o.box)); return loose.every(o => comp.includes(o) || gap(o.box, cl) >= 72); };
+    for (const a of loose.filter(isLabel)) {
+      const comp = chainFrom(a, 9);
       if (comp.length < 2 || comp.length > 9) continue;                    // alone, or part of a pile
       if (!comp.some(o => touched.has(o.id))) continue;                     // nothing here just changed
-      if (comp.filter(o => o.kind === 'sticky').length > 2) continue;       // several notes together read as a cluster of ideas
-      if (!comp.some(o => o.kind !== 'sticky')) continue;                   // needs material beside it
-      const cl = union(comp.map(o => o.box));
-      const clear = loose.every(o => comp.includes(o) || gap(o.box, cl) >= 72);
-      if (!clear) continue;                                                 // it has to stand apart, in open space
+      if (comp.filter(isLabel).length > 2) continue;                        // several labels together read as a cluster of ideas
+      if (!comp.some(o => !isLabel(o))) continue;                           // needs material beside it
+      if (!apart(comp)) continue;                                           // it has to stand apart, in open space
       const key = `group:${a.id}:${a.text.trim().toLowerCase()}`; if (handled.has(key) && !retry(key)) continue;
       return { type: 'group', key, anchor: a, members: comp.filter(o => o !== a) };
+    }
+    // 5 · material gathered by hand with nothing naming it: offer a label on top of the group
+    for (const t of touchedItems.filter(o => free(o) && !isLabel(o))) {
+      const comp = chainFrom(t);
+      if (comp.length < 3 || comp.length > 12 || comp.some(isLabel) || !apart(comp)) continue;
+      const key = 'label:' + comp.map(o => o.id).sort().join(','); if (handled.has(key) && !retry(key)) continue;
+      return { type: 'label', key, members: comp };
     }
     return null;
   }
@@ -187,6 +195,7 @@ export function mountSense(rootEl: any) {
   async function respond(intent: Intent) {
     handled.add(intent.key);
     if (intent.type === 'link') return respondLink(intent);
+    if (intent.type === 'label') return respondLabel(intent);
     const r = readBoard(gfx);
     const reading = toPrompt(r);
     const refOf = (id: string) => r.byId.get(id)?.ref;
@@ -375,6 +384,42 @@ Answer with JSON only: {"label":"2–4 words","comment":"","extensions":[{"type"
     const keep0 = made.onKeep;
     made.onKeep = () => { keep0?.(); if (ext.length) chip(lineId, ext, r, intent); };
     pending = new Pending(rootEl, made, intent, () => { pending = null; rebase(); });
+  }
+
+  // A label for a group the user gathered by hand: a white card with a colour chip, a bold name and a quiet
+  // line on what unites them, set just above the group (FigJam's section header, as a thing of its own).
+  async function respondLabel(intent: Extract<Intent, { type: 'label' }>) {
+    const r = readBoard(gfx);
+    const sys = `Someone gathered a few things on a whiteboard into one group by hand, without naming it. Name the group.
+Answer with JSON only: {"title":"2–4 words","subtitle":"what unites them, at most 8 words","colour":"blue|teal|green|yellow|orange|red|pink|violet"}
+- Specific, not generic ("AI answers away from the board", not "Group 1"). In the language of the board. Never write refs (s3, n12).`;
+    const user = `BOARD\n${toPrompt(r)}\n\nGROUP\n${intent.members.map(m => `${m.ref}: ${m.text.replace(/\s+/g, ' ').slice(0, 140)}`).join('\n')}`;
+    const mock = (window as any).cxMockSense;
+    const raw = mock ? (typeof mock === 'function' ? await mock(intent, user) : mock) : await ask(sys, user);
+    const ans = typeof raw === 'string' ? parseAnswer(raw) : raw;
+    dev.log.unshift({ intent: intent.key, answer: ans }); dev.log.length = Math.min(dev.log.length, 10);
+    const title = cleanRefs(String(ans.title ?? ''), r), sub = cleanRefs(String(ans.subtitle ?? ''), r);
+    if (!title) return;
+    store.captureSync();
+    const ids = labelCard(union(intent.members.map(m => m.box)), title, sub, String(ans.colour ?? 'blue'), r, intent.members);
+    store.captureSync();
+    pending = new Pending(rootEl, { ids, label: `Name this group “${title}”`, focus: () => [box(gfx.getElementById(ids[0]))], spread: true, beside: true }, intent, () => { pending = null; rebase(); });
+  }
+  const HUE: Record<string, string> = { blue: '#3dadff', teal: '#3dc3b8', green: '#66d575', yellow: '#ffc943', orange: '#ff9e42', red: '#f24822', pink: '#ff7ad9', violet: '#874fff', purple: '#874fff' };
+  function labelCard(over: Box, title: string, sub: string, colour: string, r: Reading, members: Item[]): string[] {
+    const c = document.createElement('canvas').getContext('2d')!;
+    c.font = '600 18px Inter, sans-serif'; const tw = c.measureText(title).width; c.font = '400 12px Inter, sans-serif'; const sw = sub ? c.measureText(sub).width : 0;
+    const w = Math.ceil(Math.max(tw, sw)) + 20 + 38, h = sub ? 66 : 48;
+    const others = r.items.filter(o => !members.includes(o) && !['frame', 'connector'].includes(o.kind));
+    const cands = [{ x: over.x, y: over.y - h - 16, w, h }, { x: over.x - w - 24, y: over.y, w, h }, { x: over.x, y: over.y + over.h + 16, w, h }];
+    const at = cands.find(b => !others.some(o => overlaps(o.box, b))) ?? cands[0];
+    const hue = HUE[colour.toLowerCase()] ?? HUE.blue;
+    const tx = (s0: string, y: number, size: number, weight: string, color: string, wd: number) => { const t = new Y.Text(); t.insert(0, s0); return surf.addElement({ type: 'text', index: nextTop(), xywh: xywh({ x: at.x + 38, y, w: wd + 8, h: Math.round(size * 1.3) }), text: t, color, fontSize: size, fontWeight: weight, fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' }); };
+    const ids = [surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.16, index: nextTop(), xywh: xywh(at), filled: true, fillColor: '#ffffff', strokeColor: '#e6e6e6', strokeWidth: 1, text: new Y.Text() })];
+    ids.push(surf.addElement({ type: 'shape', shapeType: 'rect', radius: 0.3, index: nextTop(), xywh: xywh({ x: at.x + 16, y: at.y + (sub ? 17 : 18), w: 12, h: 12 }), filled: true, fillColor: hue, strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() }));
+    ids.push(tx(title, at.y + (sub ? 11 : 13), 18, '600', '#1d1d1f', tw));
+    if (sub) ids.push(tx(sub, at.y + 38, 12, '400', '#8a8984', sw));
+    return ids;
   }
 
   // "+n" on the line: opens the extensions as a pending set below the line, tied to it by a dashed stem
