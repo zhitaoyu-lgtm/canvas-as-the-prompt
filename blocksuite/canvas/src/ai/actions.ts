@@ -25,6 +25,7 @@ export type Result = { created: string[]; changed: string[]; errors: string[]; b
 // Every colour comes from the shared design system (../design.ts), the same one the toolbar uses.
 const alias = (m: Record<string, string>) => ({ ...m, grey: m.gray, purple: m.violet });
 const STICKY: Record<string, string> = alias(FILL as any);
+const LINE = { color: '#6e6e73', width: 2 };
 const INK: Record<string, string> = { ...alias(INKH as any), black: TEXT.ink };
 const HL = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'grey'];
 const base = (c: string) => c.toLowerCase().replace(/^light\s+/, '').replace('gray', 'grey').trim();
@@ -272,20 +273,27 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     } as any, surf.id);
     created.push(id); if (a.name) named.set(a.name, { id, box });
   }
+  // Lines read like FigJam's: a thin gray elbow line with an open arrow, the label sitting on the line's
+  // middle; dashed means asynchronous / weaker / planned. A user's own line style wins when there is one.
   function connect(a: Action) {
     const from = idOf(a.from), to = idOf(a.to);
     if (!from || !to) { errors.push(`connect: unknown ${!from ? a.from : a.to}`); return; }
-    // match an existing line's look if the user has one
-    const sample = reading.items.find(i => i.kind === 'connector' && i.author === 'user');
+    const sample = reading.items.find(i => i.kind === 'connector' && i.author === 'user' && i.arrow?.from && i.arrow?.to);
     const sEl = sample && gfx.getElementById(sample.id);
     const props: any = {
       type: 'connector', source: { id: from }, target: { id: to },
-      stroke: sEl?.stroke ?? '#1e1e1e', strokeWidth: sEl?.strokeWidth ?? 2, mode: sEl?.mode ?? 1,
-      rearEndpointStyle: a.arrow === false ? 'None' : sEl?.rearEndpointStyle ?? 'Arrow', frontEndpointStyle: sEl?.frontEndpointStyle ?? 'None',
+      stroke: sEl?.stroke ?? LINE.color, strokeWidth: sEl?.strokeWidth ?? LINE.width, mode: a.curve ? 2 : a.straight ? 0 : (sEl?.mode ?? 1),
+      strokeStyle: a.dashed || a.style === 'dashed' ? 'dash' : 'solid',
+      rearEndpointStyle: a.arrow === false ? 'None' : sEl?.rearEndpointStyle ?? 'Arrow', frontEndpointStyle: a.both ? 'Arrow' : sEl?.frontEndpointStyle ?? 'None',
     };
-    if (a.label) { const t = new Y.Text(); t.insert(0, String(a.label)); props.text = t; props.labelDisplay = true; }
+    if (a.label) {
+      const label = String(a.label); const t = new Y.Text(); t.insert(0, label);
+      Object.assign(props, { text: t, labelDisplay: true, labelOffset: { distance: a.at ?? 0.5, anchor: 'center' },
+        labelXYWH: [0, 0, Math.ceil(textWidth(label, TYPE.caption)) + 12, 20],
+        labelStyle: { color: TEXT.body, fontSize: TYPE.caption, fontFamily: 'blocksuite:surface:Inter', fontWeight: '400', fontStyle: 'normal', textAlign: 'center' } });
+    }
     const id = addEl(props);
-    created.push(id);
+    created.push(id); return id;
   }
   function write(a: Action) {
     const it = item(a.ref); const el = it && gfx.getElementById(it.id);
@@ -600,11 +608,12 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   // One quiet palette for everything the AI makes (Apple-like: white cards on soft system tints)
   const TINT: Record<string, string> = alias(TINTH as any);
   const SEC = { padX: 40, padTop: 40, padBottom: 40, headGap: 24, gap: 32, subGap: 8, title: TYPE.heading, sub: TYPE.small };
-  type N = { kind: string; id?: string; w: number; h: number; spec: any; kids?: N[]; head?: { title?: string; sub?: string; tw: number; th: number } };
+  type N = { kind: string; id?: string; parts?: { id: string; dx: number; dy: number }[]; w: number; h: number; spec: any; kids?: N[]; head?: { title?: string; sub?: string; tw: number; th: number } };
   const frame2 = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
   const domain = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
-  const measure = (text: string, size: number, weight = 400, maxW = 1e9) => {
-    const c = document.createElement('canvas').getContext('2d')!; c.font = `${weight} ${size}px Inter, "PingFang SC", "Noto Sans SC", sans-serif`;
+  // surface text (canvas) renders with the blocksuite font name, DOM notes with Inter: measure each the way it is drawn
+  const measure = (text: string, size: number, weight = 400, maxW = 1e9, surface = false) => {
+    const c = document.createElement('canvas').getContext('2d')!; c.font = surface ? `${weight} ${size}px "blocksuite:surface:Inter"` : `${weight} ${size}px Inter, "PingFang SC", "Noto Sans SC", sans-serif`;
     let lines = 0, widest = 0;
     for (const para of String(text).split('\n')) {
       let line = '', n = 1;
@@ -615,6 +624,19 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       widest = Math.max(widest, c.measureText(line).width); lines += n;
     }
     return { w: Math.ceil(widest * 1.08) + 4, h: Math.ceil(lines * size * 1.35) };
+  };
+  // break lines ourselves (measured with Inter, a little wider than the canvas draws) so the height is exact
+  const wrapLines = (text: string, size: number, weight: number, maxW: number) => {
+    const c = document.createElement('canvas').getContext('2d')!; c.font = `${weight} ${size}px Inter, sans-serif`;
+    const out: string[] = [];
+    for (const para of String(text).split('\n')) {
+      let line = '';
+      for (const ch of para.match(/[　-鿿＀-￯]|[^\s　-鿿＀-￯]+\s*|\s+/g) ?? ['']) {
+        if (c.measureText(line + ch).width > maxW && line.trim()) { out.push(line.trimEnd()); line = ch.trimStart(); } else line += ch;
+      }
+      out.push(line.trimEnd());
+    }
+    return out;
   };
   const stickySize = (() => { const st = reading.items.filter(i => i.kind === 'sticky').map(i => i.box.w).sort((a, b) => a - b); return st.length ? st[st.length >> 1] : 184; })();
   const P = (text: string, attrs?: any) => new Text(attrs ? [{ insert: text, attributes: attrs }] as any : text);
@@ -656,6 +678,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
         image: pv.image, icon: pv.icon ?? null, xywh: xywh({ x: 0, y: 0, w: 300, h: 330 }), index: nextTop() } as any, surf.id);
       created.push(id); return { kind: k, id, w: 300, h: 330, spec: it };
     }
+    if (k === 'panel') return buildPanel(it);
     // an existing thing of the user's, moved into this section (regrouping, sorting, clustering)
     if (k === 'ref') {
       const id = idOf(it.ref); const el: any = id && gfx.getElementById(id);
@@ -716,6 +739,54 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     created.push(id); return { kind: it.kind === 'summary' || it.span === 'full' ? 'full' : 'card', id, w, h: 80, spec: it };
   }
 
+  // Panel: the FigJam card that holds a topic. tint = soft fill + hue border; outline = white + hue
+  // border; dashed = an open column to fill in. Title 20 semibold, text 15 gray at 1.5 line height.
+  function buildPanel(it: any): N {
+    const hue = base(it.colour ?? 'blue'), style = it.style ?? 'tint';
+    const fill = style === 'dashed' ? 'transparent' : style === 'outline' ? '#ffffff' : (TINT[hue] ?? TINT.blue);
+    const stroke = style === 'dashed' ? '#c7c7cc' : (STICKY[hue] ?? STICKY.blue);
+    const W = it.wide ? 440 : it.width ?? 320, pad = 32, inner = W - pad * 2;
+    const parts: { id: string; dx: number; dy: number }[] = [];
+    const txt = (s0: string, size: number, weight: number, colour: string, dy: number, lh = 1.5) => {
+      const ls = wrapLines(s0, size, weight, inner - 4); const h = Math.ceil(ls.length * size * 1.25);
+      const t = new Y.Text(); t.insert(0, ls.join('\n'));
+      const id = addEl({ type: 'text', xywh: xywh({ x: 0, y: 0, w: inner, h }), text: t, color: colour, fontSize: size, fontWeight: String(weight), fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' });
+      parts.push({ id, dx: pad, dy }); created.push(id); return h;
+    };
+    const box = addEl({ type: 'shape', shapeType: 'rect', radius: 0.05, xywh: xywh({ x: 0, y: 0, w: W, h: 100 }), filled: style !== 'dashed', fillColor: fill,
+      strokeColor: stroke, strokeWidth: style === 'dashed' ? 2 : 1, strokeStyle: style === 'dashed' ? 'dash' : 'solid', text: new Y.Text() });
+    created.push(box); parts.unshift({ id: box, dx: 0, dy: 0 });
+    let y = pad;
+    if (it.title) y += txt(String(it.title), TYPE.title, 600, TEXT.ink, y, 1.3) + (it.subtitle ? 4 : 14);
+    if (it.subtitle) y += txt(String(it.subtitle), TYPE.caption + 1, 400, TEXT.muted, y, 1.4) + 14;
+    if (Array.isArray(it.items) && it.items.length && typeof it.items[0] === 'object') {
+      it.items.forEach((p: any, i: number) => {
+        y += txt(String(p.title ?? ''), TYPE.body, 600, TEXT.ink, y, 1.35) + 4;
+        if (p.text) y += txt(String(p.text), TYPE.small + 1, 400, '#6e6e73', y, 1.5);
+        if (i < it.items.length - 1) y += 20;
+      });
+    } else {
+      // bullets: one line each, with a hanging indent so wrapped lines sit under the words, not the dot
+      const raw: string[] = Array.isArray(it.items) ? it.items.map(String) : String(it.body ?? it.text ?? '').split('\n').filter((l: string) => l.trim());
+      const bulleted = Array.isArray(it.items) || raw.every(l => /^[-•]\s+/.test(l));
+      raw.forEach((l, i) => {
+        const line = l.replace(/^[-•]\s+/, '');
+        if (bulleted) {
+          const dot = new Y.Text(); dot.insert(0, '•');
+          const did = addEl({ type: 'text', xywh: xywh({ x: 0, y: 0, w: 10, h: 22 }), text: dot, color: '#aeaeb2', fontSize: TYPE.small + 1, fontFamily: 'blocksuite:surface:Inter' });
+          parts.push({ id: did, dx: pad, dy: y }); created.push(did);
+          const ls = wrapLines(line, TYPE.small + 1, 400, inner - 20); const h = Math.ceil(ls.length * (TYPE.small + 1) * 1.25);
+          const t = new Y.Text(); t.insert(0, ls.join('\n'));
+          const id = addEl({ type: 'text', xywh: xywh({ x: 0, y: 0, w: inner - 16, h }), text: t, color: '#6e6e73', fontSize: TYPE.small + 1, fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' });
+          parts.push({ id, dx: pad + 16, dy: y }); created.push(id); y += h + (i < raw.length - 1 ? 8 : 0);
+        } else y += txt(line, TYPE.small + 1, 400, '#6e6e73', y, 1.5) + (i < raw.length - 1 ? 8 : 0);
+      });
+    }
+    const H = y + pad;
+    const el: any = gfx.getElementById(box); if (el) surf.updateElement(box, { xywh: xywh({ x: 0, y: 0, w: W, h: H }) });
+    return { kind: 'panel', id: box, parts, w: W, h: H, spec: it };
+  }
+
   async function buildSection(spec: any, links: Map<string, any>): Promise<N> {
     const kids: N[] = [];
     const regular = (spec.items ?? []).filter((it: any) => it.kind !== 'summary' && it.span !== 'full');
@@ -728,13 +799,15 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       const n = await buildItem(spec2, links); if (n) kids.push(n);
     }
     const title = spec.title ? String(spec.title) : undefined, sub = spec.subtitle ? String(spec.subtitle) : undefined;
-    const tm = title ? measure(title, SEC.title, 700) : { w: 0, h: 0 }, sm = sub ? measure(sub, SEC.sub, 400, 640) : { w: 0, h: 0 };
+    const ts = spec.hero ? 48 : SEC.title, ss = spec.hero ? TYPE.title : SEC.sub;
+    const tm = title ? measure(title, ts, 600) : { w: 0, h: 0 }, sm = sub ? measure(sub, ss, 400, 720) : { w: 0, h: 0 };
     return { kind: 'section', w: 0, h: 0, spec, kids, head: { title, sub, tw: Math.max(tm.w, sm.w), th: tm.h + (sub ? SEC.subGap + sm.h : 0) } };
   }
 
   // real sizes, after the words have rendered
   function sizeOf(n: N) {
     if (n.kind === 'section') { layoutSection(n); return; }
+    if (n.parts) return;   // panels know their size
     const el: any = n.id && gfx.getElementById(n.id); if (el) { n.w = el.elementBound.w; n.h = el.elementBound.h; }
   }
   type Pos = Map<N, { x: number; y: number }>;
@@ -757,7 +830,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const gridW = colW.reduce((a, b) => a + b, 0) + gap * Math.max(0, colW.length - 1);
     const rowH = rows.map(r => Math.max(...r.map(k => k.h)));
     // equal card heights within a row (FigJam reflow rule)
-    rows.forEach((r, ri) => r.forEach(k => { if ((k.kind === 'card') && k.id) { const el: any = gfx.getElementById(k.id); if (el && el.elementBound.h < rowH[ri] - 1) { const b = el.elementBound; store.updateBlock(el, { xywh: xywh({ x: b.x, y: b.y, w: b.w, h: rowH[ri] }), edgeless: { ...el.props.edgeless, collapse: true, collapsedHeight: rowH[ri] } }); k.h = rowH[ri]; } } }));
+    rows.forEach((r, ri) => r.forEach(k => { if (k.kind === 'panel') { k.h = rowH[ri]; return; } if ((k.kind === 'card') && k.id) { const el: any = gfx.getElementById(k.id); if (el && el.elementBound.h < rowH[ri] - 1) { const b = el.elementBound; store.updateBlock(el, { xywh: xywh({ x: b.x, y: b.y, w: b.w, h: rowH[ri] }), edgeless: { ...el.props.edgeless, collapse: true, collapsedHeight: rowH[ri] } }); k.h = rowH[ri]; } } }));
     rows.forEach((r, ri) => r.forEach((k, c) => {
       if (k.kind !== 'section') return;
       k.h = rowH[ri];                                   // same height across a row
@@ -784,20 +857,26 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     for (const k of n.kids!) {
       const p = pos.get(k)!; const ax = x + p.x, ay = y + p.y;
       if (k.kind === 'section') ids.push(...commit(k, ax, ay, depth + 1, tintOf(n, depth)));
+      else if (k.parts) {
+        for (const pt of k.parts) { const el: any = gfx.getElementById(pt.id); if (!el) continue; const b = el.elementBound;
+          const w = pt.id === k.id ? k.w : b.w, h = pt.id === k.id ? k.h : b.h;   // the panel's box follows its row height
+          setBox(pt.id, { x: ax + pt.dx, y: ay + pt.dy, w, h }); ids.push(pt.id); }
+      }
       else if (k.id) { const el: any = gfx.getElementById(k.id); if (el) setBox(k.id, { x: ax, y: ay, w: el.elementBound.w, h: el.elementBound.h }); ids.push(k.id); }
     }
     const hd = n.head!;
     if (hd.title) {
       const t = new Y.Text(); t.insert(0, hd.title);
-      const tid = addEl({ type: 'text', xywh: xywh({ x: x + SEC.padX, y: y + SEC.padTop, w: measure(hd.title, SEC.title, 700).w, h: Math.ceil(SEC.title * 1.35) }),
-        text: t, color: '#1e1e1e', fontSize: depth ? 22 : SEC.title, fontWeight: '700', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' });
+      const ts = n.spec.hero ? 48 : depth ? 22 : SEC.title;
+      const tid = addEl({ type: 'text', xywh: xywh({ x: x + SEC.padX, y: y + SEC.padTop, w: measure(hd.title, ts, 700).w, h: Math.ceil(ts * 1.35) }),
+        text: t, color: '#1e1e1e', fontSize: ts, fontWeight: n.spec.hero ? '600' : '700', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' });
       created.push(tid); ids.push(tid);
     }
     if (hd.sub) {
       const avail = Math.max(240, n.w - SEC.padX * 2);
-      const m = measure(hd.sub, SEC.sub, 400, avail); const t = new Y.Text(); t.insert(0, hd.sub);
-      const sid = addEl({ type: 'text', xywh: xywh({ x: x + SEC.padX, y: y + SEC.padTop + Math.ceil(SEC.title * 1.35) + SEC.subGap, w: Math.min(avail, Math.max(m.w, 120)), h: m.h }),
-        text: t, color: '#8a8984', fontSize: SEC.sub, fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', hasMaxWidth: true });
+      const m = measure(hd.sub, n.spec.hero ? TYPE.title : SEC.sub, 400, avail); const t = new Y.Text(); t.insert(0, hd.sub);
+      const sid = addEl({ type: 'text', xywh: xywh({ x: x + SEC.padX, y: y + SEC.padTop + Math.ceil((n.spec.hero ? 48 : SEC.title) * 1.35) + SEC.subGap, w: Math.min(avail, Math.max(m.w, 120)), h: m.h }),
+        text: t, color: n.spec.hero ? TEXT.body : '#8a8984', fontSize: n.spec.hero ? TYPE.title : SEC.sub, fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', hasMaxWidth: true });
       created.push(sid); ids.push(sid);
     }
     let tint = TINT[base(n.spec.colour ?? (depth ? 'gray' : 'white'))] ?? (n.spec.colour?.startsWith?.('#') ? n.spec.colour : TINT.white);
@@ -842,6 +921,101 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   }
   const findSpec = (s: any, url: string): any => { for (const it of s.items ?? []) { if (it.url === url) return it; if (it.items) { const f = findSpec(it, url); if (f) return f; } } return null; };
 
+  // Diagram (architecture, flow, system map): FigJam gives each role a shape and a hue and keeps lines
+  // thin and gray with their labels on the line. Layers run in the direction of the arrows.
+  const ROLE: Record<string, { shape: string; radius: number; hue: string; outline?: boolean; w: number; h: number }> = {
+    client: { shape: 'rect', radius: 0.35, hue: 'green', w: 200, h: 96 },
+    service: { shape: 'rect', radius: 0.04, hue: 'violet', w: 200, h: 96 },
+    database: { shape: 'rect', radius: 0.3, hue: 'blue', w: 200, h: 112 },
+    queue: { shape: 'rect', radius: 0.3, hue: 'teal', w: 200, h: 96 },
+    external: { shape: 'rect', radius: 0.04, hue: 'gray', outline: true, w: 200, h: 96 },
+    decision: { shape: 'diamond', radius: 0, hue: 'yellow', outline: true, w: 168, h: 168 },
+    actor: { shape: 'ellipse', radius: 0, hue: 'orange', w: 144, h: 144 },
+    step: { shape: 'rect', radius: 0.12, hue: 'white', outline: true, w: 200, h: 96 },
+    start: { shape: 'rect', radius: 0.5, hue: 'green', w: 168, h: 72 },
+    end: { shape: 'rect', radius: 0.5, hue: 'red', w: 168, h: 72 },
+  };
+  async function diagram(a: Action) {
+    const nodes: any[] = a.nodes ?? [], edges: any[] = a.edges ?? [];
+    if (!nodes.length) return;
+    const down = a.direction === 'down';
+    // layers: longest path from the sources (back edges ignored)
+    const layer = new Map<string, number>(); nodes.forEach(n => layer.set(n.id, 0));
+    for (let pass = 0; pass < nodes.length; pass++) for (const e of edges) {
+      const lf = layer.get(e.from), lt = layer.get(e.to); if (lf == null || lt == null) continue;
+      if (lt < lf + 1 && lf + 1 < nodes.length) layer.set(e.to, lf + 1);
+    }
+    const layers: any[][] = []; for (const n of nodes) (layers[layer.get(n.id)!] ??= []).push(n);
+    // keep zones together inside a layer
+    layers.forEach(l => l.sort((p, q) => String(p.zone ?? '').localeCompare(String(q.zone ?? ''))));
+    const GAPL = 168, GAPN = 48;
+    const sizeOfN = (n: any) => ROLE[n.role ?? n.kind ?? 'step'] ?? ROLE.step;
+    const layerSpan = layers.map(l => Math.max(...l.map(n => down ? sizeOfN(n).h : sizeOfN(n).w)));
+    const layerLen = layers.map(l => l.reduce((s0, n) => s0 + (down ? sizeOfN(n).w : sizeOfN(n).h), 0) + GAPN * (l.length - 1));
+    const maxLen = Math.max(...layerLen);
+    const titleH = a.title ? 72 : 0, pad = 48;
+    const W = down ? maxLen : layerSpan.reduce((s0, v) => s0 + v, 0) + GAPL * (layers.length - 1);
+    const H = down ? layerSpan.reduce((s0, v) => s0 + v, 0) + GAPL * (layers.length - 1) : maxLen;
+    const keyH = a.key ? 56 : 0;
+    const box = place(a.place, W + pad * 2, H + pad * 2 + titleH + keyH, anchorOf(a) ?? reading.selection[0]);
+    const origin = { x: box.x + pad, y: box.y + pad + titleH };
+    const pos = new Map<string, Box>();
+    let along = 0;
+    layers.forEach((l, li) => {
+      let off = (maxLen - layerLen[li]) / 2;
+      for (const n of l) {
+        const r = sizeOfN(n);
+        const x = down ? origin.x + off : origin.x + along + (layerSpan[li] - r.w) / 2;
+        const y = down ? origin.y + along + (layerSpan[li] - r.h) / 2 : origin.y + off;
+        pos.set(n.id, { x: snap(x), y: snap(y), w: r.w, h: r.h });
+        off += (down ? r.w : r.h) + GAPN;
+      }
+      along += layerSpan[li] + GAPL;
+    });
+    const ids: string[] = [];
+    // zones first, underneath
+    for (const z of a.zones ?? []) {
+      const members = nodes.filter(n => n.zone === z.id).map(n => pos.get(n.id)!).filter(Boolean);
+      if (!members.length) continue;
+      const u = union(members), zp = 32;
+      const zb = { x: u.x - zp, y: u.y - zp - 32, w: u.w + zp * 2, h: u.h + zp * 2 + 32 };
+      const zid = addEl({ type: 'shape', shapeType: 'rect', radius: 0.04, xywh: xywh(zb), filled: true, fillColor: TINT[base(z.colour ?? 'gray')] ?? TINT.gray, strokeWidth: 0, strokeColor: 'transparent', text: new Y.Text() });
+      created.push(zid); ids.push(zid);
+      if (z.title) { const t = new Y.Text(); t.insert(0, String(z.title)); const tid = addEl({ type: 'text', xywh: xywh({ x: zb.x + 16, y: zb.y + 12, w: textWidth(String(z.title), TYPE.small) + 8, h: 20 }), text: t, color: TEXT.muted, fontSize: TYPE.small, fontWeight: '600', fontFamily: 'blocksuite:surface:Inter' }); created.push(tid); ids.push(tid); }
+    }
+    const idOfNode = new Map<string, string>();
+    for (const n of nodes) {
+      const r = sizeOfN(n), b = pos.get(n.id)!;
+      const hue = base(n.colour ?? r.hue);
+      const t = new Y.Text(); t.insert(0, String(n.label ?? n.id));
+      const id = addEl({ type: 'shape', shapeType: r.shape, radius: r.radius, xywh: xywh(b), filled: true,
+        fillColor: r.outline ? '#ffffff' : (STICKY[hue] ? mixHex(STICKY[hue], 0.45) : '#ffffff'), strokeColor: r.outline ? (hue === 'white' || hue === 'gray' ? '#3a3a3c' : INK[hue]) : (INK[hue] ?? '#3a3a3c'), strokeWidth: r.outline ? 2 : 1,
+        color: TEXT.ink, fontSize: r.shape === 'diamond' ? TYPE.small : TYPE.body, fontWeight: '500', fontFamily: 'blocksuite:surface:Inter',
+        textAlign: 'center', textHorizontalAlign: 'center', textVerticalAlign: 'center', padding: [10, 14], text: t });
+      created.push(id); ids.push(id); idOfNode.set(n.id, id); named.set(n.id, { id, box: b });
+    }
+    await frame2();
+    for (const e of edges) {
+      if (!idOfNode.has(e.from) || !idOfNode.has(e.to)) continue;
+      const cid = connect({ do: 'connect', from: e.from, to: e.to, label: e.label, dashed: e.dashed || e.style === 'dashed', both: e.both });
+      if (cid) ids.push(cid);
+    }
+    if (a.title) { const t = new Y.Text(); t.insert(0, String(a.title)); const tid = addEl({ type: 'text', xywh: xywh({ x: box.x + pad, y: box.y + pad - 8, w: textWidth(String(a.title), TYPE.heading) * 1.1 + 8, h: 40 }), text: t, color: TEXT.ink, fontSize: TYPE.heading, fontWeight: '700', fontFamily: 'blocksuite:surface:Inter' }); created.push(tid); ids.push(tid); }
+    if (a.key) { const t = new Y.Text(); t.insert(0, String(a.key)); const tid = addEl({ type: 'text', xywh: xywh({ x: box.x + pad, y: box.y + box.h - pad - 20, w: Math.min(box.w - pad * 2, textWidth(String(a.key), TYPE.small) + 8), h: 20 }), text: t, color: TEXT.muted, fontSize: TYPE.small, fontFamily: 'blocksuite:surface:Inter', hasMaxWidth: true }); created.push(tid); ids.push(tid); }
+    const fid = store.addBlock('affine:frame', { xywh: xywh(box), title: new Text(''), background: '#ffffff', childElementIds: Object.fromEntries(ids.map(i => [i, true])), index: gfx.layer.generateIndex(true) } as any, surf.id);
+    created.push(fid); newBoxes.push(box);
+    if (a.name) named.set(a.name, { id: fid, box });
+  }
+  const mixHex = (hex: string, k: number) => { const n = parseInt(hex.slice(1), 16); return '#' + [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(v => Math.round(v + (255 - v) * k).toString(16).padStart(2, '0')).join(''); };
+
+  // Matrix: four panels on two axes, axis names outside the grid (FigJam's quadrant board)
+  async function matrix(a: Action) {
+    const cells: any[] = a.cells ?? []; if (!cells.length) return;
+    const hues = ['blue', 'violet', 'green', 'orange'];
+    await section({ do: 'section', name: a.name, title: a.title, subtitle: a.subtitle ?? (a.x && a.y ? `Across: ${a.x[0]} → ${a.x[1]}   ·   Down: ${a.y[1]} → ${a.y[0]}` : undefined), hero: a.hero, colour: 'white', cols: 2, place: a.place,
+      items: cells.map((c, i) => ({ kind: 'panel', title: c.title, subtitle: c.subtitle, items: c.items, body: c.body, colour: c.colour ?? hues[i % 4], width: 400 })) });
+  }
+
   // ── Run ───────────────────────────────────────────────────────────────────────────────
   for (const a of answer.actions ?? []) {
     try {
@@ -866,6 +1040,8 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
         case 'legend': legend(a); break;
         case 'section': await section(a); break;
         case 'tag': tag(a); break;
+        case 'diagram': await diagram(a); break;
+        case 'matrix': await matrix(a); break;
         case 'vote': vote(a); break;
         case 'number': number(a); break;
         case 'plot': plot(a); break;

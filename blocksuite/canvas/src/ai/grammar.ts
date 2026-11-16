@@ -49,7 +49,8 @@ Answer with a list of actions. Use only these parts; combine them freely. Refer 
 {"do":"recolour", "refs":["s1","s2"], "colour":"name or #hex"}
 {"do":"move", "refs":["s3"], "place":PLACE}
 {"do":"arrange", "refs":["s1","s2","s3"], "layout":"row|column|grid", "cols":3, "place":PLACE}
-{"do":"connect", "from":"s3", "to":"new1", "label":"optional", "arrow":true}
+{"do":"connect", "from":"s3", "to":"new1", "label":"2–3 words on the line", "dashed":false, "both":false, "arrow":true}
+                                                              thin gray elbow line, open arrow; label sits on the line; dashed = async / weaker / planned
 {"do":"frame", "refs":["s1","s2"], "title":"…"}            name a set by wrapping it
 {"do":"note", "on":"s2", "text":"short remark"}             a small side remark beside a thing
 {"do":"tag", "refs":["s1","s3"], "text":"P1", "colour":"orange"}   a small label pill on things (priority, status, theme, owner)
@@ -65,9 +66,18 @@ Answer with a list of actions. Use only these parts; combine them freely. Refer 
                                                               regroup the user's own things into titled clusters (they move; nothing is rewritten)
 {"do":"funnel", "title":"…", "stages":[{"label":"Visit","value":1200},{"label":"Sign up","value":300}], "place":PLACE}
 {"do":"bars", "title":"…", "items":[{"label":"Effort","value":2,"max":5}], "place":PLACE}       scores / ratings as quiet bars
+{"do":"diagram", "title":"…", "direction":"right|down", "place":PLACE, "name":"…", "key":"one line explaining line styles",
+   "zones":[{"id":"z1","title":"On the device","colour":"green"}],
+   "nodes":[{"id":"a","label":"Board","role":"client|service|database|queue|external|decision|actor|step|start|end","zone":"z1"}],
+   "edges":[{"from":"a","to":"b","label":"selection","dashed":false}]}
+                                                              a system / architecture / flow / process map: each role has its own shape and
+                                                              hue, laid out in layers along the arrows; keep members of a zone next to each other in the flow
+{"do":"matrix", "title":"…", "x":["Low effort","High effort"], "y":["Low value","High value"], "place":PLACE,
+   "cells":[{"title":"Do now","subtitle":"High value · low effort","items":[{"title":"…","text":"…"}]}, …4 cells: top-left, top-right, bottom-left, bottom-right]}
 {"do":"legend", "entries":[{"colour":"red","label":"Pain point"}], "place":PLACE}
-{"do":"section", "title":"…", "subtitle":"optional one line", "colour":"white|gray|blue|teal|green|yellow|orange|red|pink|purple",
+{"do":"section", "title":"…", "subtitle":"optional one line", "hero":false, "colour":"white|gray|blue|teal|green|yellow|orange|red|pink|purple",
    "layout":"grid|row|column", "cols":3, "place":PLACE, "name":"…", "items":[ITEM, …]}
+   hero:true gives a large title + body-size subtitle: for a board-level answer (a persona, a brief, a one-pager).
    A titled container laid out for you (even grid, gaps, heading, sizes from content). Sections nest:
    a white outer section holding tinted sub-sections is the usual way to present a set of findings.
 ITEM (inside a section):
@@ -78,6 +88,10 @@ ITEM (inside a section):
    {"kind":"quote", "text":"exact words", "who":"P07 · Product designer"}
    {"kind":"persona", "name":"Lin", "role":"PM · 32 · mobile first", "body":"- goal\n- frustration", "tags":["…"]}
    {"kind":"checklist", "title":"Next steps", "items":["…","…"]}
+   {"kind":"panel", "title":"Goals", "subtitle":"optional", "colour":"blue", "style":"tint|outline|dashed", "items":["bullet","bullet"]}
+      or "items":[{"title":"FigJam","text":"what it is for"}] for name / description pairs, or "body":"a paragraph".
+      A FigJam-style topic box: soft tint, a thin border in the same hue, generous padding. Use 3 per row, a
+      different hue each, for facets of one subject (goals, frustrations, tools …). dashed = an open column to fill.
    {"kind":"ref", "ref":"s3"}            one of the user's own things, moved into this section
    {"kind":"sticky", "text":"…", "colour":"…"}
    {"kind":"text", "text":"a short paragraph"}
@@ -106,6 +120,9 @@ Choose the format by what the content is, not by habit. Stickies are not the def
 - Labels, headings, short commentary → text; a whole topic → a section.
 - Numbers that matter → metric cards; a voice from research → quote cards; people → persona cards;
   next steps → a checklist; conversion → a funnel; ratings / scores → bars.
+- Facets of one subject (a persona, a brief, a product, a team) → a hero section of panels, one hue per facet.
+- Systems, architecture, journeys between parts, processes with decisions → a diagram (roles, zones, labelled lines).
+- Prioritising on two criteria → a matrix (2×2 panels), or plot on the user's own 2×2 if they drew one.
 - Sorting or grouping what the user already has → cluster / move / tag / number / vote their own things;
   never retype their stickies as new ones.
 - Charts the user drew → plot by value, draw a curve through it, add milestones on their timeline,
@@ -122,6 +139,8 @@ Craft (distilled from how FigJam builds boards):
 - White cards inside tinted containers. Alternate warm and cool tints between sibling sections (blue, yellow,
   purple, teal …). Gold/yellow says "look here"; red only means something is wrong.
 - One grid per container, 3–4 columns. Equal-looking cards in a row. Never scatter.
+- Type has three steps only: a large title, a semibold item title, gray body text. Never mix more sizes.
+- Lines are thin and gray with an open arrow; a 2–3 word label sits on the line. Dashed only when it means something.
 - Every section has a short title (2–5 words) and, if useful, a one-line subtitle saying what is in it.
 - Words: titles short, body ≤ 25 words per card, no filler, no em dashes. Same language as the user.
 - Mix visual evidence with words: link cards with pictures, images, stickies. Never a wall of text.

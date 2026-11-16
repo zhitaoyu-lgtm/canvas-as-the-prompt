@@ -94,11 +94,53 @@ export async function brainstorm(rootEl: any) {
   fit(gfx);
 }
 
+// Templates drawn from FigJam's own replies: a persona board (hero title, tinted panels), a system
+// diagram (roles as shapes, zones, labelled thin lines) and a 2×2 matrix. Fixed answers, for the visual check.
+export async function templates(rootEl: any) {
+  const gfx = rootEl.gfx;
+  const at = free(gfx);
+  const rd = readBoard(gfx);
+  await execute(rootEl, rd, { read: '', say: '', actions: [
+    { do: 'section', name: 'persona', hero: true, title: 'Maya Chen  ｜  Product designer', subtitle: 'Leads a three-person design team at a 40-person startup. Lives in FigJam and Figma all day.', colour: 'gray', cols: 3, place: { at: [at.x, at.y] }, items: [
+      { kind: 'panel', colour: 'blue', title: 'Goals', items: ['Ship research-backed ideas faster', 'Keep the team aligned without meetings', 'Show impact to leadership'] },
+      { kind: 'panel', colour: 'red', title: 'Frustrations', items: ['Boards get messy after one workshop', 'Synthesis takes a whole afternoon', 'AI tools answer in a chat, far from the work'] },
+      { kind: 'panel', colour: 'green', title: 'A typical day', items: ['Standup on a shared board', 'Two hours of deep design', 'Critique and async review'] },
+      { kind: 'panel', colour: 'violet', title: 'Tools', subtitle: 'Daily', items: [{ title: 'FigJam', text: 'Workshops, research walls, retros' }, { title: 'Figma', text: 'Screens and the design system' }] },
+      { kind: 'panel', colour: 'orange', title: 'What would help', items: ['An assistant that tidies a board in place', 'Templates that match the team’s style'] },
+      { kind: 'quote', text: '“I don’t want another chat window. I want the board to finish my thought.”', by: 'Maya, interview 3' },
+    ] },
+    { do: 'diagram', name: 'arch', title: 'How the canvas answers', place: { below: 'persona' }, key: 'Solid lines are requests; dashed lines run in the background.',
+      zones: [{ id: 'c', title: 'On the device', colour: 'green' }, { id: 's', title: 'Cloud', colour: 'violet' }],
+      nodes: [
+        { id: 'u', label: 'Designer', role: 'actor' },
+        { id: 'board', label: 'Board', role: 'client', zone: 'c' },
+        { id: 'read', label: 'Reading layer', role: 'service', zone: 'c' },
+        { id: 'model', label: 'Claude', role: 'external', zone: 's' },
+        { id: 'act', label: 'Action executor', role: 'service' },
+        { id: 'store', label: 'Board store', role: 'database' },
+        { id: 'web', label: 'Web search', role: 'external', zone: 's' } ],
+      edges: [
+        { from: 'u', to: 'board', label: 'asks' },
+        { from: 'board', to: 'read', label: 'selection' },
+        { from: 'read', to: 'model', label: 'grammar + picture' },
+        { from: 'model', to: 'web', label: 'look up', dashed: true },
+        { from: 'model', to: 'act', label: 'actions' },
+        { from: 'act', to: 'store', label: 'writes', dashed: true } ] },
+    { do: 'matrix', title: 'Where AI help lands', hero: false, place: { right: 'persona' }, x: ['Low effort', 'High effort'], y: ['Low value', 'High value'], cells: [
+      { title: 'Do now', subtitle: 'High value · low effort', items: [{ title: 'Tidy in place', text: 'Align, group and tag what is there' }, { title: 'Summaries', text: 'One card beside a cluster' }] },
+      { title: 'Plan', subtitle: 'High value · high effort', items: [{ title: 'Diagrams', text: 'Draw a system from notes' }, { title: 'Research walls', text: 'Cluster 100 quotes' }] },
+      { title: 'Maybe', subtitle: 'Low value · low effort', items: [{ title: 'Stickers', text: 'Reactions on notes' }] },
+      { title: 'Skip', subtitle: 'Low value · high effort', items: [{ title: 'Full redesign', text: 'Rebuilding a board from scratch' }] } ] },
+  ] });
+  fit(gfx);
+}
+
 export function mountDemos(rootEl: any) {
   addEventListener('keydown', e => {
     if (!(e.altKey && e.shiftKey)) return;
     if (e.code === 'KeyS') { e.preventDefault(); void styleSheet(rootEl); }
+    if (e.code === 'KeyF') { e.preventDefault(); void templates(rootEl); }
     if (e.code === 'KeyB') { e.preventDefault(); void brainstorm(rootEl); }
   });
-  (window as any).cxDemo = { styleSheet: () => styleSheet(rootEl), brainstorm: () => brainstorm(rootEl) };
+  (window as any).cxDemo = { styleSheet: () => styleSheet(rootEl), brainstorm: () => brainstorm(rootEl), templates: () => templates(rootEl) };
 }
