@@ -22,6 +22,7 @@ import { mountDemos } from './ai/demo';
 import { mountSense } from './ai/sense';
 import { setTemplateHost } from './stickers';
 import { mountComments } from './ai/comments';
+import { mountBridge } from './ai/bridge';
 import { createAssistant } from './ai/assistant';
 import { linkPreviewExtension } from './ai/links';
 import { ImageProxyService } from '@blocksuite/affine/shared/adapters';
@@ -92,6 +93,7 @@ async function main() {
   mountSense(rootEl);
   setTemplateHost(rootEl);
   mountComments(rootEl);
+  mountBridge(rootEl);
   (window as any).editor = editor; (window as any).collection = collection; (window as any).cxDev = { Text, Y: Y.Text, rootEl };
 }
 
