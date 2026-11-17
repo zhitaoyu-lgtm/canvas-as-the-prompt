@@ -18,6 +18,19 @@ export function whiteboardOnly(): DocModeProvider {
   };
 }
 
+/** The document view only ever shows the page. */
+export function pageOnly(): DocModeProvider {
+  const changed = new Subject<DocMode>();
+  return {
+    getPrimaryMode: () => 'page',
+    onPrimaryModeChange: (handler) => changed.subscribe(handler),
+    getEditorMode: () => 'page',
+    setEditorMode: () => {},
+    setPrimaryMode: () => {},
+    togglePrimaryMode: () => 'page',
+  };
+}
+
 export function editorSetting() {
   const initial = Object.entries(GeneralSettingSchema.shape).reduce((pre: EditorSetting, [key, schema]) => {
     // @ts-expect-error key is an EditorSetting field

@@ -181,6 +181,10 @@ ${PARTS}`,
     } catch (e) { return fail(e); }
   });
 
+mcp.tool('canvas_export',
+  'Get the user\'s canvas as a linear Markdown document, translated from its spatial grammar (sections → headings, notes placed on a source → points citing it, stressed notes → highlighted key points, arrows → relation lines, empty notes → open questions). Use when the user wants to continue from their board in this chat, or asks what is on it in prose. If they edited the document view, their version is returned.',
+  {}, async () => { try { return text((await ask('export')).markdown); } catch (e) { return fail(e); } });
+
 await boot();
 await mcp.connect(new StdioServerTransport());
 log('ready');
