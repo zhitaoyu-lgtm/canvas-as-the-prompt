@@ -27,8 +27,8 @@ import { createAssistant } from './ai/assistant';
 import { linkPreviewExtension } from './ai/links';
 import { ImageProxyService } from '@blocksuite/affine/shared/adapters';
 
-import { editorSetting, pageOnly, parseDocUrl, whiteboardOnly } from './services';
-import { mountViews } from './exit/views';
+import { editorSetting, parseDocUrl, whiteboardOnly } from './services';
+import { mountPanel } from './exit/panel';
 
 // Always the light look. A host page (e.g. a dark-mode preview) may set
 // data-theme="dark" on <html>; AFFiNE would then turn every component dark.
@@ -95,21 +95,7 @@ async function main() {
   setTemplateHost(rootEl);
   mountComments(rootEl);
   mountBridge(rootEl);
-  // the document view: the same AFFiNE editor in page mode, on a second doc written from the board
-  const pageCommon = [
-    FontConfigExtension(CommunityCanvasTextFonts),
-    EditorSettingExtension({ setting$: editorSetting() }),
-    ParseDocUrlExtension(parseDocUrl(collection)),
-    { setup: (di: any) => { di.override(DocModeProvider, pageOnly()); } },
-  ];
-  mountViews(rootEl, collection, (docStore: any) => {
-    const ed = document.createElement('affine-editor-container') as any;
-    ed.doc = docStore;
-    ed.pageSpecs = [...viewManager.get('page'), ...pageCommon];
-    ed.edgelessSpecs = [...viewManager.get('edgeless'), ...pageCommon];
-    ed.mode = 'page';
-    return ed;
-  });
+  mountPanel(rootEl);
   (window as any).editor = editor; (window as any).collection = collection; (window as any).cxDev = { Text, Y: Y.Text, rootEl };
 }
 

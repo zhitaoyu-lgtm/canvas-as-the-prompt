@@ -45,7 +45,7 @@ export function mountBridge(rootEl: any) {
       }
       case 'apply': return place(fewLines(args.actions ?? []));
       case 'import': return place(importActions(args));
-      case 'export': { const v = (window as any).cxViews; if (!v) throw new Error('the document view is not ready'); return { markdown: v.markdown() }; }
+      case 'export': { const v = (window as any).cxPanel; if (!v) throw new Error('the document is not ready'); return { markdown: v.markdown() }; }
       default: throw new Error(`unknown request "${op}"`);
     }
   }
