@@ -5,7 +5,7 @@ set -e
 HERE=$(cd "$(dirname "$0")" && pwd); B=${MCP_BUILD:-/tmp/canvas-mcp-build}
 mkdir -p "$B" && cd "$B" && [ -d node_modules ] || npm i --silent @modelcontextprotocol/sdk@1.17.4 ws@8.18.3 zod@3.25.76 esbuild@0.25.9
 mkdir -p out/canvas-mcp
-npx esbuild "$HERE/server.ts" --bundle --platform=node --format=esm --target=node18 --outfile=out/canvas-mcp/server.mjs \
+NODE_PATH="$B/node_modules" npx esbuild "$HERE/server.ts" --bundle --platform=node --format=esm --target=node18 --outfile=out/canvas-mcp/server.mjs \
   --banner:js="import { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);"
 (cd "$HERE/.." && rm -rf dist && npx vite build)
 rm -rf out/canvas-mcp/app && cp -r "$HERE/../dist" out/canvas-mcp/app

@@ -43,7 +43,7 @@ export function mountBridge(rootEl: any) {
         const r = readBoard(gfx, {});
         return { board: r.items.length ? toPrompt(r) : 'The board is empty.' };
       }
-      case 'apply': return place(args.actions ?? []);
+      case 'apply': return place(fewLines(args.actions ?? []));
       case 'import': return place(importActions(args));
       default: throw new Error(`unknown request "${op}"`);
     }
@@ -87,42 +87,52 @@ export type Import = {
   notes?: string[];
 };
 
+/** Lines between cards are kept to one per request; the rest of the relations should be said by placement or in words. */
+function fewLines(actions: Action[]): Action[] {
+  let n = 0;
+  return actions.filter(a => !['connect', 'ref'].includes(a.do) || ++n <= 1);
+}
+
 const HUES = ['blue', 'yellow', 'purple', 'teal', 'orange', 'green', 'pink'];
 
 export function importActions(x: Import): Action[] {
   const themes: Theme[] = [...(x.themes ?? [])];
   if (x.sources?.length) themes.push({ title: themes.length ? 'Other sources' : 'Sources', sources: x.sources });
-  const ids = new Set<string>();
-  const nameOf = (s: Source, i: number, t: number) => {
-    let n = String(s.id ?? `src-${t + 1}-${i + 1}`).replace(/[^\w-]/g, '-');
-    while (ids.has(n)) n += '-b';
-    ids.add(n); s.id = s.id ?? n; return n;
-  };
-  const byId = new Map<string, string>();
+  const all = themes.flatMap(t => t.sources ?? []);
+  const short = (id: string) => { const s = all.find(s => String(s.id) === String(id)); return s ? shortTitle(s.title) : ''; };
+  // relations are said on the card in a few words, not drawn as lines: lines between cards clutter the board
+  const said = new Map<Source, string[]>();
+  for (const r of x.relations ?? []) {
+    const from = all.find(s => String(s.id) === String(r.from)), to = short(r.to);
+    if (!from || !to || String(r.from) === String(r.to)) continue;
+    const verb = (r.label || r.kind || 'related to').trim();
+    (said.get(from) ?? said.set(from, []).get(from)!).push(`${cap(verb)} ${to}.`);
+  }
   const items: any[] = [];
   if (x.summary) items.push({ kind: 'summary', text: x.summary });
   themes.forEach((t, ti) => {
-    const cols = (t.sources ?? []).map((s, i) => {
-      const name = nameOf(s, i, ti); byId.set(String(s.id), name);
+    const cols = (t.sources ?? []).map(s => {
       const meta = [s.venue, s.year, s.authors].filter(Boolean).join(' · ');
-      const head = s.url
-        ? { kind: 'link', name, title: s.title, url: s.url, meta, note: s.note ?? '' }
-        : { kind: 'card', name, title: s.title, meta, body: s.note ?? '' };
-      return { kind: 'section', title: '', colour: 'white', layout: 'column', items: [head, ...(s.insights ?? []).map(text => ({ kind: 'sticky', text, colour: 'yellow' }))] };
+      const note = [s.note, ...(said.get(s) ?? [])].filter(Boolean).join(' ');
+      const head = s.url ? { kind: 'link', title: s.title, url: s.url, meta, note } : { kind: 'card', title: s.title, meta, body: note };
+      const notes = (s.insights ?? []).slice(0, 4).map(text => ({ kind: 'sticky', text, colour: 'yellow' }));
+      // a source and the notes stuck under it read as one thing: no box of their own
+      return { kind: 'section', bare: true, layout: 'column', gap: 12, items: notes.length ? [head, { kind: 'section', bare: true, layout: 'grid', cols: 2, gap: 10, items: notes }] : [head] };
     });
     if (cols.length) items.push({ kind: 'section', title: t.title, subtitle: t.note, colour: HUES[ti % HUES.length], layout: 'row', items: cols });
   });
   const side: any[] = [];
-  if (x.decisions?.length) side.push({ kind: 'section', title: 'Decisions', colour: 'green', layout: 'column', items: x.decisions.map(d => ({ kind: 'card', title: d.title, body: d.why ?? '' })) });
-  if (x.questions?.length) side.push({ kind: 'panel', title: 'Open questions', style: 'dashed', colour: 'gray', items: x.questions });
-  if (x.notes?.length) side.push({ kind: 'section', title: 'Notes', colour: 'gray', layout: 'grid', cols: 2, items: x.notes.map(text => ({ kind: 'sticky', text, colour: 'yellow' })) });
-  if (side.length) items.push({ kind: 'section', title: 'Decisions and questions', colour: 'white', layout: 'row', items: side });
+  if (x.decisions?.length) side.push({ kind: 'panel', title: 'Decisions', colour: 'green', style: 'tint', items: x.decisions.map(d => ({ title: d.title, text: d.why ?? '' })) });
+  if (x.questions?.length) side.push({ kind: 'panel', title: 'Open questions', colour: 'gray', style: 'dashed', items: x.questions });
+  if (x.notes?.length) side.push({ kind: 'panel', title: 'Notes', colour: 'yellow', style: 'tint', items: x.notes });
+  if (side.length) items.push({ kind: 'section', bare: true, layout: 'row', gap: 24, items: side });
+  return [{ do: 'section', name: 'chat-import', title: x.title || 'From a Claude chat', subtitle: x.summary ? undefined : `Imported ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, colour: 'white', layout: 'column', items }];
+}
 
-  const acts: Action[] = [{ do: 'section', name: 'chat-import', title: x.title || 'From a Claude chat', subtitle: `Imported ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, colour: 'white', layout: 'column', items }];
-  for (const r of x.relations ?? []) {
-    const from = byId.get(String(r.from)), to = byId.get(String(r.to));
-    if (!from || !to || from === to) continue;
-    acts.push({ do: 'connect', from, to, label: r.label ?? r.kind ?? '', dashed: r.kind === 'related' });
-  }
-  return acts;
+const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+/** "VIKI: Spatial Hypertext Supporting …" → "VIKI"; long titles → their first few words. */
+function shortTitle(t: string) {
+  const head = t.split(/[:\u2013\u2014-]\s/)[0].trim();
+  const w = head.split(/\s+/);
+  return w.length <= 3 ? head : w.slice(0, 3).join(' ') + '…';
 }

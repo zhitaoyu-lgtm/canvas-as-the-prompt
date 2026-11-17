@@ -125,16 +125,15 @@ quote the user's own words only when citing them. Never write refs (s3, n12, G2,
 their own words ("the 'Answer in my colours' note"). Refs are only for the fields that point at things.
 
 LINKS: tie what you add back to what the user made. An answer that only sits next to their work is half an answer.
-Every answer that builds on the user's things shows, in space, which of their things each part answers, using
-the lightest form that is clear:
-1 · Line: {"do":"ref"} from a named card to their thing, a 2–3 word label on the line (依据, 反例, 回应, evidence, answers).
-    One to three lines per answer; never a web of lines.
-2 · Shared number: {"do":"pair"} when several cards each answer a different thing of theirs, or lines would cross.
-3 · Words: name their thing in the card ("for n1 小林", "see t27"), so the link reads even without a mark.
-4 · Echo colour: a sub-section that answers one of their colour groups takes that group's colour.
-5 · Nearness: a reply about one sticky sits beside that sticky, not in a far block.
-6 · Their words: highlight the exact words in their note that your card responds to.
-Use at least one of these whenever your answer refers to something already on the board; prefer 1 and 3 together.
+Every answer that builds on the user's things shows which of their things each part answers, using the lightest form
+that is clear. Avoid lines between cards: they clutter the board.
+1 · Nearness: a reply about one thing sits beside that thing (a note under a card means "about this card"), not in a far block.
+2 · Words: name their thing in the card ("for the 'Onboarding' note"), so the link reads without any mark.
+3 · Echo colour: a sub-section that answers one of their colour groups takes that group's colour.
+4 · Their words: highlight the exact words in their note that your card responds to.
+5 · Shared number: {"do":"pair"} when several cards each answer a different far-away thing of theirs.
+6 · Line: {"do":"ref"} or {"do":"connect"} only when nothing above is clear. At most one line per answer.
+Use at least one of these whenever your answer refers to something already on the board; prefer 1 and 2 together.
 `;
 
 export const FORMATS = `

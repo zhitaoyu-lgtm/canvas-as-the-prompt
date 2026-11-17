@@ -991,7 +991,9 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const sp = n.spec;
     const regular = kids.filter(k => k.kind !== 'full'), cnt = regular.length;
     const cols = sp.layout === 'column' ? 1 : sp.layout === 'row' ? Math.max(1, cnt) : Math.max(1, Math.min(cnt, sp.cols ?? (cnt <= 4 ? cnt : cnt <= 6 ? 3 : 4)));
-    const gap = kids.some(k => k.kind === 'section') ? SEC.gap + 16 : SEC.gap;
+    // bare: no box, no padding, a tight stack (a card with the notes stuck under it)
+    const S = sp.bare ? { ...SEC, padX: 0, padTop: 0, padBottom: 0 } : SEC;
+    const gap = sp.bare ? (sp.gap ?? 12) : kids.some(k => k.kind === 'section') ? SEC.gap + 16 : SEC.gap;
     // rows: a full-width item is its own row; regular items fill rows of `cols`
     const rows: N[][] = []; let cur: N[] = [];
     for (const k of kids) {
@@ -1013,16 +1015,16 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     }));
     const contentW = Math.max(gridW, ...kids.filter(k => k.kind === 'full').map(k => k.w));
     const headH = n.head!.th ? n.head!.th + SEC.headGap : 0;
-    const top = SEC.padTop + headH;
+    const top = S.padTop + headH;
     let y = top;
     rows.forEach((r, ri) => {
-      let x = SEC.padX;
+      let x = S.padX;
       r.forEach((k, c) => { pos.set(k, { x, y }); x += (k.kind === 'full' ? k.w : colW[c]) + gap; });
       y += rowH[ri] + gap;
     });
     const contentH = rowH.reduce((a, b) => a + b, 0) + gap * Math.max(0, rowH.length - 1);
-    n.w = Math.max(contentW, n.head!.tw) + SEC.padX * 2;
-    n.h = top + contentH + SEC.padBottom;
+    n.w = Math.max(contentW, n.head!.tw) + S.padX * 2;
+    n.h = top + contentH + S.padBottom;
   }
   // absolute positions; frames and headings are made last so they sit behind / above correctly
   const tintOf = (n: N, depth: number) => TINT[base(n.spec.colour ?? (depth ? 'gray' : 'white'))] ?? TINT.white;
@@ -1038,6 +1040,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       }
       else if (k.id) { const el: any = gfx.getElementById(k.id); if (el) setBox(k.id, { x: ax, y: ay, w: el.elementBound.w, h: el.elementBound.h }); ids.push(k.id); }
     }
+    if (n.spec.bare) return ids;       // no frame, no heading: its things sit directly in the parent
     const hd = n.head!;
     if (hd.title) {
       const t = new Y.Text(); t.insert(0, hd.title);

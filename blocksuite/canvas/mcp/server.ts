@@ -147,7 +147,7 @@ Use when the user asks to put, save, organise or move what was discussed (papers
 Distil; never paste the transcript. Keep only what the user would want to work with spatially:
 - themes: one per topic that came up; each holds the sources discussed under it. A source discussed under two themes goes in the one it matters most to.
 - each source's insights are what was said about THAT source in the chat (its point, finding, how it relates to the user's work). They are placed under the source, so a note on a source means an insight about it.
-- relations: only those the chat actually established between sources (supports, contrasts, builds on), with a 2–3 word label.
+- relations: only those the chat actually established between sources, with a 2–3 word label (supports, contrasts, builds on). They are written on the source card in a few words; no lines are drawn.
 - decisions: what the user decided, with the reason. questions: what was left open.
 All text in English, short (titles 2–6 words, insights ≤ 20 words). Use real titles and URLs only; never invent a reference.
 The canvas lays everything out itself, to the right of what is already there.`,
@@ -170,6 +170,8 @@ The canvas lays everything out itself, to the right of what is already there.`,
 
 mcp.tool('canvas_add',
   `Add to the user's canvas with the canvas's own parts, for anything canvas_import does not fit (a diagram, a 2×2, stickies next to the user's own work, a comment on one of their notes). Call canvas_read first when you refer to things already there. All text in English.
+Keep it refined: few, well-chosen parts in one clear structure (a section with sub-sections and consistent cards), short titles, no filler.
+Avoid lines between cards. Show a relation by placement (side by side, in the same section, a note under the card) or in a few words on the card. At most one line per request, and only when nothing else is clear; extra lines are dropped.
 ${PARTS}`,
   { actions: z.array(z.record(z.any())).describe('the parts, in order, e.g. [{"do":"section","title":"…","items":[…]}]') },
   async ({ actions }) => {
