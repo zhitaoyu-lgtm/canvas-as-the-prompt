@@ -8,6 +8,7 @@ import { Text } from '@blocksuite/affine/store';
 import { CARD_STYLE, FILL, HUES, stickyProps } from '../design';
 import { execute, type Answer } from './actions';
 import { readBoard } from './reading';
+import { studyBoard } from './study';
 
 const free = (gfx: any) => { const b = gfx.elementsBound; return b && b.w ? { x: b.x, y: b.y + b.h + 240 } : { x: 0, y: 0 }; };
 const fit = (gfx: any) => { try { gfx.viewport.setViewportByBound(gfx.elementsBound, [80, 80, 160, 80], true); } catch { /* keep view */ } };
@@ -182,8 +183,12 @@ export function mountDemos(rootEl: any) {
     if (e.code === 'KeyF') { e.preventDefault(); void templates(rootEl); }
     if (e.code === 'KeyP') { e.preventDefault(); void sortingBoard(rootEl); }
     if (e.code === 'KeyB') { e.preventDefault(); void brainstorm(rootEl); }
+    if (e.code === 'KeyG') { e.preventDefault(); void studyBoard(rootEl); }
   });
   (window as any).cxDemo = { styleSheet: () => styleSheet(rootEl), brainstorm: () => brainstorm(rootEl), templates: () => templates(rootEl), sorting: () => sortingBoard(rootEl) };
   // first run of this build: put the research pile beside whatever is on the board, once per browser
+  (window as any).cxDemo.study = () => studyBoard(rootEl);
+  // the figure-study board: once per browser, on the desktop app (it needs the network for its pictures)
+  try { if ((location.hostname === '127.0.0.1' || location.hostname === 'localhost') && !localStorage.getItem('cx:seed-study-1')) { localStorage.setItem('cx:seed-study-1', '1'); setTimeout(() => void studyBoard(rootEl), 2600); } } catch { /* storage blocked */ }
   try { if (!localStorage.getItem('cx:seed-sorting-1')) { localStorage.setItem('cx:seed-sorting-1', '1'); setTimeout(() => void sortingBoard(rootEl), 800); } } catch { /* storage blocked */ }
 }

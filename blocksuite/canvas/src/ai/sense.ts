@@ -16,6 +16,8 @@ import { readBoard, toPrompt, type Box, type Item, type Reading } from './readin
 import { cleanRefs } from './actions';
 import { addComment, removeCommentsOn } from './comments';
 import { toast } from './proposals';
+import { snapshot as shot } from './snapshot';
+import { markAi } from './provenance';
 
 const STABLE_MS = 1800, POLL_MS = 600, NEAR = 48;
 const DEFAULT_FRAME = /^(frame|section|untitled)(\s*\d+)?$/i;
@@ -26,6 +28,7 @@ type Intent =
   | { type: 'mark'; key: string; sig: string; label: string; marks: { mark: Item; host: Item }[] }
   | { type: 'link'; key: string; from: Item; to: Item; line: Item; drawn: boolean; style: string }
   | { type: 'label'; key: string; members: Item[] }
+  | { type: 'point'; key: string; label: Item; image: Item; line: Item; spot: [number, number] }   // a label with an arrow to a spot on a picture
   | { type: 'more'; key: string; item: Item }        // one thing circled: more like it
   | { type: 'stress'; key: string; item: Item };     // one thing underlined: why it matters
 
@@ -90,7 +93,7 @@ export function mountSense(rootEl: any) {
 
   // While Claude thinks: the 2×2 dots breathe at the top-left of the place it is thinking about. Nothing else.
   function thinking(intent: Intent): () => void {
-    const area = intent.type === 'section' ? box(intent.frame) : intent.type === 'group' ? union([intent.anchor.box, ...intent.members.map(m => m.box)]) : intent.type === 'link' ? intent.line.box : intent.type === 'label' ? union(intent.members.map(m => m.box)) : intent.type === 'more' || intent.type === 'stress' ? intent.item.box : intent.marks[intent.marks.length - 1].host.box;
+    const area = intent.type === 'point' ? intent.label.box : intent.type === 'section' ? box(intent.frame) : intent.type === 'group' ? union([intent.anchor.box, ...intent.members.map(m => m.box)]) : intent.type === 'link' ? intent.line.box : intent.type === 'label' ? union(intent.members.map(m => m.box)) : intent.type === 'more' || intent.type === 'stress' ? intent.item.box : intent.marks[intent.marks.length - 1].host.box;
     const d = document.createElement('div'); d.className = 'cx-sense-think'; d.innerHTML = '<i></i><i></i><i></i><i></i>'; document.body.append(d);
     let raf = 0;
     const tick = () => { const rr = rootEl.getBoundingClientRect(); const [x, y] = gfx.viewport.toViewCoord(area.x, area.y); d.style.left = (rr.left + x - 18) + 'px'; d.style.top = (rr.top + y) + 'px'; /* level with the top edge */ raf = requestAnimationFrame(tick); };
@@ -148,6 +151,15 @@ export function mountSense(rootEl: any) {
         drawn = true; style = 'hand-drawn arrow';
       } else continue;
       if (!from || !to || from.id === to.id || ['frame', 'group'].includes(from.kind) || ['frame', 'group'].includes(to.kind)) continue;
+      // a short label with an arrow to a picture: the user is naming what they see at that spot
+      { const img = [from, to].find(o => o.kind === 'image'), lab = [from, to].find(o => o !== img && ['text', 'sticky', 'shape', 'tag'].includes(o.kind) && o.text.trim().length >= 2 && o.text.trim().length <= 60);
+        if (img && lab) {
+          const key = `point:${i.id}`; if (handled.has(key) && !retry(key)) continue;
+          let spot: [number, number] = [0.5, 0.5];
+          if (i.kind === 'connector') { const end = el.source?.id === img.id ? el.source : el.target; if (Array.isArray(end?.position)) spot = [Number(end.position[0]) || 0.5, Number(end.position[1]) || 0.5]; }
+          else { const pts: number[][] = el.points ?? [], b = el.elementBound, tip = img === to ? pts[pts.length - 1] : pts[0]; if (tip) spot = [Math.min(1, Math.max(0, (b.x + tip[0] - img.box.x) / img.box.w)), Math.min(1, Math.max(0, (b.y + tip[1] - img.box.y) / img.box.h))]; }
+          return { type: 'point', key, label: lab, image: img, line: i, spot };
+        } }
       const key = `link:${i.id}`; if (handled.has(key) && !retry(key)) continue;
       return { type: 'link', key, from, to, line: i, drawn, style };
     }
@@ -217,6 +229,7 @@ export function mountSense(rootEl: any) {
     if (intent.type === 'link') return respondLink(intent);
     if (intent.type === 'label') return respondLabel(intent);
     if (intent.type === 'stress') return respondStress(intent);
+    if (intent.type === 'point') return respondPoint(intent);
     if (intent.type === 'more') { const it = intent.item; return respond({ type: 'group', key: intent.key + ':g', anchor: it, members: [], circled: true } as any); }
     const r = readBoard(gfx);
     const reading = toPrompt(r);
@@ -407,6 +420,50 @@ Answer with JSON only: {"label":"2–4 words","comment":"","extensions":[{"type"
     const keep0 = made.onKeep;
     made.onKeep = () => { keep0?.(); if (ext.length) chip(lineId, ext, r, intent); };
     pending = new Pending(rootEl, made, intent, () => { pending = null; rebase(); });
+  }
+
+  // A label pointed at a spot on a picture: cards beside the label — what it means there, a source, and what
+  // else on the board shows the same idea (tied to it with a dashed line).
+  async function respondPoint(intent: Extract<Intent, { type: 'point' }>) {
+    const r = readBoard(gfx);
+    const word = intent.label.text.trim().replace(/\s+/g, ' ');
+    const [px, py] = intent.spot;
+    const sys = `Someone studying pictures on a whiteboard typed a short label and drew an arrow from it to a spot on one picture: they are naming what they see there (light, shadow, anatomy, pose or composition). You are shown that picture. The spot is about ${Math.round(px * 100)}% from the left and ${Math.round(py * 100)}% from the top.
+Answer with JSON only: {"cards":[{"kind":"insight|source|related","title":"…","meta":"","summary":"…","url":"","ref":""}]}
+- At most 3 cards, at most one of each kind, in this order.
+- insight: what the label means at that spot in this very picture, and what to look at. title 2–5 words, summary at most 28 words.
+- source: one real reading on it (a book, a paper, a museum page). meta = author · year. ${online() ? 'Give url only if you verified it with search.' : 'No url; only a well-known work you are sure of.'} summary: one line on why it helps.
+- related: one other thing already on the board that shows the same idea or its opposite: ref = its id from the board text, title = its name in words, summary = how it relates. Leave it out if nothing fits.
+- English. Never invent facts. Never write refs (s3, n12) inside title or summary.`;
+    const user = `BOARD\n${toPrompt(r)}\n\nLABEL\n"${word}"\n\nPICTURE\n${intent.image.ref}${intent.image.text ? ': ' + intent.image.text.slice(0, 160) : ''}`;
+    const mock = (window as any).cxMockSense;
+    let picture: Blob | null = null; try { picture = await shot(rootEl, intent.image.box, 1024, 0); } catch { /* words only */ }
+    const raw = mock ? (typeof mock === 'function' ? await mock(intent, user) : mock) : await ask(sys, user, picture);
+    const ans = typeof raw === 'string' ? parseAnswer(raw) : raw;
+    dev.log.unshift({ intent: intent.key, answer: ans }); dev.log.length = Math.min(dev.log.length, 10);
+    const cards = (Array.isArray(ans.cards) ? ans.cards : []).filter((c: any) => c && String(c.title ?? '').trim()).slice(0, 3);
+    if (!cards.length) return;
+    store.captureSync();
+    const lb = intent.label.box, W = 240, ids: string[] = [];
+    const gray = { color: 'var(--affine-text-secondary-color)' };
+    const P = (t: string, a?: any) => new Text(a ? [{ insert: t, attributes: a }] as any : t);
+    let y = lb.y + lb.h + 16;
+    for (const c of cards) {
+      const kind = String(c.kind ?? 'insight'), title = cleanRefs(String(c.title), r), sum = cleanRefs(String(c.summary ?? ''), r);
+      const kicker = kind === 'source' ? 'SOURCE' + (c.meta ? ' · ' + String(c.meta) : '') : kind === 'related' ? 'ON THIS BOARD' : 'INSIGHT';
+      const id = store.addBlock('affine:note', { xywh: xywh({ x: lb.x, y, w: W, h: 120 }), background: '#ffffff', index: nextTop(),
+        edgeless: { style: { borderRadius: 8, borderSize: 0, borderStyle: 'none', shadowType: '--affine-note-shadow-box' } } } as any, store.root.id);
+      store.addBlock('affine:paragraph', { text: P(kicker, gray) }, id);
+      store.addBlock('affine:paragraph', { text: P(title, { bold: true, ...(c.url && /^https?:/.test(String(c.url)) ? { link: String(c.url) } : {}) }) }, id);
+      if (sum) store.addBlock('affine:paragraph', { text: P(sum, gray) }, id);
+      ids.push(id);
+      const other = kind === 'related' && c.ref ? r.byRef.get(String(c.ref)) : null;
+      if (other && other.id !== intent.image.id) ids.push(surf.addElement({ type: 'connector', source: { id }, target: { id: other.id }, mode: 2, stroke: LINE.color, strokeWidth: LINE.width, strokeStyle: 'dash', rearEndpointStyle: 'None', frontEndpointStyle: 'None', index: nextTop() }));
+      y += 58 + Math.ceil((title.length * 8.2) / (W - 40)) * 22 + Math.ceil((sum.length * 7.2) / (W - 40)) * 22 + 28;
+    }
+    markAi(store, ids);
+    store.captureSync();
+    pending = new Pending(rootEl, { ids, label: `${cards.length} on “${word.slice(0, 24)}”`, focus: () => ids.map(id => gfx.getElementById(id)).filter(Boolean).map((e: any) => box(e)), spread: true, beside: false }, intent, () => { pending = null; rebase(); });
   }
 
   // An underline says "this matters": one comment with the insight (how it connects, what it conflicts with)
