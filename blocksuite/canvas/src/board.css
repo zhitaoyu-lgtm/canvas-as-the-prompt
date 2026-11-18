@@ -510,3 +510,41 @@ body.cx-resizing #app, body.cx-resizing .cx-pn, body.cx-resizing .cx-dock { tran
 .cx-doc > h2:not(.cx-nonum) ~ h3::before { content: counter(cx-s1) "." counter(cx-s2); display: inline-block; min-width: 2.1em; margin-right: .2em; color: #b5b1a7; font-weight: 500; font-variant-numeric: tabular-nums; }
 .cx-doc > h2:not(.cx-nonum) { padding-top: 18px; border-top: 1px solid #efede8; margin-top: 38px; }
 .cx-doc > h2.cx-nonum ~ h3::before { content: none; }
+
+/* ── Selection, hover, sections: thin lines that follow each element's own corners ── */
+.cx-hover { position: fixed; pointer-events: none; box-sizing: border-box; border: .75px solid rgba(0, 0, 0, .13); opacity: 0; transition: opacity .12s ease; }
+.cx-hover.on { opacity: 1; }
+.cx-pend-box { border: 1px solid rgba(12, 140, 233, .55) !important; box-sizing: border-box; }
+.cx-pend-dots { grid-template-columns: 3px 3px !important; gap: 3px !important; }
+.cx-pend-dots i { width: 3px !important; height: 3px !important; background: rgba(12, 140, 233, .33) !important; }
+.cx-pend-dots i:nth-child(2) { background: rgba(12, 140, 233, .62) !important; }
+.cx-pend-dots i:nth-child(3) { background: rgba(12, 140, 233, 1) !important; }
+@media (prefers-reduced-motion: no-preference) {
+  .cx-pend-dots.on i { animation: cx-cycle 1.2s ease-in-out infinite !important; }
+  .cx-pend-dots.on i:nth-child(2) { animation-delay: -.3s !important; }
+  .cx-pend-dots.on i:nth-child(4) { animation-delay: -.6s !important; }
+  .cx-pend-dots.on i:nth-child(3) { animation-delay: -.9s !important; }
+}
+@keyframes cx-cycle { 0%, 100% { background: rgba(12, 140, 233, .33); } 50% { background: rgba(12, 140, 233, 1); } }
+.cx-sel-dot::after { width: 5px !important; height: 5px !important; background: #0c8ce9 !important; box-shadow: none !important; }
+.cx-sel-dot:hover::after { width: 7px !important; height: 7px !important; }
+
+/* sections: a soft, translucent blue wash, like Heptabase */
+affine-frame .affine-frame-container {
+  background: rgba(12, 140, 233, .055) !important;
+  border: 1px solid rgba(12, 140, 233, .09) !important;
+}
+
+/* the instruction capsule: small, two lines at most, sits on the selection's top-right */
+.cx-cap.from-dot { border-radius: 10px; height: auto !important; align-items: flex-end; }
+.cx-cap.from-dot .cx-cap-pivot { display: none; }
+.cx-cap.from-dot .cx-cap-row { align-items: flex-end; padding: 5px 5px 5px 11px; gap: 2px; transform: none; opacity: 1; }
+.cx-cap.from-dot .cx-cap-input { resize: none; display: block; font-family: inherit; font-size: 13px; font-weight: 400; line-height: 20px; box-sizing: border-box; height: 20px; max-height: 40px; overflow-y: auto; scrollbar-width: none; padding: 0; margin: 0 0 1px; }
+.cx-cap.from-dot .cx-cap-input::-webkit-scrollbar { display: none; }
+.cx-cap.from-dot .cx-cap-mic, .cx-cap.from-dot .cx-cap-send { width: 22px; height: 22px; border-radius: 6px; transform: none; opacity: 1; }
+.cx-cap.from-dot .cx-cap-send svg { width: 12px; height: 12px; }
+.cx-cap.from-dot .cx-cap-mic svg { width: 15px; height: 15px; }
+
+/* the document scrolls without a visible bar */
+.cx-doc-pane { scrollbar-width: none; }
+.cx-doc-pane::-webkit-scrollbar { display: none; }

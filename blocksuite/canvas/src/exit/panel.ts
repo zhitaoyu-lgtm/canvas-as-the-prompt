@@ -13,7 +13,9 @@ import { figHead } from './visuals';
 import { asProse, pace, translateBoard, type Blk, type Run } from './translate';
 
 const KEY = 'cx:document';
-type Saved = { title: string; html: string; board: string; edited: boolean };
+type Saved = { title: string; html: string; board: string; edited: boolean; gen?: string };
+// bump when the way documents are written changes: unedited documents are written again
+const GEN = '2026-11-17';
 
 const I = {
   panel: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.75" y="3.75" width="14.5" height="12.5" rx="2.5"/><path d="M12.25 3.75v12.5M14.25 7h1M14.25 9.5h1"/></svg>',
@@ -98,7 +100,7 @@ export function mountPanel(rootEl: any) {
   function rebuild() {
     const out = translateBoard(rootEl);
     page.innerHTML = render(out.title, pace(asProse(out.blocks)));
-    save({ title: out.title, html: page.innerHTML, board: boardHash(), edited: false });
+    save({ title: out.title, html: page.innerHTML, board: boardHash(), edited: false, gen: GEN });
     banner.hidden = true;
     void pictures().then(() => writeUp());
   }
@@ -150,7 +152,7 @@ Shape: read like a short book chapter. Mostly paragraphs; bullet points only whe
       const title = page.querySelector('.cx-doc-title')?.outerHTML ?? '';
       const used = (body.match(/<figure/g) ?? []).length;
       page.innerHTML = title + body + figs.slice(used).join('') + refsHead + refs + (page.querySelector('.cx-doc-foot')?.outerHTML ?? '');
-      const s = load(); save({ title: titleOf(), html: page.innerHTML, board: s?.board ?? boardHash(), edited: false });
+      const s = load(); save({ title: titleOf(), html: page.innerHTML, board: s?.board ?? boardHash(), edited: false, gen: s?.gen ?? GEN });
     } catch { /* the draft stays */ } finally { status.remove(); }
   }
   function refresh() {
@@ -158,12 +160,12 @@ Shape: read like a short book chapter. Mostly paragraphs; bullet points only whe
     const s = load();
     if (!s) return rebuild();
     if (page.innerHTML !== s.html && !writing) page.innerHTML = s.html;
-    const changed = s.board !== boardHash();
+    const changed = s.board !== boardHash() || s.gen !== GEN;
     if (changed && !s.edited) rebuild(); else banner.hidden = !changed;
   }
   bUpd.onclick = () => rebuild();
   let saving: any = null;
-  const flush = () => { if (saving === null) return; clearTimeout(saving); saving = null; const s = load(); save({ title: titleOf(), html: page.innerHTML, board: s?.board ?? '', edited: true }); };
+  const flush = () => { if (saving === null) return; clearTimeout(saving); saving = null; const s = load(); save({ title: titleOf(), html: page.innerHTML, board: s?.board ?? '', edited: true, gen: s?.gen }); };
   page.addEventListener('input', () => { clearTimeout(saving); saving = setTimeout(flush, 400); });
   const titleOf = () => page.querySelector('h1.cx-doc-title')?.textContent ?? 'Board';
 
