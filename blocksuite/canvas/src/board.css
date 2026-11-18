@@ -583,3 +583,8 @@ affine-edgeless-note edgeless-note-background { box-shadow: none !important; }
 gfx-viewport > *, affine-edgeless-note, affine-frame, affine-bookmark, affine-edgeless-image, affine-image { will-change: auto !important; }
 /* exact letter positions at every zoom (no crowding of small text) */
 gfx-viewport, affine-edgeless-root { text-rendering: geometricPrecision; -webkit-font-smoothing: antialiased; font-kerning: normal; }
+/* far out, card text evens into one grey: titles stop reading as dark lumps beside faint lines.
+   Full ink from 45% zoom up, the meta grey by 25%. */
+affine-edgeless-note {
+  color: color-mix(in srgb, #121212 calc(clamp(0, (var(--cx-z, 1) - .25) * 5, 1) * 100%), #8e8d91);
+}

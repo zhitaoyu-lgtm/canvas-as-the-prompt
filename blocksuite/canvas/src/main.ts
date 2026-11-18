@@ -49,8 +49,22 @@ const BOARD = 'board:main';
 // sizes letters crowd into each other. Ask for exact glyph positions instead, for text drawn on the canvas
 // (stickies, headings, line labels); board.css asks the same for the cards.
 { const proto: any = CanvasRenderingContext2D.prototype;
-  for (const fn of ['fillText', 'strokeText', 'measureText']) { const orig = proto[fn];
-    proto[fn] = function (this: any, ...a: any[]) { if (this.textRendering !== 'geometricPrecision') { try { this.textRendering = 'geometricPrecision'; this.fontKerning = 'normal'; } catch { /* older engine */ } } return orig.apply(this, a); }; } }
+  for (const fn of ['strokeText', 'measureText']) { const orig = proto[fn];
+    proto[fn] = function (this: any, ...a: any[]) { if (this.textRendering !== 'geometricPrecision') { try { this.textRendering = 'geometricPrecision'; this.fontKerning = 'normal'; } catch { /* older engine */ } } return orig.apply(this, a); }; }
+  // Far out, text is a few pixels tall: bold black words turn into dark lumps beside faint grey ones. Below
+  // about 7px on screen, text is drawn progressively lighter (bold a little more), so a zoomed-out board
+  // reads as one even texture, the way FigJam's does.
+  const sizes = new Map<string, [number, boolean]>();
+  const sizeOf = (font: string): [number, boolean] => { let v = sizes.get(font); if (!v) { const m = /(\d+(?:\.\d+)?)px/.exec(font); v = [m ? +m[1] : 16, /\b(bold|[6-9]00)\b/.test(font)]; if (sizes.size > 300) sizes.clear(); sizes.set(font, v); } return v; };
+  const fill = proto.fillText;
+  proto.fillText = function (this: any, ...a: any[]) {
+    if (this.textRendering !== 'geometricPrecision') { try { this.textRendering = 'geometricPrecision'; this.fontKerning = 'normal'; } catch { /* older engine */ } }
+    let px = 99, bold = false;
+    try { const t = this.getTransform(); [px, bold] = sizeOf(this.font); px = px * Math.hypot(t.a, t.b) / (window.devicePixelRatio || 1); } catch { /* draw as is */ }
+    if (px >= 7) return fill.apply(this, a);
+    const was = this.globalAlpha; this.globalAlpha = was * Math.max(bold ? .42 : .5, (px / 7) * (bold ? .85 : 1));
+    try { return fill.apply(this, a); } finally { this.globalAlpha = was; }
+  }; }
 
 async function main() {
   // One workspace, one board, kept in the app's own local storage (IndexedDB), so it is still there next time.
