@@ -27,8 +27,68 @@ export type Run = { text: string; bold?: boolean; italic?: boolean; link?: strin
 export type Blk =
   | { type: 'h1' | 'h2' | 'h3' | 'text' | 'quote'; runs: Run[] }
   | { type: 'bulleted' | 'numbered'; runs: Run[]; depth?: number }
-  | { type: 'divider' };
+  | { type: 'divider' }
+  | { type: 'figure'; box: { x: number; y: number; w: number; h: number }; caption: string };
 export type DocOut = { title: string; blocks: Blk[] };
+
+// ── as prose: a document reads in paragraphs, like a book; lists only where a list is the point ──
+const textOf = (rs: Run[]) => rs.map(r => r.text).join('');
+const isCite = (r?: Run) => !!r && /^\s*\[\d+\]\s*$/.test(r.text);
+const lower = (rs: Run[]) => { const c = rs.map(r => ({ ...r })); const f = c.find(r => r.text.trim() && !r.bold && !r.link); if (f && /^[A-Z][a-z]/.test(f.text.trim())) f.text = f.text.replace(/^(\s*)([A-Z])/, (_m, a, b) => a + b.toLowerCase()); return c; };
+const endSentence = (rs: Run[]): Run[] => {
+  const out = rs.map(r => ({ ...r })); const cites = []; while (isCite(out[out.length - 1])) cites.unshift(out.pop()!);
+  // the last words of the sentence (before any "(3 votes)" aside)
+  let k = out.length - 1; while (k >= 0 && (out[k].muted || !out[k].text.trim())) k--;
+  if (k >= 0 && !/[.!?:]\s*$/.test(out[k].text)) out[k].text = out[k].text.replace(/\s*$/, '') + '.';
+  if (k >= 0 && k < out.length - 1) { const tail = out.splice(k + 1); const dot = out[k].text.endsWith('.') ? (out[k].text = out[k].text.slice(0, -1), '.') : ''; out.push(...tail.map(t => ({ ...t, text: ' ' + t.text.trim() }))); out.push({ text: dot }); }
+  return [...out, ...cites];
+};
+export function asProse(blocks: Blk[]): Blk[] {
+  const out: Blk[] = [];
+  let i = 0;
+  const listAt = (j: number) => { const items: Blk[] = []; while (j < blocks.length && (blocks[j].type === 'bulleted' || blocks[j].type === 'numbered')) items.push(blocks[j++]); return items as { type: 'bulleted' | 'numbered'; runs: Run[] }[]; };
+  while (i < blocks.length) {
+    const b = blocks[i];
+    // "Key points" + its quotes → an opening paragraph
+    if (b.type === 'h2' && textOf(b.runs) === 'Key points') {
+      const qs: Run[][] = []; i++; while (i < blocks.length && blocks[i].type === 'quote') qs.push((blocks[i++] as any).runs);
+      const runs: Run[] = [{ text: 'What stands out on the board: ' }];
+      qs.forEach((q, k) => { if (k) runs.push({ text: k === qs.length - 1 ? '; and ' : '; ' }); runs.push(...lower(q.filter(r => !isCite(r)))); });
+      runs.push({ text: '.' });
+      out.push({ type: 'quote', runs }); continue;
+    }
+    // References stay a list
+    if ((b.type === 'h1' || b.type === 'h2') && textOf(b.runs) === 'References') { out.push(b); i++; const items = listAt(i); out.push(...items); i += items.length; continue; }
+    // "How they connect" + its lines → sentences
+    if (b.type === 'text' && textOf(b.runs) === 'How they connect') {
+      i++; const items = listAt(i); i += items.length;
+      out.push({ type: 'text', runs: items.flatMap((it, k) => [...(k ? [{ text: ' ' }] : []), ...endSentence(it.runs.map(r => r.text === ' → ' ? { text: ' leads to ' } : r.text === ' — ' ? { text: ' is tied to ' } : r))]) });
+      continue;
+    }
+    // notes under a source → the same paragraph, cited once
+    if (b.type === 'text' && isCite(b.runs[b.runs.length - 1]) && (blocks[i + 1]?.type === 'bulleted')) {
+      const items = listAt(i + 1); const cite = b.runs[b.runs.length - 1];
+      const strip = (rs: Run[]) => rs.filter(r => !isCite(r));
+      const runs: Run[] = [...b.runs.slice(0, -1), { text: items.length > 1 ? ' The notes placed beside it add that ' : ' A note placed beside it adds that ' }];
+      items.forEach((it, k) => { if (k) runs.push({ text: k === items.length - 1 ? ', and that ' : ', that ' }); runs.push(...lower(strip(it.runs))); });
+      out.push({ type: 'text', runs: [...endSentence(runs), cite] }); i += 1 + items.length; continue;
+    }
+    // any other run of list items → one paragraph of sentences (numbered: first, then, finally)
+    if (b.type === 'bulleted' || b.type === 'numbered') {
+      const items = listAt(i); i += items.length;
+      const ordered = items[0].type === 'numbered' && items.length > 1;
+      const runs: Run[] = [];
+      items.forEach((it, k) => {
+        if (k) runs.push({ text: ' ' });
+        if (ordered) runs.push({ text: k === 0 ? 'First, ' : k === items.length - 1 ? 'Finally, ' : 'Then, ' });
+        runs.push(...endSentence(ordered ? lower(it.runs) : it.runs));
+      });
+      out.push({ type: 'text', runs }); continue;
+    }
+    out.push(b); i++;
+  }
+  return out;
+}
 
 const COMMENTS = 'cx:comments';
 const norm = (t: string) => t.toLowerCase().replace(/\s+/g, ' ').replace(/[.。!！?？]+$/, '').trim();
@@ -174,7 +234,8 @@ export function translateBoard(rootEl: any): DocOut {
 
   const sourceBlock = (s: Item): Blk[] => {
     const n = cite(s.ref), info = sources.get(s.ref)!;
-    const out: Blk[] = [{ type: 'text', runs: [{ text: info.title, bold: true, link: info.url }, ...(info.meta ? [{ text: `  ${info.meta}`, muted: true }] : []), ...(info.body ? [{ text: '. ' + info.body.replace(/^[.\s]+/, '') }] : []), { text: ` [${n}]`, muted: true }] }];
+    const body = info.body ? ' ' + info.body.replace(/^[.\s]+/, '').replace(/([^.!?])$/, '$1.') : '';
+    const out: Blk[] = [{ type: 'text', runs: [{ text: info.title, bold: true, link: info.url }, { text: (info.meta ? ` (${info.meta}).` : '.') + body }, { text: ` [${n}]`, muted: true }] }];
     const pts = r.items.filter(i => aboutSource.get(i.ref) === s.ref);
     for (const p of pts) { used.add(p.ref); out.push({ type: 'bulleted', runs: runsFor(p) }); for (const c of comments.get(p.ref) ?? []) out.push({ type: 'quote', runs: [{ text: c, italic: true }] }); }
     for (const c of comments.get(s.ref) ?? []) out.push({ type: 'quote', runs: [{ text: c, italic: true }] });
@@ -225,6 +286,7 @@ export function translateBoard(rootEl: any): DocOut {
     const h = headingOf(f); h.skip.forEach(s => used.add(s));
     if (h.title) out.push({ type: depth <= 1 ? 'h1' : depth === 2 ? 'h2' : 'h3', runs: [{ text: h.title }] });
     if (h.sub) out.push({ type: 'text', runs: [{ text: h.sub, italic: true, muted: true }] });
+    if (depth <= 1 && f.kind === 'frame') out.push({ type: 'figure', box: f.box, caption: h.title || 'This section' });
     // a key that applies here, said here
     const here = r.relations.legend.filter(l => by.get(l.ref)?.parent === f.ref);
     if (here.length) { out.push({ type: 'text', runs: [{ text: 'Key: ', bold: true }, { text: here.map(l => `${l.colour} = ${l.label}`).join('; '), italic: true }] }); here.forEach(l => used.add(l.ref)); }

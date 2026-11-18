@@ -8,7 +8,8 @@
 
 import { ask, available, ModelError, setApiKey } from '../ai/model';
 import { readBoard, toPrompt } from '../ai/reading';
-import { translateBoard, type Blk, type Run } from './translate';
+import { snapshot } from '../ai/snapshot';
+import { asProse, translateBoard, type Blk, type Run } from './translate';
 
 const KEY = 'cx:document';
 type Saved = { title: string; html: string; board: string; edited: boolean };
@@ -72,17 +73,56 @@ export function mountPanel(rootEl: any) {
 
   const hash = (s: string) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return String(h >>> 0); };
   const boardHash = () => hash(toPrompt(readBoard(gfx, {}), { maxItems: 100000 }).replace(/^SELECTED.*$/m, ''));
+  let writing = 0;
   function rebuild() {
     const out = translateBoard(rootEl);
-    page.innerHTML = render(out.title, out.blocks);
+    page.innerHTML = render(out.title, asProse(out.blocks));
     save({ title: out.title, html: page.innerHTML, board: boardHash(), edited: false });
     banner.hidden = true;
+    void pictures().then(() => writeUp());
+  }
+  // a picture of each section, as arranged on the board
+  async function pictures() {
+    for (const f of [...page.querySelectorAll<HTMLElement>('figure.cx-fig[data-box]')]) {
+      const [x, y, w, h] = (f.dataset.box ?? '').split(',').map(Number); if (!w || !h) continue;
+      try {
+        const blob = await snapshot(rootEl, { x: x - 24, y: y - 24, w: w + 48, h: h + 48 }, 1100); if (!blob) continue;
+        const url = await jpeg(blob); const img = f.querySelector('img') ?? f.insertBefore(document.createElement('img'), f.firstChild);
+        img.src = url; img.alt = f.querySelector('figcaption')?.textContent ?? ''; f.removeAttribute('data-box');
+      } catch { /* leave the caption */ }
+    }
+    const s = load(); if (s && !s.edited) save({ ...s, html: page.innerHTML });
+  }
+  // Claude turns the faithful draft into book-like prose, keeping its structure, figures and citations
+  async function writeUp() {
+    if (!(await available()) && !(window as any).cxMockWrite) return;
+    const run = ++writing, before = page.innerHTML;
+    const status = el('div', 'cx-doc-status'); status.innerHTML = '<i></i><i></i><i></i><span>Claude is writing this up</span>';
+    page.querySelector('.cx-doc-title')?.after(status);
+    const figs = [...page.querySelectorAll('figure.cx-fig')].map(f => f.outerHTML);
+    const refs = page.querySelector('ol.cx-refs')?.outerHTML ?? '', refsHead = refs ? '<h2>References</h2>' : '';
+    try {
+      const md = toMarkdown(page, true);
+      const sys = `You turn a draft into a short, well-written document. The draft was translated from the user's spatial canvas (a whiteboard where placement carries meaning), so its structure is the user's: keep every heading, in the same order, and every [[Figure n]] line exactly where it is.
+Write in paragraphs, like a carefully edited book chapter: a short opening paragraph, then 1–3 paragraphs under each heading. Use a bullet list only if the content is truly a list. No new headings.
+Keep every citation marker like [2] after the claim it supports. Keep ==highlighted== phrases highlighted (they are what the user stressed). Say what the arrangement means (which notes sit with which source, what is grouped, what is still open); never invent sources or facts that are not in the draft.
+English. Plain Markdown: ## for headings, ### for sub-headings. Return only the document body, without the title and without the references list.`;
+      const mock = (window as any).cxMockWrite;
+      const raw = String(mock ? (typeof mock === 'function' ? await mock(md) : mock) : await ask(sys, md.replace(/\n## References[\s\S]*$/, ''))).trim();
+      if (run !== writing || page.innerHTML.replace(status.outerHTML, '') !== before) return;     // the user changed it meanwhile: keep theirs
+      const body = mdToHtml(raw, figs);
+      if (!body || body.length < 200) throw new Error('too short');
+      const title = page.querySelector('.cx-doc-title')?.outerHTML ?? '';
+      const used = (body.match(/<figure/g) ?? []).length;
+      page.innerHTML = title + body + figs.slice(used).join('') + refsHead + refs + (page.querySelector('.cx-doc-foot')?.outerHTML ?? '');
+      const s = load(); save({ title: titleOf(), html: page.innerHTML, board: s?.board ?? boardHash(), edited: false });
+    } catch { /* the draft stays */ } finally { status.remove(); }
   }
   function refresh() {
     flush();
     const s = load();
     if (!s) return rebuild();
-    if (page.innerHTML !== s.html) page.innerHTML = s.html;
+    if (page.innerHTML !== s.html && !writing) page.innerHTML = s.html;
     const changed = s.board !== boardHash();
     if (changed && !s.edited) rebuild(); else banner.hidden = !changed;
   }
@@ -124,14 +164,23 @@ export function mountPanel(rootEl: any) {
   const askIn = document.createElement('textarea'); askIn.className = 'cx-doc-ask-in'; askIn.placeholder = 'Tell Claude what to change'; askIn.rows = 1;
   const askGo = btn('cx-doc-ask-go', I.send, 'Send');
   askBox.append(askIn, askGo); docPane.append(askBox);
-  let asking: HTMLElement | null = null;
+  let asking: HTMLElement | null = null, picked: Range | null = null;
+  page.addEventListener('mouseup', () => setTimeout(() => {
+    const sel = getSelection(); if (!sel || sel.isCollapsed || !page.contains(sel.anchorNode) || !askBox.hidden) return;
+    const r = sel.getRangeAt(0); if (r.toString().trim().length < 2) return;
+    const blk = (r.commonAncestorContainer.nodeType === 1 ? r.commonAncestorContainer as HTMLElement : r.commonAncestorContainer.parentElement)?.closest(BLOCK) as HTMLElement | null;
+    if (!blk) return;
+    picked = r.cloneRange(); asking = blk; hover.hidden = true;
+    const pr = docPane.getBoundingClientRect(), rr = r.getBoundingClientRect();
+    askBox.style.top = `${rr.bottom - pr.top + docPane.scrollTop + 10}px`; askBox.hidden = false; askIn.value = ''; askIn.placeholder = 'Tell Claude what to change'; askIn.focus();
+  }, 0));
   hover.onclick = () => {
-    if (!target) return; asking = target; hover.hidden = true;
+    if (!target) return; asking = target; picked = null; hover.hidden = true;
     asking.classList.add('cx-doc-focus');
     const pr = docPane.getBoundingClientRect(), br = asking.getBoundingClientRect();
     askBox.style.top = `${br.bottom - pr.top + docPane.scrollTop + 8}px`; askBox.hidden = false; askIn.value = ''; askIn.focus();
   };
-  const closeAsk = () => { askBox.hidden = true; asking?.classList.remove('cx-doc-focus'); asking = null; };
+  const closeAsk = () => { askBox.hidden = true; asking?.classList.remove('cx-doc-focus'); asking = null; picked = null; };
   askIn.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAsk(); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void change(); } });
   askIn.addEventListener('input', () => { askIn.style.height = 'auto'; askIn.style.height = `${Math.min(120, askIn.scrollHeight)}px`; });
   askGo.onclick = () => void change();
@@ -142,17 +191,22 @@ export function mountPanel(rootEl: any) {
     if (!palette.hidden && !palette.contains(t)) palette.hidden = true;
   }, true);
   async function change() {
-    const b = asking, req = askIn.value.trim(); if (!b || !req) return;
+    const b = asking, req = askIn.value.trim(), part = picked; if (!b || !req) return;
     askBox.classList.add('busy'); askIn.disabled = true;
     try {
-      const sys = `You edit one paragraph of a document that was translated from the user's spatial canvas (a whiteboard).
-Return only the new paragraph, nothing else: no quotes, no preface. English. Keep citation markers like [2] where they still apply.
-You may use **bold** and ==highlight==. Keep it about as long unless asked otherwise.`;
-      const user = `THE WHOLE DOCUMENT (for context)\n${toMarkdown(page)}\n\nTHE PARAGRAPH TO CHANGE\n${b.textContent}\n\nWHAT TO CHANGE\n${req}`;
+      const words = part?.toString() ?? '';
+      const sys = `You edit part of a document that was translated from the user's spatial canvas (a whiteboard).
+Return only the replacement text, nothing else: no quotes, no preface. English. Keep citation markers like [2] where they still apply.
+You may use **bold** and ==highlight==. ${words ? 'Replace only the selected words; the result must read well inside the paragraph.' : 'Rewrite the whole paragraph; keep it about as long unless asked otherwise.'}`;
+      const user = `THE WHOLE DOCUMENT (for context)\n${toMarkdown(page)}\n\nTHE PARAGRAPH\n${b.textContent}\n\n${words ? `THE SELECTED WORDS (replace only these)\n${words}\n\n` : ''}WHAT TO CHANGE\n${req}`;
       const mock = (window as any).cxMockDoc;
-      const out = String(mock ? (typeof mock === 'function' ? await mock(b.textContent, req) : mock) : await ask(sys, user)).trim();
-      if (out) { b.innerHTML = inline(out); page.dispatchEvent(new Event('input')); }
-      closeAsk();
+      const out = String(mock ? (typeof mock === 'function' ? await mock(words || b.textContent, req) : mock) : await ask(sys, user)).trim();
+      if (out) {
+        if (part) { part.deleteContents(); const t = document.createElement('template'); t.innerHTML = inline(out); part.insertNode(t.content); }
+        else b.innerHTML = inline(out);
+        page.dispatchEvent(new Event('input'));
+      }
+      closeAsk(); getSelection()?.removeAllRanges();
     } catch (e: any) { flash(e instanceof ModelError && e.code === 'no_model' ? 'Connect Claude in the Chat tab first' : 'Claude could not answer'); }
     finally { askBox.classList.remove('busy'); askIn.disabled = false; }
   }
@@ -239,25 +293,49 @@ function runs(rs: Run[]) {
 }
 export function render(title: string, blocks: Blk[]): string {
   const out: string[] = [`<h1 class="cx-doc-title">${esc(title)}</h1>`];
-  let list: string | null = null;
+  let list: string | null = null, refs = false, fig = 0;
   const close = () => { if (list) { out.push(`</${list}>`); list = null; } };
-  for (const b of blocks) {
+  blocks.forEach((b, i) => {
     if (b.type === 'bulleted' || b.type === 'numbered') {
       const tag = b.type === 'bulleted' ? 'ul' : 'ol';
-      if (list !== tag) { close(); out.push(`<${tag}>`); list = tag; }
-      out.push(`<li>${runs(b.runs)}</li>`); continue;
+      if (list !== tag) { close(); out.push(`<${tag}${refs && tag === 'ol' ? ' class="cx-refs"' : ''}>`); list = tag; }
+      out.push(`<li>${runs(b.runs)}</li>`); return;
     }
     close();
-    if (b.type === 'divider') out.push('<hr>');
-    else if (b.type === 'h1') out.push(`<h2>${runs(b.runs)}</h2>`);
-    else if (b.type === 'h2') out.push(`<h3>${runs(b.runs)}</h3>`);
-    else if (b.type === 'h3') out.push(`<h4>${runs(b.runs)}</h4>`);
-    else if (b.type === 'quote') out.push(`<blockquote>${runs(b.runs)}</blockquote>`);
-    else out.push(`<p>${runs(b.runs)}</p>`);
-  }
+    if (b.type === 'figure') { fig++; out.push(`<figure class="cx-fig" data-box="${Math.round(b.box.x)},${Math.round(b.box.y)},${Math.round(b.box.w)},${Math.round(b.box.h)}" contenteditable="false"><figcaption>Figure ${fig}. ${esc(b.caption)}, as arranged on the board.</figcaption></figure>`); return; }
+    if (b.type === 'divider') { out.push('<hr>'); return; }
+    const t = runs(b.runs);
+    if (b.type === 'h1') { refs = /References/.test(t); out.push(`<h2>${t}</h2>`); }
+    else if (b.type === 'h2') out.push(`<h3>${t}</h3>`);
+    else if (b.type === 'h3') out.push(`<h4>${t}</h4>`);
+    else if (b.type === 'quote' && i === 0) out.push(`<p class="cx-lede">${t}</p>`);
+    else if (b.type === 'quote') out.push(`<blockquote>${t}</blockquote>`);
+    else if (i === blocks.length - 1 && blocks[i - 1]?.type === 'divider') out.push(`<p class="cx-doc-foot">${t}</p>`);
+    else out.push(`<p>${t}</p>`);
+  });
   close();
   return out.join('');
 }
+/** Claude's write-up (Markdown) → HTML; [[Figure n]] lines become the board's pictures. */
+function mdToHtml(md: string, figs: string[]) {
+  const out: string[] = []; let ul = false, para: string[] = [], first = true;
+  const flushP = () => { if (para.length) { out.push(`<p${first ? ' class="cx-lede"' : ''}>${inline(para.join(' '))}</p>`); para = []; first = false; } };
+  for (const line of md.replace(/\r/g, '').split('\n')) {
+    const l = line.trim();
+    const fm = /^\[\[Figure (\d+)\]\]$/.exec(l);
+    const li = /^[-*•]\s+(.*)/.exec(l);
+    if (!l) { flushP(); if (ul) { out.push('</ul>'); ul = false; } continue; }
+    if (fm) { flushP(); const f = figs[+fm[1] - 1]; if (f) out.push(f); continue; }
+    if (/^#{1,2}\s/.test(l)) { flushP(); first = false; out.push(`<h2>${inline(l.replace(/^#+\s*/, ''))}</h2>`); continue; }
+    if (/^#{3,}\s/.test(l)) { flushP(); out.push(`<h3>${inline(l.replace(/^#+\s*/, ''))}</h3>`); continue; }
+    if (li) { flushP(); if (!ul) { out.push('<ul>'); ul = true; } out.push(`<li>${inline(li[1])}</li>`); continue; }
+    if (/^>\s?/.test(l)) { flushP(); out.push(`<blockquote>${inline(l.replace(/^>\s?/, ''))}</blockquote>`); continue; }
+    para.push(l);
+  }
+  flushP(); if (ul) out.push('</ul>');
+  return out.join('');
+}
+const jpeg = (blob: Blob) => new Promise<string>((res, rej) => { const img = new Image(); img.onload = () => { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const x = c.getContext('2d')!; x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(img, 0, 0); URL.revokeObjectURL(img.src); res(c.toDataURL('image/jpeg', 0.86)); }; img.onerror = rej; img.src = URL.createObjectURL(blob); });
 /** Claude's few marks (**bold**, ==highlight==, [text](url)) → HTML. */
 function inline(md: string) {
   return esc(md).replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
@@ -278,7 +356,7 @@ function blocksOf(md: string) {
   if (ul) out.push('</ul>');
   return out.join('');
 }
-export function toMarkdown(page: HTMLElement): string {
+export function toMarkdown(page: HTMLElement, figures = false): string {
   const md = (n: Node): string => {
     if (n.nodeType === 3) return (n.textContent ?? '').replace(/\s+/g, ' ');
     if (!(n instanceof HTMLElement)) return '';
@@ -307,6 +385,8 @@ export function toMarkdown(page: HTMLElement): string {
       case 'H4': lines.push(`#### ${text}`, ''); break;
       case 'BLOCKQUOTE': lines.push(`> ${text}`, ''); break;
       case 'HR': lines.push('---', ''); break;
+      case 'FIGURE': { const n = [...page.querySelectorAll('figure')].indexOf(b) + 1; if (figures) lines.push(`[[Figure ${n}]]`, ''); else { const cap = b.querySelector('figcaption')?.textContent ?? ''; lines.push(`*${cap}*`, ''); } break; }
+      case 'DIV': break;
       case 'UL': case 'OL': [...b.children].forEach((li, i) => lines.push(`${b.tagName === 'OL' ? `${i + 1}.` : '-'} ${md(li).trim()}`)); lines.push(''); break;
       default: if (text) lines.push(text, '');
     }

@@ -293,7 +293,7 @@ body.cx-pn-on .cx-dock { left: calc((100vw - var(--pnw, 440px) - 16px) / 2 + 8px
 /* the document: typeset like a careful book, small and even */
 .cx-doc-pane { overflow-y: auto; overflow-x: hidden; }
 .cx-doc { max-width: 620px; margin: 0 auto; padding: 30px 40px 96px; outline: none; color: #29261f;
-  font: 400 15px/1.66 'Source Serif 4', 'Iowan Old Style', Georgia, serif; font-feature-settings: 'kern', 'liga', 'onum'; text-rendering: optimizeLegibility; hyphens: auto; }
+  font: 400 15px/1.66 'Source Serif 4', 'Iowan Old Style', Georgia, serif; font-feature-settings: 'kern', 'liga', 'onum'; text-rendering: optimizeLegibility; hyphens: manual; }
 .cx-pn.wide .cx-doc { padding: 44px 64px 120px; }
 .cx-doc .cx-doc-title { font: 600 24px/1.25 'Source Serif 4', Georgia, serif; letter-spacing: -.012em; margin: 0 0 22px; color: #1f1d18; }
 .cx-doc h2 { font: 600 17.5px/1.35 'Source Serif 4', Georgia, serif; letter-spacing: -.006em; margin: 30px 0 8px; color: #1f1d18; }
@@ -355,3 +355,27 @@ body.cx-pn-on .cx-dock { left: calc((100vw - var(--pnw, 440px) - 16px) / 2 + 8px
 .cx-pn .cx-key input { height: 36px !important; box-sizing: border-box; width: 100%; border: 1px solid #e3e3e6; border-radius: 9px; padding: 0 10px; font: 400 13px Inter, system-ui, sans-serif; outline: none; background: #fff; }
 .cx-key input:focus { border-color: #b9b9be; }
 .cx-pn .cx-key-save { height: 32px; border-radius: 9px; background: #1d1d1f !important; color: #fff !important; font-weight: 500 !important; }
+
+/* the document, tidied: paragraphs first, one rhythm, figures from the board */
+.cx-doc { font-size: 15px; line-height: 1.7; }
+.cx-doc > * { margin-top: 0; }
+.cx-doc p { margin: 0 0 14px; text-align: left; }
+.cx-doc h2 { margin: 34px 0 10px; }
+.cx-doc h3 { margin: 24px 0 8px; }
+.cx-doc .cx-doc-title { margin: 4px 0 14px; }
+.cx-doc .cx-lede { font-size: 16.5px; line-height: 1.65; color: #3b382f; margin: 0 0 22px; }
+.cx-doc .cx-lede::first-letter { }
+.cx-doc figure.cx-fig { margin: 6px 0 24px; padding: 0; }
+.cx-doc figure.cx-fig img { display: block; width: 100%; height: auto; border-radius: 10px; box-shadow: 0 0 0 1px rgba(0,0,0,.07); background: #f6f6f4; }
+.cx-doc figure.cx-fig figcaption { margin-top: 8px; font: 400 12px/1.45 Inter, system-ui, sans-serif; color: #8b877c; }
+.cx-doc ol.cx-refs { padding-left: 20px; margin: 0 0 18px; }
+.cx-doc ol.cx-refs li { font: 400 12.5px/1.55 Inter, system-ui, sans-serif; color: #5a574f; margin: 0 0 6px; }
+.cx-doc ol.cx-refs li::marker { font: 500 12px Inter, sans-serif; color: #aaa69a; }
+.cx-doc hr { display: none; }
+.cx-doc .cx-doc-foot { margin-top: 26px; padding-top: 12px; border-top: 1px solid #eeebe3; font: italic 400 12px/1.5 Inter, system-ui, sans-serif; color: #9a968b; }
+.cx-doc .cx-doc-foot .cx-muted { font-size: inherit; }
+.cx-doc blockquote { font-style: italic; }
+.cx-doc-status { display: flex; align-items: center; gap: 4px; margin: -4px 0 18px; font: 400 12px Inter, system-ui, sans-serif; color: #8b877c; }
+.cx-doc-status i { width: 5px; height: 5px; border-radius: 3px; background: #c9c5b8; animation: cxDot 1s infinite ease-in-out; }
+.cx-doc-status i:nth-child(2) { animation-delay: .15s; } .cx-doc-status i:nth-child(3) { animation-delay: .3s; }
+.cx-doc-status span { margin-left: 6px; }
