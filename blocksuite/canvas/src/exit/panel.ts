@@ -6,7 +6,7 @@
 // The document is a one-way snapshot: re-translated when it is opened and the board has changed, unless the
 // user has edited it; then a line offers the update instead.
 
-import { ask, ModelError } from '../ai/model';
+import { ask, available, ModelError, setApiKey } from '../ai/model';
 import { readBoard, toPrompt } from '../ai/reading';
 import { translateBoard, type Blk, type Run } from './translate';
 
@@ -18,6 +18,9 @@ const I = {
   more: '<svg viewBox="0 0 20 20" fill="currentColor"><circle cx="5" cy="10" r="1.4"/><circle cx="10" cy="10" r="1.4"/><circle cx="15" cy="10" r="1.4"/></svg>',
   expand: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 3.75h4.75V8.5M8.5 16.25H3.75V11.5M16.25 3.75l-5 5M3.75 16.25l5-5"/></svg>',
   shrink: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 8.75h-4.75V4M4 11.25h4.75V16M11.25 8.75l5-5M8.75 11.25l-5 5"/></svg>',
+  collapse: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5.5l4.5 4.5L5 14.5M10.5 5.5L15 10l-4.5 4.5"/></svg>',
+  doc: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4.25" y="2.75" width="11.5" height="14.5" rx="2.5"/><path d="M7.5 7h5M7.5 10h5M7.5 13h3"/></svg>',
+  chat: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M10 3.5c3.9 0 6.75 2.45 6.75 5.6s-2.85 5.6-6.75 5.6c-.8 0-1.55-.1-2.25-.3L4.5 16v-3.1C3.75 11.9 3.25 10.6 3.25 9.1 3.25 5.95 6.1 3.5 10 3.5z"/></svg>',
   close: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5.5 5.5l9 9M14.5 5.5l-9 9"/></svg>',
   bubble: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5c3.9 0 6.75 2.45 6.75 5.6s-2.85 5.6-6.75 5.6c-.8 0-1.55-.1-2.25-.3L4.5 16v-3.1C3.75 11.9 3.25 10.6 3.25 9.1 3.25 5.95 6.1 3.5 10 3.5z"/><path d="M10 7v4M8 9h4"/></svg>',
   send: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15.5v-11M5.5 9 10 4.5 14.5 9"/></svg>',
@@ -35,11 +38,10 @@ export function mountPanel(rootEl: any) {
   const panel = el('aside', 'cx-pn'); panel.hidden = true;
   const head = el('div', 'cx-pn-head');
   const tabs = el('div', 'cx-pn-tabs');
-  const tDoc = el('button', 'cx-pn-tab on'), tChat = el('button', 'cx-pn-tab');
-  tDoc.textContent = 'Document'; tChat.textContent = 'Chat';
+  const tDoc = btn('cx-pn-tab on', I.doc, 'Document'), tChat = btn('cx-pn-tab', I.chat, 'Chat');
   tabs.append(tDoc, tChat);
   const acts = el('div', 'cx-pn-acts');
-  const bMore = btn('cx-pn-ib', I.more, 'More'), bExpand = btn('cx-pn-ib', I.expand, 'Expand'), bClose = btn('cx-pn-ib', I.close, 'Close');
+  const bMore = btn('cx-pn-ib', I.more, 'More'), bExpand = btn('cx-pn-ib', I.expand, 'Expand'), bClose = btn('cx-pn-ib', I.collapse, 'Close panel');
   acts.append(bMore, bExpand, bClose);
   head.append(tabs, acts);
   const docPane = el('div', 'cx-pn-body cx-doc-pane');
@@ -48,7 +50,8 @@ export function mountPanel(rootEl: any) {
   document.body.append(open, panel);
 
   let tab: 'doc' | 'chat' = 'doc', wide = false;
-  const show = (on: boolean) => { panel.hidden = !on; open.hidden = on; document.body.classList.toggle('cx-pn-on', on); if (on && tab === 'doc') refresh(); };
+  const settle = () => { requestAnimationFrame(() => window.dispatchEvent(new Event('resize'))); setTimeout(() => window.dispatchEvent(new Event('resize')), 220); };
+  const show = (on: boolean) => { panel.hidden = !on; open.hidden = on; document.body.classList.toggle('cx-pn-on', on); settle(); if (on && tab === 'doc') refresh(); };
   const setTab = (t: 'doc' | 'chat') => {
     tab = t; tDoc.classList.toggle('on', t === 'doc'); tChat.classList.toggle('on', t === 'chat');
     docPane.hidden = t !== 'doc'; chatPane.hidden = t !== 'chat'; bMore.hidden = t !== 'doc';
@@ -56,7 +59,7 @@ export function mountPanel(rootEl: any) {
   };
   open.onclick = () => show(true);
   bClose.onclick = () => show(false);
-  bExpand.onclick = () => { wide = !wide; panel.classList.toggle('wide', wide); bExpand.innerHTML = wide ? I.shrink : I.expand; };
+  bExpand.onclick = () => { wide = !wide; panel.classList.toggle('wide', wide); document.body.style.setProperty('--pnw', wide ? 'min(880px, 60vw)' : '440px'); bExpand.innerHTML = wide ? I.shrink : I.expand; settle(); };
   tDoc.onclick = () => setTab('doc'); tChat.onclick = () => setTab('chat');
 
   // ── document ──
@@ -150,7 +153,7 @@ You may use **bold** and ==highlight==. Keep it about as long unless asked other
       const out = String(mock ? (typeof mock === 'function' ? await mock(b.textContent, req) : mock) : await ask(sys, user)).trim();
       if (out) { b.innerHTML = inline(out); page.dispatchEvent(new Event('input')); }
       closeAsk();
-    } catch (e: any) { flash(e instanceof ModelError && e.code === 'no_model' ? 'Connect Claude in settings first' : 'Claude could not answer'); }
+    } catch (e: any) { flash(e instanceof ModelError && e.code === 'no_model' ? 'Connect Claude in the Chat tab first' : 'Claude could not answer'); }
     finally { askBox.classList.remove('busy'); askIn.disabled = false; }
   }
 
@@ -180,6 +183,15 @@ You may use **bold** and ==highlight==. Keep it about as long unless asked other
   const input = document.createElement('textarea'); input.className = 'cx-chat-in'; input.placeholder = 'Reply to Claude…'; input.rows = 1;
   const go = btn('cx-chat-go', I.send, 'Send');
   box.append(input, go); chatPane.append(log, box);
+  // on this computer, without a claude.ai account behind the page, Claude needs the user's own key (kept only here)
+  const keyCard = el('div', 'cx-key'); keyCard.hidden = true;
+  keyCard.innerHTML = '<b>Connect Claude</b><p>Paste your Anthropic API key. It stays on this computer and is only sent to Anthropic.</p>';
+  const keyIn = document.createElement('input'); keyIn.type = 'password'; keyIn.placeholder = 'sk-ant-…'; keyIn.autocomplete = 'off';
+  const keySave = el('button', 'cx-key-save'); keySave.textContent = 'Save';
+  keyCard.append(keyIn, keySave); chatPane.insertBefore(keyCard, box);
+  const checkKey = async () => { const ok = await available(); keyCard.hidden = ok; log.hidden = !ok; };
+  keySave.onclick = async () => { const k = keyIn.value.trim(); if (!k) return; setApiKey(k); keyIn.value = ''; await checkKey(); };
+  tChat.addEventListener('click', () => void checkKey());
   const history: { role: 'user' | 'assistant'; text: string }[] = [];
   input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = `${Math.min(160, input.scrollHeight)}px`; });
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } });
@@ -200,7 +212,7 @@ Read the arrangement, not just the words. Reply in the user's language.`;
       wait.classList.remove('busy'); wait.innerHTML = blocksOf(a); history.push({ role: 'assistant', text: a });
     } catch (e: any) {
       wait.classList.remove('busy'); wait.classList.add('err');
-      wait.textContent = e instanceof ModelError && e.code === 'no_model' ? 'Connect Claude in settings to chat.' : 'Couldn’t reach Claude. Try again.';
+      wait.textContent = e instanceof ModelError && e.code === 'no_model' ? 'Connect Claude above to chat.' : 'Couldn’t reach Claude. Try again.';
     }
     log.scrollTop = log.scrollHeight;
   }

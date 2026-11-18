@@ -83,7 +83,7 @@ export function mountSense(rootEl: any) {
     catch (e: any) {
       console.warn('[sense]', e); failed.set(intent.key, Date.now());
       const code = e?.code ?? '';
-      toast(code === 'no_model' ? 'Connect Claude in settings to let the board help.' : code === 'not_granted' ? 'Claude was not allowed for this page.' : 'Couldn’t reach Claude just now.', undefined);
+      toast(code === 'no_model' ? 'Connect Claude in the side panel (Chat) to let the board help.' : code === 'not_granted' ? 'Claude was not allowed for this page.' : 'Couldn’t reach Claude just now.', undefined);
     }
     finally { stop(); busy = false; rebase(); }
   }, POLL_MS);

@@ -55,6 +55,7 @@ function startOwner(): Promise<boolean> {
   return new Promise(resolve => {
     const srv = http.createServer((req, res) => {
       const u = new URL(req.url || '/', URL_);
+      if (u.pathname === '/__quit' && req.headers['x-canvas'] === 'quit') { res.writeHead(200).end('bye'); setTimeout(() => process.exit(0), 100); return; }
       let f = path.normalize(path.join(APP, decodeURIComponent(u.pathname)));
       if (!f.startsWith(path.normalize(APP))) { res.writeHead(403).end(); return; }
       if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(APP, 'index.html');
@@ -103,7 +104,8 @@ function joinOwner() {
 async function boot() { if (!(await startOwner())) joinOwner(); }
 
 function openBrowser() {
-  const cmd = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', URL_]] : process.platform === 'darwin' ? ['open', [URL_]] : ['xdg-open', [URL_]];
+  // on Windows the board opens as its own app window (Edge app mode), the same window the desktop launcher uses
+  const cmd = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', 'msedge', `--app=${URL_}`, '--window-size=1440,900']] : process.platform === 'darwin' ? ['open', [URL_]] : ['xdg-open', [URL_]];
   try { spawn(cmd[0] as string, cmd[1] as string[], { detached: true, stdio: 'ignore' }).unref(); } catch { /* the user opens it */ }
 }
 
@@ -186,5 +188,6 @@ mcp.tool('canvas_export',
   {}, async () => { try { return text((await ask('export')).markdown); } catch (e) { return fail(e); } });
 
 await boot();
-await mcp.connect(new StdioServerTransport());
+// `--app`: started by the desktop launcher, not by a chat app; serve the board only
+if (!process.argv.includes('--app')) { await mcp.connect(new StdioServerTransport()); }
 log('ready');

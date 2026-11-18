@@ -262,10 +262,15 @@ affine-link-preview-details { display: none !important; }
 .cx-pn-open:hover { color: #1d1d1f; }
 .cx-pn-open svg { width: 20px; height: 20px; }
 .cx-pn-open[hidden], .cx-pn[hidden], .cx-pn [hidden] { display: none !important; }
-.cx-pn { position: fixed; top: 10px; right: 10px; bottom: 10px; z-index: 70; width: 440px; max-width: calc(100vw - 20px); display: flex; flex-direction: column;
+.cx-pn { position: fixed; top: 8px; right: 8px; bottom: 8px; z-index: 70; width: var(--pnw, 440px); max-width: calc(100vw - 16px); display: flex; flex-direction: column;
   background: #fff; border-radius: 16px; overflow: hidden; font: 400 13px/1.4 Inter, system-ui, -apple-system, 'Segoe UI', sans-serif; color: #1d1d1f;
-  box-shadow: 0 12px 40px rgba(0,0,0,.08), 0 2px 6px rgba(0,0,0,.05), 0 0 .5px rgba(0,0,0,.22); transition: width .2s ease; }
-.cx-pn.wide { width: min(880px, 64vw); }
+  box-shadow: 0 0 0 1px rgba(0,0,0,.07), 0 1px 3px rgba(0,0,0,.04); transition: width .2s ease; }
+.cx-pn.wide { }
+/* docked: the canvas and the panel are two windows side by side, like Heptabase; not a floating layer */
+body.cx-pn-on { background: #ebebe9 !important; }
+body.cx-pn-on #app { position: fixed; left: 8px; top: 8px; bottom: 8px; right: calc(var(--pnw, 440px) + 16px); height: auto; border-radius: 12px; overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.07), 0 1px 3px rgba(0,0,0,.04); transition: right .2s ease; }
+body.cx-pn-on .cx-dock { left: calc((100vw - var(--pnw, 440px) - 16px) / 2 + 8px); }
 .cx-pn button { font: inherit; color: inherit; border: 0; background: transparent; cursor: pointer; padding: 0; }
 .cx-pn-head { flex: none; height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px 0 12px; border-bottom: 1px solid #f1f1f1; }
 .cx-pn-tabs { display: flex; gap: 2px; }
@@ -341,3 +346,12 @@ affine-link-preview-details { display: none !important; }
 .cx-chat-box { flex: none; margin: 8px 14px 14px; display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 14px; border-radius: 14px; background: #fff;
   box-shadow: 0 0 0 1px #ececec, 0 2px 8px rgba(0,0,0,.04); }
 .cx-chat-in { flex: 1; border: 0; outline: 0; resize: none; font: 400 14px/1.45 Inter, system-ui, sans-serif; color: #1d1d1f; padding: 4px 0; background: transparent; }
+
+.cx-pn-tab { width: 34px; display: grid; place-items: center; padding: 0 !important; }
+.cx-pn-tab svg { width: 18px; height: 18px; }
+.cx-key { margin: auto 22px; padding: 18px; border-radius: 14px; background: #f7f7f5; display: flex; flex-direction: column; gap: 10px; }
+.cx-key b { font: 600 14px Inter, system-ui, sans-serif; color: #1d1d1f; }
+.cx-key p { margin: 0; font: 400 12.5px/1.45 Inter, system-ui, sans-serif; color: #6e6e73; }
+.cx-pn .cx-key input { height: 36px !important; box-sizing: border-box; width: 100%; border: 1px solid #e3e3e6; border-radius: 9px; padding: 0 10px; font: 400 13px Inter, system-ui, sans-serif; outline: none; background: #fff; }
+.cx-key input:focus { border-color: #b9b9be; }
+.cx-pn .cx-key-save { height: 32px; border-radius: 9px; background: #1d1d1f !important; color: #fff !important; font-weight: 500 !important; }

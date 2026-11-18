@@ -46,7 +46,7 @@ export function createAssistant(rootEl: any) {
     } catch (e: any) {
       entry.error = String(e?.message ?? e);
       const code = e instanceof ModelError ? e.code : '';
-      toast(code === 'no_model' ? 'Connect Claude in settings to use Ask.'
+      toast(code === 'no_model' ? 'Connect Claude in the side panel (Chat) first.'
         : code === 'not_granted' ? 'Claude was not allowed for this page.'
         : code === 'rate_limited' ? 'Claude is busy. Try again in a moment.'
         : code === 'bad_answer' || e instanceof SyntaxError ? 'Claude’s answer could not be placed. Try again.'
