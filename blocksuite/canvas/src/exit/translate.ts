@@ -23,6 +23,8 @@
 
 import { readBoard, type Item, type Reading } from '../ai/reading';
 
+import { bars, boardMap, mapLegend, noteCards, pinned as pinnedViz, sourceTable, timeline, type MapItem } from './visuals';
+
 export type Run = { text: string; bold?: boolean; italic?: boolean; link?: string; hl?: string; muted?: boolean };
 export type Blk =
   | { type: 'h1' | 'h2' | 'h3' | 'text' | 'quote'; runs: Run[] }
@@ -30,7 +32,9 @@ export type Blk =
   | { type: 'divider' }
   | { type: 'figure'; box: { x: number; y: number; w: number; h: number }; caption: string }
   // a few things from the board, enlarged and set side by side
-  | { type: 'gallery'; boxes: { x: number; y: number; w: number; h: number }[]; caption: string };
+  | { type: 'gallery'; boxes: { x: number; y: number; w: number; h: number }[]; caption: string }
+  // a picture the document draws itself (map, table, chart, note cards); html is ready to place
+  | { type: 'visual'; kind: string; head: string; html: string; caption: string; box?: { x: number; y: number; w: number; h: number } };
 export type DocOut = { title: string; blocks: Blk[] };
 
 // ── as prose: a document reads in paragraphs, like a book; lists only where a list is the point ──
@@ -49,28 +53,25 @@ const endSentence = (rs: Run[]): Run[] => {
  *  any other picture waits until at least two paragraphs have passed since the last one, so pictures never pile
  *  up, and pictures still waiting are let in where the text runs long. Whatever is left goes before References. */
 export function pace(blocks: Blk[]): Blk[] {
-  const out: Blk[] = [], wait: Blk[] = [];
-  let since = 99;
-  const isPic = (b: Blk) => b.type === 'figure' || b.type === 'gallery';
+  // Text and pictures in a steady rhythm, like an edited article. Fixed in place: the first picture (the board map,
+  // which opens the document) and a section's own picture under its heading. Every other picture is spread evenly
+  // over the paragraphs before References, in its original order, so pictures never pile up and long text gets relief.
+  const isPic = (b: Blk) => b.type === 'figure' || b.type === 'gallery' || b.type === 'visual';
   const isHead = (b?: Blk) => !!b && (b.type === 'h1' || b.type === 'h2' || b.type === 'h3');
   const texty = (b: Blk) => b.type === 'text' || b.type === 'quote' || b.type === 'bulleted' || b.type === 'numbered';
-  // spread the pictures evenly over the text: one about every `gap` paragraphs, never closer than two
-  const gap = Math.max(2, Math.floor(blocks.filter(texty).length / (blocks.filter(isPic).length + 1)));
-  for (let i = 0; i < blocks.length; i++) {
-    const b = blocks[i];
-    if (isPic(b)) {
-      if (isHead(out[out.length - 1]) && b.type === 'figure' && since > 0) { out.push(b); since = 0; continue; }   // a section's own picture
-      if (since >= gap && !wait.length) { out.push(b); since = 0; } else wait.push(b);
-      continue;
-    }
-    if ((b.type === 'h1' || b.type === 'h2') && textOf(b.runs) === 'References') { out.push(...wait.splice(0)); }
-    out.push(b);
-    if (texty(b)) {
-      since++;
-      if (wait.length && since >= gap && !isHead(blocks[i + 1]) && !isPic(blocks[i + 1])) { out.push(wait.shift()!); since = 0; }
-    }
-  }
-  if (wait.length) { const at = out.findIndex(b => b.type === 'divider'); at < 0 ? out.push(...wait) : out.splice(at, 0, ...wait); }
+  const firstPic = blocks.findIndex(isPic);
+  const body: Blk[] = [], floating: Blk[] = [];
+  blocks.forEach((b, i) => { if (isPic(b) && i !== firstPic && !(b.type === 'figure' && isHead(blocks[i - 1]))) floating.push(b); else body.push(b); });
+  if (!floating.length) return body;
+  const refAt = body.findIndex(b => isHead(b) && textOf((b as any).runs) === 'References');
+  const end = refAt < 0 ? body.findIndex(b => b.type === 'divider') : refAt;
+  const slots = body.slice(0, end < 0 ? body.length : end).map((b, i) => texty(b) ? i : -1).filter(i => i >= 0);
+  if (!slots.length) { const at = end < 0 ? body.length : end; body.splice(at, 0, ...floating); return body; }
+  const K = floating.length, T = slots.length;
+  const after = new Map<number, Blk[]>();
+  floating.forEach((f, j) => { const at = slots[Math.max(0, Math.min(T - 1, Math.round((j + 1) * T / (K + 1)) - 1))]; after.set(at, [...(after.get(at) ?? []), f]); });
+  const out: Blk[] = [];
+  body.forEach((b, i) => { out.push(b); const fs = after.get(i); if (fs) out.push(...fs); });
   return out;
 }
 
@@ -366,8 +367,13 @@ export function translateBoard(rootEl: any): DocOut {
   const sections = tops.filter(i => i.kind === 'frame' || (i.children?.length && !['card', 'group'].includes(i.kind)));
   // pictures: with no sections to show one by one, the whole board opens the document
   const union = (xs: Item[]) => { const x = Math.min(...xs.map(i => i.box.x)), y = Math.min(...xs.map(i => i.box.y)); return { x, y, w: Math.max(...xs.map(i => i.box.x + i.box.w)) - x, h: Math.max(...xs.map(i => i.box.y + i.box.h)) - y }; };
-  const shown = tops.filter(i => !isMark(i) && i.kind !== 'connector');
-  if (!sections.length && shown.length > 2) blocks.push({ type: 'figure', box: union(shown), caption: 'The whole board, as it was arranged.' });
+  const fillOf = (i: Item): string | undefined => { const el: any = gfx.getElementById(i.id); const f = el?.fillColor ?? el?.props?.background; const v = typeof f === 'string' ? f : f?.normal ?? f?.light; return typeof v === 'string' && v.startsWith('#') ? v : undefined; };
+  const isNote = (i: Item) => i.kind === 'sticky' || i.kind === 'shape';
+  const drawn = r.items.filter(i => !isMark(i) && i.kind !== 'connector' && i.kind !== 'group' && i.box.w > 4 && i.box.h > 4);
+  if (drawn.length > 2) {
+    const mi: MapItem[] = drawn.map(i => ({ kind: i.kind === 'frame' ? 'frame' : isNote(i) ? 'sticky' : i.kind === 'text' ? 'text' : 'card', box: i.box, fill: isNote(i) ? fillOf(i) : undefined, label: i.kind === 'frame' ? headingOf(i).title : i.kind === 'text' ? i.text.trim() : undefined }));
+    blocks.push({ type: 'visual', kind: 'map', head: 'Board map', html: boardMap(mi) + mapLegend(drawn.filter(isNote).map(fillOf).filter(Boolean) as string[]), caption: sections.length ? 'The board redrawn: each section and note where it was placed' : 'The board redrawn: every note and card where it was placed', box: union(drawn) });
+  }
   for (const f of sections) { used.add(f.ref); blocks.push(...container(f, 1)); }
   // loose groups and things: titled groups become sections; the rest is "Other notes"
   for (const g of r.groups.filter(g => !g.in && g.members.length > 1)) {
@@ -387,11 +393,15 @@ export function translateBoard(rootEl: any): DocOut {
   const rest: Blk[] = [];
   // the user's own notes, enlarged side by side: what they wrote, in their colours
   const stickies = cols.flat().filter(i => (i.kind === 'sticky' || i.kind === 'shape') && textOf(i).trim()).sort((a, b) => weight(b) - weight(a)).slice(0, 3).sort((a, b) => a.box.x - b.box.x || a.box.y - b.box.y);
-  if (stickies.length >= 2) rest.push({ type: 'gallery', boxes: stickies.map(i => i.box), caption: 'Notes written on the board, enlarged' });
+  const own = cols.flat().filter(i => isNote(i) && textOf(i).trim() && !aboutSource.has(i.ref)).sort((a, b) => a.box.x - b.box.x || a.box.y - b.box.y).slice(0, 6);
+  if (own.length >= 2) rest.push({ type: 'visual', kind: 'notes', head: 'Your notes', html: noteCards(own.map(i => ({ text: words(textOf(i)), fill: fillOf(i) }))), caption: 'The notes as written on the board, in their colours', box: union(own) });
+  void stickies;
   for (const c of cols) rest.push(...say(c.sort((a, b) => a.box.y - b.box.y), undefined, 1));
   // close-ups of the notes the user placed on a source: the placement is the citation
   const pinned = sourceOrder.map(ref => [by.get(ref)!, ...r.items.filter(i => aboutSource.get(i.ref) === ref)]).filter(g => g[0] && g.length > 1).slice(0, 2);
-  if (pinned.length) rest.splice(rest[0]?.type === 'gallery' ? 1 : 0, 0, { type: 'gallery', boxes: pinned.map(union), caption: pinned.length > 1 ? 'Notes placed on their sources, close up' : 'A note placed on its source, close up' } as Blk);
+  if (pinned.length) rest.splice(rest[0]?.type === 'visual' ? 1 : 0, 0, { type: 'visual', kind: 'pinned', head: 'Placed on a source', box: union(pinned.flat()),
+    html: pinnedViz(pinned.map(g => { const s = sources.get(g[0].ref); return { n: s?.n ?? 0, title: s?.title ?? words(textOf(g[0])).slice(0, 60), meta: s?.meta, notes: g.slice(1).map(i => ({ text: words(textOf(i)), fill: fillOf(i) })) }; })),
+    caption: pinned.length > 1 ? 'Notes placed on sources become citations of them' : 'A note placed on a source becomes a citation of it' } as Blk);
   if (rest.length) blocks.push({ type: 'h1', runs: [{ text: sections.length ? 'Other notes' : 'Notes' }] }, ...rest);
   const lineRest = lines(r.items.filter(i => i.kind === 'connector').map(i => i.ref));
   if (lineRest.length) blocks.push(...lineRest);
@@ -404,6 +414,24 @@ export function translateBoard(rootEl: any): DocOut {
   }
   if (open.length) blocks.push({ type: 'h1', runs: [{ text: 'Open questions' }] }, ...open.slice(0, 8));
 
+  if (sources.size >= 2) {
+    const kindOf = (m = '') => /paper/i.test(m) ? 'Paper' : /pdf/i.test(m) ? 'Paper' : /video/i.test(m) ? 'Video' : /forum/i.test(m) ? 'Forum thread' : /blog/i.test(m) ? 'Blog post' : /[a-z0-9-]+\.(com|org|net|io|ai|so|edu|app|dev|google)/i.test(m) ? 'Product / site' : 'Card';
+    const yearOf = (m = '') => /\b(1[89]\d\d|20\d\d)\b/.exec(m)?.[1];
+    const rows = sourceOrder.map(ref => { const s = sources.get(ref)!; return { n: s.n, title: s.title, kind: kindOf(s.meta), year: yearOf(s.meta), says: s.body ? clip(s.body, 110) : '', notes: r.items.filter(i => aboutSource.get(i.ref) === ref).map(i => clip(textOf(i), 60)) }; });
+    const sb = union(sourceOrder.map(ref => by.get(ref)!).filter(Boolean));
+    blocks.push({ type: 'visual', kind: 'table', head: 'Sources at a glance', html: sourceTable(rows), caption: `${rows.length} sources on the board, with what the board says about each`, box: sb });
+    const dated = rows.filter(r => r.year).map(r => ({ year: +r.year!, label: r.title, n: r.n }));
+    if (dated.length >= 2) {
+      const und = new Map<string, number>(); for (const r of rows.filter(r => !r.year)) und.set(r.kind, (und.get(r.kind) ?? 0) + 1);
+      blocks.push({ type: 'visual', kind: 'timeline', head: 'Timeline', html: timeline(dated, [...und].map(([k, n]) => ({ label: (n > 1 ? k.replace(/ \/ site$/, 's / sites').replace(/(Video|Card|Blog post|Forum thread)$/, '$1s') : k).toLowerCase(), n }))), caption: 'Dated sources in order; undated products and sites are today’s examples' });
+    }
+    const count = new Map<string, number>(); for (const r of rows) count.set(r.kind, (count.get(r.kind) ?? 0) + 1);
+    const notesAll = r.items.filter(i => isNote(i) && textOf(i).trim());
+    const comp = [...count].map(([label, value]) => ({ label: value > 1 && !/s$/.test(label) ? label.replace(/^Product \/ site$/, 'Products / sites') + (label === 'Product / site' ? '' : 's') : label, value }));
+    if (notesAll.length) comp.push({ label: 'Your notes', value: notesAll.length, color: fillOf(notesAll[0]) ?? '#ffd3a8' } as any);
+    const placed = notesAll.filter(i => aboutSource.has(i.ref)).length; if (placed) comp.push({ label: 'Notes placed on a source', value: placed, color: '#8b877c' } as any);
+    if (comp.length >= 3) blocks.push({ type: 'visual', kind: 'bars', head: 'What the board is made of', html: bars(comp.sort((a, b) => b.value - a.value)), caption: 'Things on the board, by kind' });
+  }
   if (sources.size) {
     blocks.push({ type: 'h1', runs: [{ text: 'References' }] });
     for (const ref of sourceOrder) { const s = sources.get(ref)!; blocks.push({ type: 'numbered', runs: [{ text: s.title, link: s.url }, ...(s.meta ? [{ text: `. ${s.meta}`, muted: true }] : [])] }); }

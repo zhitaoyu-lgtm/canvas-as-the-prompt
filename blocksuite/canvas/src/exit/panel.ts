@@ -9,6 +9,7 @@
 import { ask, available, ModelError } from '../ai/model';
 import { readBoard, toPrompt } from '../ai/reading';
 import { snapshot } from '../ai/snapshot';
+import { figHead } from './visuals';
 import { asProse, pace, translateBoard, type Blk, type Run } from './translate';
 
 const KEY = 'cx:document';
@@ -55,7 +56,7 @@ export function mountPanel(rootEl: any) {
   // the canvas eases into a two-column layout (Heptabase-like); the canvas keeps redrawing while it narrows
   const settle = () => { const t0 = performance.now(); const tick = () => { window.dispatchEvent(new Event('resize')); if (performance.now() - t0 < 460) requestAnimationFrame(tick); }; requestAnimationFrame(tick); };
   // the window's title bar takes the colour around the canvas (desktop app window)
-  const tint = (on: boolean) => { const m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', '#ffffff'); };
+  const tint = (_on: boolean) => { const m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', '#ffffff'); };
   // the edge between the canvas and the panel can be dragged, like Heptabase
   const W_KEY = 'cx:panel-width';
   let userW = 440; try { userW = Number(localStorage.getItem(W_KEY)) || 440; } catch { /* default */ }
@@ -107,7 +108,7 @@ export function mountPanel(rootEl: any) {
       const [x, y, w, h] = (f.dataset.box ?? '').split(',').map(Number); if (!w || !h) continue;
       try {
         const blob = await snapshot(rootEl, { x: x - 24, y: y - 24, w: w + 48, h: h + 48 }, 1100); if (!blob) continue;
-        const url = await jpeg(blob); const img = f.querySelector('img') ?? f.insertBefore(document.createElement('img'), f.firstChild);
+        const url = await jpeg(blob); const img = f.querySelector('img') ?? f.insertBefore(document.createElement('img'), f.querySelector('figcaption'));
         img.src = url; img.alt = f.querySelector('figcaption')?.textContent ?? ''; f.removeAttribute('data-box');
       } catch { /* leave the caption */ }
     }
@@ -283,6 +284,13 @@ You may use **bold** and ==highlight==. ${words ? 'Replace only the selected wor
     palette.hidden = true; getSelection()?.removeAllRanges(); page.dispatchEvent(new Event('input'));
   }
 
+  // "Show on board": the canvas moves to the place a picture or table came from
+  page.addEventListener('click', (e) => {
+    const g = (e.target as HTMLElement).closest?.('.cx-goto') as HTMLElement | null; if (!g) return;
+    e.preventDefault();
+    const [x, y, w, h] = (g.dataset.goto ?? '').split(',').map(Number); if (!w || !h) return;
+    try { const vp = rootEl.gfx.viewport; const B = vp.viewportBounds.constructor; vp.setViewportByBound(new B(x, y, w, h), [60, 60, 60, 60], true); } catch { /* keep the view */ }
+  });
   // ── blocks, like Notion: a bgrip on the left of each block; drag it to move the block, click it for a menu ──
   const bgrip = el('div', 'cx-blk-grip'); bgrip.innerHTML = I.grip; bgrip.hidden = true; docPane.append(bgrip);
   const drop = el('div', 'cx-blk-drop'); drop.hidden = true; docPane.append(drop);
@@ -434,7 +442,7 @@ function runs(rs: Run[]) {
 }
 export function render(title: string, blocks: Blk[]): string {
   const out: string[] = [`<h1 class="cx-doc-title">${esc(title)}</h1>`];
-  let list: string | null = null, refs = false, fig = 0;
+  let list: string | null = null, refs = false, fig = 0, tab = 0;
   const close = () => { if (list) { out.push(`</${list}>`); list = null; } };
   blocks.forEach((b, i) => {
     if (b.type === 'bulleted' || b.type === 'numbered') {
@@ -443,8 +451,12 @@ export function render(title: string, blocks: Blk[]): string {
       out.push(`<li>${runs(b.runs)}</li>`); return;
     }
     close();
+    if (b.type === 'visual') {
+      const lab = b.kind === 'table' ? `Table ${++tab}` : `Figure ${++fig}`;
+      out.push(`<figure class="cx-fig cx-viz cx-viz-${b.kind}" contenteditable="false">${figHead(b.head, b.box)}<div class="cx-viz-body">${b.html}</div><figcaption>${lab}. ${esc(b.caption)}.</figcaption></figure>`); return;
+    }
     if (b.type === 'gallery') { fig++; out.push(`<figure class="cx-fig cx-gal" data-boxes="${b.boxes.map(x => [x.x, x.y, x.w, x.h].map(Math.round).join(',')).join(';')}" contenteditable="false"><figcaption>Figure ${fig}. ${esc(b.caption)}.</figcaption></figure>`); return; }
-    if (b.type === 'figure') { fig++; out.push(`<figure class="cx-fig" data-box="${Math.round(b.box.x)},${Math.round(b.box.y)},${Math.round(b.box.w)},${Math.round(b.box.h)}" contenteditable="false"><figcaption>Figure ${fig}. ${esc(b.caption)}${/\.$/.test(b.caption) ? '' : ', as arranged on the board.'}</figcaption></figure>`); return; }
+    if (b.type === 'figure') { fig++; out.push(`<figure class="cx-fig cx-shot" data-box="${Math.round(b.box.x)},${Math.round(b.box.y)},${Math.round(b.box.w)},${Math.round(b.box.h)}" contenteditable="false">${figHead(b.caption.replace(/\.$/, ''), b.box)}<figcaption>Figure ${fig}. ${esc(b.caption)}${/\.$/.test(b.caption) ? '' : ', as arranged on the board.'}</figcaption></figure>`); return; }
     if (b.type === 'divider') { out.push('<hr>'); return; }
     const t = runs(b.runs);
     if (b.type === 'h1') { refs = /References/.test(t); out.push(`<h2>${t}</h2>`); }
@@ -527,7 +539,7 @@ export function toMarkdown(page: HTMLElement, figures = false): string {
       case 'H4': lines.push(`#### ${text}`, ''); break;
       case 'BLOCKQUOTE': lines.push(`> ${text}`, ''); break;
       case 'HR': lines.push('---', ''); break;
-      case 'FIGURE': { const n = [...page.querySelectorAll('figure')].indexOf(b) + 1; if (figures) lines.push(`[[Figure ${n}]]`, ''); else { const cap = b.querySelector('figcaption')?.textContent ?? ''; lines.push(`*${cap}*`, ''); } break; }
+      case 'FIGURE': { const n = [...page.querySelectorAll('figure')].indexOf(b) + 1; if (figures) lines.push(`[[Figure ${n}]]`, ''); else { const cap = b.querySelector('figcaption')?.textContent ?? ''; const tb = b.querySelector('table'); if (tb) { const rows = [...tb.querySelectorAll('tr')].map(tr => [...tr.children].map(c => (c as HTMLElement).innerText.replace(/\s+/g, ' ').replace(/\|/g, '/').trim())); if (rows.length) { lines.push(`| ${rows[0].join(' | ')} |`, `|${rows[0].map(() => ' --- ').join('|')}|`, ...rows.slice(1).map(r => `| ${r.join(' | ')} |`)); } } lines.push(`*${cap}*`, ''); } break; }
       case 'DIV': if (b.classList.contains('cx-tg')) { lines.push(`**${md(b.querySelector('.cx-tg-t') as HTMLElement).trim()}**`, ''); for (const k of [...(b.querySelector('.cx-tg-b')?.children ?? [])] as HTMLElement[]) { const t = md(k).trim(); if (t) lines.push(t, ''); } } break;
       case 'UL': case 'OL': [...b.children].forEach((li, i) => lines.push(`${b.tagName === 'OL' ? `${i + 1}.` : '-'} ${md(li).trim()}`)); lines.push(''); break;
       default: if (text) lines.push(text, '');
