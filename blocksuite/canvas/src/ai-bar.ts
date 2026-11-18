@@ -281,14 +281,41 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   const dot = h('button', 'cx-sel-dot'); dot.setAttribute('aria-label', 'Ask Claude about this'); layer.append(dot);
   let tbOn = false;
   const SEL_CSS = '.handle > *, .rotate, [class*="rotate-handle"] { opacity: 0 !important; } .affine-edgeless-selected-rect { border-width: 1.5px !important; border-color: #0c8ce9 !important; border-radius: var(--cx-r, 0px) !important; }';
-  const FT_CSS = ':host { background-color: #53b1f3 !important; color: #14212b !important; border: 0 !important; border-radius: 6px !important; padding: 0 8px !important; font-weight: 600 !important; font-size: 13px !important; } :host(:hover) { background-color: #45a6ea !important; }';
+  const FT_CSS = ':host { background-color: var(--cx-ft, #53b1f3) !important; color: #14212b !important; border: 0 !important; border-radius: 6px !important; padding: 0 8px !important; font-weight: 600 !important; font-size: 13px !important; } :host(:hover) { filter: brightness(.95); }';
   const TB_CSS = ':host(:not([data-cx-tb])) editor-toolbar { opacity: 0 !important; pointer-events: none !important; }';
   const inject = (tag: string, css: string) => { const host = deepFind(document, e => e.tagName === tag) as El | null; const sr = host?.shadowRoot; if (!sr || sr.querySelector('style[data-cx]')) return host; const st = document.createElement('style'); st.dataset.cx = '1'; st.textContent = css; sr.append(st); return host; };
   const toolbarHost = () => deepFind(document, e => e.tagName === 'AFFINE-TOOLBAR-WIDGET') as El | null;
   const setTb = (on: boolean) => { tbOn = on; const hst = toolbarHost(); if (hst) on ? hst.setAttribute('data-cx-tb', '') : hst.removeAttribute('data-cx-tb'); };
   const injectAll = (tag: string, css: string) => { const walk = (r: Document | ShadowRoot) => { for (const e of Array.from(r.querySelectorAll('*')) as El[]) { if (e.tagName === tag && e.shadowRoot && !e.shadowRoot.querySelector('style[data-cx]')) { const st = document.createElement('style'); st.dataset.cx = '1'; st.textContent = css; e.shadowRoot.append(st); } if (e.shadowRoot && /FRAME-TITLE|EDGELESS-ROOT|EDITOR/.test(e.tagName)) walk(e.shadowRoot); } }; walk(document); };
   setInterval(() => { inject('EDGELESS-SELECTED-RECT', SEL_CSS); inject('AFFINE-TOOLBAR-WIDGET', TB_CSS); }, 400);
-  setInterval(() => injectAll('AFFINE-FRAME-TITLE', FT_CSS), 900);
+  // Sections take the colour picked for them (blue when none): a pale wash, a clear border, a solid title tab.
+  const probe = h('i'); probe.style.display = 'none'; layer.append(probe);
+  const sectionTone = (raw: string) => {
+    probe.style.color = ''; probe.style.color = raw || '#fff';
+    const m = /rgba?\(([\d.]+)[, ]+([\d.]+)[, ]+([\d.]+)(?:[,/ ]+([\d.]+))?/.exec(getComputedStyle(probe).color);
+    let [r, g, b] = m ? [+m[1] / 255, +m[2] / 255, +m[3] / 255] : [1, 1, 1]; const a = m && m[4] !== undefined ? +m[4] : 1;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+    const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+    if (a < .05 || sat < .12) return { main: '#53b1f3', wash: 'rgba(83, 177, 243, .08)', line: '#73bef1' };   // white / grey / none → blue
+    let hue = 0; if (d) hue = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; hue = (hue * 60 + 360) % 360;
+    const H = hue.toFixed(0);
+    return { main: `hsl(${H} 86% 64%)`, wash: `hsl(${H} 86% 64% / .09)`, line: `hsl(${H} 82% 70%)` };
+  };
+  const paintSections = () => {
+    const tones = new Map<string, string>();
+    for (const f of Array.from(rootEl.querySelectorAll('affine-frame')) as El[]) {
+      const c = f.querySelector('.affine-frame-container') as El | null; if (!c) continue;
+      const raw = c.style.backgroundColor || c.style.background || '';
+      if (c.dataset.cxRaw !== raw) { c.dataset.cxRaw = raw; const t = sectionTone(raw); c.style.setProperty('--cx-wash', t.wash); c.style.setProperty('--cx-line', t.line); c.dataset.cxMain = t.main; }
+      const id = f.getAttribute('data-block-id') ?? (f as any).model?.id; if (id) tones.set(id, c.dataset.cxMain!);
+    }
+    const walk = (r: Document | ShadowRoot) => { for (const e of Array.from(r.querySelectorAll('*')) as El[]) {
+      if (e.tagName === 'AFFINE-FRAME-TITLE') { const t = tones.get(e.dataset.id ?? ''); if (t) e.style.setProperty('--cx-ft', t);
+        if (e.shadowRoot && !e.shadowRoot.querySelector('style[data-cx]')) { const st = document.createElement('style'); st.dataset.cx = '1'; st.textContent = FT_CSS; e.shadowRoot.append(st); } }
+      if (e.shadowRoot && /FRAME-TITLE|EDGELESS-ROOT|EDITOR/.test(e.tagName)) walk(e.shadowRoot); } };
+    walk(document);
+  };
+  void injectAll; setInterval(paintSections, 350);
   const selBound = () => { const els = gfx.selection.selectedElements as any[]; return els.length ? boundOf(els) : null; };
   let selHost: El | null = null, lastZ = 0;
   function placeDot() {

@@ -527,8 +527,8 @@ body.cx-resizing #app, body.cx-resizing .cx-pn, body.cx-resizing .cx-dock { tran
 
 /* sections: Heptabase's blue — a pale wash, a clear thin border, a solid title tab */
 affine-frame .affine-frame-container {
-  background: rgba(83, 177, 243, .08) !important;
-  border: 1px solid #73bef1 !important;
+  background: var(--cx-wash, rgba(83, 177, 243, .08)) !important;
+  border: 1px solid var(--cx-line, #73bef1) !important;
   border-radius: calc(8px * var(--cx-z, 1)) !important;
 }
 /* one corner radius for cards and sections */
