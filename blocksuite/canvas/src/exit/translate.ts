@@ -28,7 +28,9 @@ export type Blk =
   | { type: 'h1' | 'h2' | 'h3' | 'text' | 'quote'; runs: Run[] }
   | { type: 'bulleted' | 'numbered'; runs: Run[]; depth?: number }
   | { type: 'divider' }
-  | { type: 'figure'; box: { x: number; y: number; w: number; h: number }; caption: string };
+  | { type: 'figure'; box: { x: number; y: number; w: number; h: number }; caption: string }
+  // a few things from the board, enlarged and set side by side
+  | { type: 'gallery'; boxes: { x: number; y: number; w: number; h: number }[]; caption: string };
 export type DocOut = { title: string; blocks: Blk[] };
 
 // ── as prose: a document reads in paragraphs, like a book; lists only where a list is the point ──
@@ -333,6 +335,10 @@ export function translateBoard(rootEl: any): DocOut {
   if (keyBlocks.length) blocks.push({ type: 'h2', runs: [{ text: 'Key points' }] }, ...keyBlocks);
 
   const sections = tops.filter(i => i.kind === 'frame' || (i.children?.length && !['card', 'group'].includes(i.kind)));
+  // pictures: with no sections to show one by one, the whole board opens the document
+  const union = (xs: Item[]) => { const x = Math.min(...xs.map(i => i.box.x)), y = Math.min(...xs.map(i => i.box.y)); return { x, y, w: Math.max(...xs.map(i => i.box.x + i.box.w)) - x, h: Math.max(...xs.map(i => i.box.y + i.box.h)) - y }; };
+  const shown = tops.filter(i => !isMark(i) && i.kind !== 'connector');
+  if (!sections.length && shown.length > 2) blocks.push({ type: 'figure', box: union(shown), caption: 'The whole board, as it was arranged.' });
   for (const f of sections) { used.add(f.ref); blocks.push(...container(f, 1)); }
   // loose groups and things: titled groups become sections; the rest is "Other notes"
   for (const g of r.groups.filter(g => !g.in && g.members.length > 1)) {
@@ -350,7 +356,13 @@ export function translateBoard(rootEl: any): DocOut {
     c ? c.push(i) : cols.push([i]);
   }
   const rest: Blk[] = [];
+  // the user's own notes, enlarged side by side: what they wrote, in their colours
+  const stickies = cols.flat().filter(i => (i.kind === 'sticky' || i.kind === 'shape') && textOf(i).trim()).sort((a, b) => weight(b) - weight(a)).slice(0, 4).sort((a, b) => a.box.x - b.box.x || a.box.y - b.box.y);
+  if (stickies.length >= 2) rest.push({ type: 'gallery', boxes: stickies.map(i => i.box), caption: 'Notes written on the board, enlarged' });
   for (const c of cols) rest.push(...say(c.sort((a, b) => a.box.y - b.box.y), undefined, 1));
+  // close-ups of the notes the user placed on a source: the placement is the citation
+  const pinned = sourceOrder.map(ref => [by.get(ref)!, ...r.items.filter(i => aboutSource.get(i.ref) === ref)]).filter(g => g[0] && g.length > 1).slice(0, 3);
+  if (pinned.length) rest.push({ type: 'gallery', boxes: pinned.map(union), caption: pinned.length > 1 ? 'Notes placed on their sources, close up' : 'A note placed on its source, close up' });
   if (rest.length) blocks.push({ type: 'h1', runs: [{ text: sections.length ? 'Other notes' : 'Notes' }] }, ...rest);
   const lineRest = lines(r.items.filter(i => i.kind === 'connector').map(i => i.ref));
   if (lineRest.length) blocks.push(...lineRest);

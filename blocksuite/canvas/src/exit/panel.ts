@@ -36,7 +36,7 @@ export function mountPanel(rootEl: any) {
 
   // ── shell ──
   const open = btn('cx-pn-open', I.panel, 'Open panel');
-  const panel = el('aside', 'cx-pn'); panel.hidden = true;
+  const panel = el('aside', 'cx-pn');
   const head = el('div', 'cx-pn-head');
   const tabs = el('div', 'cx-pn-tabs');
   const tDoc = btn('cx-pn-tab on', I.doc, 'Document'), tChat = btn('cx-pn-tab', I.chat, 'Chat');
@@ -51,8 +51,9 @@ export function mountPanel(rootEl: any) {
   document.body.append(open, panel);
 
   let tab: 'doc' | 'chat' = 'doc', wide = false;
-  const settle = () => { requestAnimationFrame(() => window.dispatchEvent(new Event('resize'))); setTimeout(() => window.dispatchEvent(new Event('resize')), 220); };
-  const show = (on: boolean) => { panel.hidden = !on; open.hidden = on; document.body.classList.toggle('cx-pn-on', on); settle(); if (on && tab === 'doc') refresh(); };
+  // the canvas eases into a two-column layout (Heptabase-like); the canvas keeps redrawing while it narrows
+  const settle = () => { const t0 = performance.now(); const tick = () => { window.dispatchEvent(new Event('resize')); if (performance.now() - t0 < 460) requestAnimationFrame(tick); }; requestAnimationFrame(tick); };
+  const show = (on: boolean) => { panel.classList.toggle('on', on); panel.inert = !on; open.classList.toggle('off', on); document.body.classList.toggle('cx-pn-on', on); settle(); if (on && tab === 'doc') refresh(); };
   const setTab = (t: 'doc' | 'chat') => {
     tab = t; tDoc.classList.toggle('on', t === 'doc'); tChat.classList.toggle('on', t === 'chat');
     docPane.hidden = t !== 'doc'; chatPane.hidden = t !== 'chat'; bMore.hidden = t !== 'doc';
@@ -67,7 +68,7 @@ export function mountPanel(rootEl: any) {
   const banner = el('div', 'cx-doc-note'); banner.hidden = true;
   banner.innerHTML = '<span>The board has changed since this was written.</span>';
   const bUpd = el('button', 'cx-doc-note-b'); bUpd.textContent = 'Update'; banner.append(bUpd);
-  const page = el('article', 'cx-doc');
+  const page = el('article', 'cx-doc'); page.lang = 'en';
   page.contentEditable = 'true'; page.spellcheck = false;
   docPane.append(banner, page);
 
@@ -90,6 +91,19 @@ export function mountPanel(rootEl: any) {
         const url = await jpeg(blob); const img = f.querySelector('img') ?? f.insertBefore(document.createElement('img'), f.firstChild);
         img.src = url; img.alt = f.querySelector('figcaption')?.textContent ?? ''; f.removeAttribute('data-box');
       } catch { /* leave the caption */ }
+    }
+    // galleries: each thing on its own, enlarged, in a row
+    for (const f of [...page.querySelectorAll<HTMLElement>('figure.cx-gal[data-boxes]')]) {
+      const row = el('div', 'cx-gal-row');
+      for (const b of (f.dataset.boxes ?? '').split(';')) {
+        const [x, y, w, h] = b.split(',').map(Number); if (!w || !h) continue;
+        try {
+          const blob = await snapshot(rootEl, { x: x - 6, y: y - 6, w: w + 12, h: h + 12 }, 640, 0); if (!blob) continue;
+          const img = document.createElement('img'); img.src = await jpeg(blob); img.alt = ''; row.append(img);
+        } catch { /* skip this one */ }
+      }
+      if (row.children.length) { row.style.setProperty('--n', String(row.children.length === 3 ? 3 : Math.min(2, row.children.length))); f.insertBefore(row, f.firstChild); f.removeAttribute('data-boxes'); }
+      else f.remove();
     }
     const s = load(); if (s && !s.edited) save({ ...s, html: page.innerHTML });
   }
@@ -299,7 +313,8 @@ export function render(title: string, blocks: Blk[]): string {
       out.push(`<li>${runs(b.runs)}</li>`); return;
     }
     close();
-    if (b.type === 'figure') { fig++; out.push(`<figure class="cx-fig" data-box="${Math.round(b.box.x)},${Math.round(b.box.y)},${Math.round(b.box.w)},${Math.round(b.box.h)}" contenteditable="false"><figcaption>Figure ${fig}. ${esc(b.caption)}, as arranged on the board.</figcaption></figure>`); return; }
+    if (b.type === 'gallery') { fig++; out.push(`<figure class="cx-fig cx-gal" data-boxes="${b.boxes.map(x => [x.x, x.y, x.w, x.h].map(Math.round).join(',')).join(';')}" contenteditable="false"><figcaption>Figure ${fig}. ${esc(b.caption)}.</figcaption></figure>`); return; }
+    if (b.type === 'figure') { fig++; out.push(`<figure class="cx-fig" data-box="${Math.round(b.box.x)},${Math.round(b.box.y)},${Math.round(b.box.w)},${Math.round(b.box.h)}" contenteditable="false"><figcaption>Figure ${fig}. ${esc(b.caption)}${/\.$/.test(b.caption) ? '' : ', as arranged on the board.'}</figcaption></figure>`); return; }
     if (b.type === 'divider') { out.push('<hr>'); return; }
     const t = runs(b.runs);
     if (b.type === 'h1') { refs = /References/.test(t); out.push(`<h2>${t}</h2>`); }

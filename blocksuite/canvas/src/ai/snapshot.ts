@@ -37,13 +37,12 @@ function noteText(m: any): string {
   return out.filter(Boolean).join('\n');
 }
 
-export async function snapshot(rootEl: any, box: Box, maxSide = 1024): Promise<Blob | null> {
+export async function snapshot(rootEl: any, box: Box, maxSide = 1024, pad = 32): Promise<Blob | null> {
   try {
     const gfx = rootEl.gfx, store = rootEl.std.store;
-    const pad = 32;
     const B: any = gfx.elementsBound.constructor;
     const bound = B.fromXYWH([box.x - pad, box.y - pad, box.w + pad * 2, box.h + pad * 2]);
-    const k = Math.min(2, maxSide / Math.max(bound.w, bound.h));
+    const k = Math.min(3, maxSide / Math.max(bound.w, bound.h));
     const out = document.createElement('canvas');
     out.width = Math.max(1, Math.round(bound.w * k)); out.height = Math.max(1, Math.round(bound.h * k));
     const ctx = out.getContext('2d')!;
