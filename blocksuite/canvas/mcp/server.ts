@@ -262,5 +262,10 @@ void selfUpdate();
 // keep checking while the app stays open, so an update reaches a window that was never closed
 if (process.argv.includes('--app')) setInterval(() => { if (!updated) void selfUpdate(); }, 10 * 60 * 1000);
 // `--app`: started by the desktop launcher, not by a chat app; serve the board only
-if (!process.argv.includes('--app')) { await mcp.connect(new StdioServerTransport()); }
+if (!process.argv.includes('--app')) {
+  // a chat app started this copy: leave a line beside the program, so it is easy to tell whether that ever happened
+  const note = (t: string) => { try { fs.appendFileSync(path.join(HERE, 'mcp-start.log'), `${new Date().toISOString()} ${t}\n`); } catch { /* read-only folder */ } };
+  note('started by a chat app (pid ' + process.pid + ', parent ' + process.ppid + ')');
+  try { await mcp.connect(new StdioServerTransport()); note('speaking MCP over stdio'); } catch (e: any) { note('could not start MCP: ' + (e?.message ?? e)); throw e; }
+}
 log('ready');
