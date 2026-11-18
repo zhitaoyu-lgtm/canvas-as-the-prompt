@@ -9,7 +9,7 @@
 import { ask, available, ModelError } from '../ai/model';
 import { readBoard, toPrompt } from '../ai/reading';
 import { snapshot } from '../ai/snapshot';
-import { asProse, translateBoard, type Blk, type Run } from './translate';
+import { asProse, pace, translateBoard, type Blk, type Run } from './translate';
 
 const KEY = 'cx:document';
 type Saved = { title: string; html: string; board: string; edited: boolean };
@@ -23,6 +23,7 @@ const I = {
   doc: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4.25" y="2.75" width="11.5" height="14.5" rx="2.5"/><path d="M7.5 7h5M7.5 10h5M7.5 13h3"/></svg>',
   chat: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M10 3.5c3.9 0 6.75 2.45 6.75 5.6s-2.85 5.6-6.75 5.6c-.8 0-1.55-.1-2.25-.3L4.5 16v-3.1C3.75 11.9 3.25 10.6 3.25 9.1 3.25 5.95 6.1 3.5 10 3.5z"/></svg>',
   close: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5.5 5.5l9 9M14.5 5.5l-9 9"/></svg>',
+  grip: '<svg viewBox="0 0 20 20" fill="currentColor"><circle cx="7.5" cy="5" r="1.3"/><circle cx="12.5" cy="5" r="1.3"/><circle cx="7.5" cy="10" r="1.3"/><circle cx="12.5" cy="10" r="1.3"/><circle cx="7.5" cy="15" r="1.3"/><circle cx="12.5" cy="15" r="1.3"/></svg>',
   bubble: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5c3.9 0 6.75 2.45 6.75 5.6s-2.85 5.6-6.75 5.6c-.8 0-1.55-.1-2.25-.3L4.5 16v-3.1C3.75 11.9 3.25 10.6 3.25 9.1 3.25 5.95 6.1 3.5 10 3.5z"/><path d="M10 7v4M8 9h4"/></svg>',
   send: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15.5v-11M5.5 9 10 4.5 14.5 9"/></svg>',
 };
@@ -95,7 +96,7 @@ export function mountPanel(rootEl: any) {
   let writing = 0;
   function rebuild() {
     const out = translateBoard(rootEl);
-    page.innerHTML = render(out.title, asProse(out.blocks));
+    page.innerHTML = render(out.title, pace(asProse(out.blocks)));
     save({ title: out.title, html: page.innerHTML, board: boardHash(), edited: false });
     banner.hidden = true;
     void pictures().then(() => writeUp());
@@ -197,22 +198,42 @@ English. Plain Markdown: ## for headings, ### for sub-headings. Return only the 
   const askGo = btn('cx-doc-ask-go', I.send, 'Send');
   askBox.append(askIn, askGo); docPane.append(askBox);
   let asking: HTMLElement | null = null, picked: Range | null = null;
-  page.addEventListener('mouseup', () => setTimeout(() => {
-    const sel = getSelection(); if (!sel || sel.isCollapsed || !page.contains(sel.anchorNode) || !askBox.hidden) return;
-    const r = sel.getRangeAt(0); if (r.toString().trim().length < 2) return;
-    const blk = (r.commonAncestorContainer.nodeType === 1 ? r.commonAncestorContainer as HTMLElement : r.commonAncestorContainer.parentElement)?.closest(BLOCK) as HTMLElement | null;
-    if (!blk) return;
-    picked = r.cloneRange(); asking = blk; hover.hidden = true;
+  // select words → a small Claude bubble above them (the selection stays); click it → the instruction box,
+  // while the chosen words stay marked even though the cursor is now in the box
+  const selBub = btn('cx-sel-bub', I.bubble, 'Ask Claude about this'); selBub.hidden = true; docPane.append(selBub);
+  const HLS: any = (CSS as any).highlights, HLC: any = (globalThis as any).Highlight;
+  const showPicked = (r: Range | null) => { try { r ? HLS?.set('cx-picked', new HLC(r)) : HLS?.delete('cx-picked'); } catch { /* older browser */ } };
+  const blockOf = (r: Range) => (r.commonAncestorContainer.nodeType === 1 ? r.commonAncestorContainer as HTMLElement : r.commonAncestorContainer.parentElement)?.closest(BLOCK) as HTMLElement | null;
+  let selecting = false;
+  page.addEventListener('pointerdown', () => { selecting = true; selBub.hidden = true; });
+  document.addEventListener('pointerup', () => { if (selecting) { selecting = false; setTimeout(placeSelBub, 0); } });
+  document.addEventListener('selectionchange', () => { if (!selecting) placeSelBub(); });
+  function placeSelBub() {
+    if (!askBox.hidden || !palette.hidden) return;
+    const sel = getSelection();
+    if (!sel || sel.isCollapsed || !page.contains(sel.anchorNode) || sel.toString().trim().length < 2) { selBub.hidden = true; return; }
+    const r = sel.getRangeAt(0); if (!blockOf(r)) { selBub.hidden = true; return; }
+    const pr = docPane.getBoundingClientRect(), first = r.getClientRects()[0] ?? r.getBoundingClientRect();
+    selBub.style.top = `${first.top - pr.top + docPane.scrollTop - 36}px`;
+    selBub.style.left = `${Math.max(8, Math.min(first.left - pr.left - 4, pr.width - 44))}px`;
+    selBub.hidden = false; hover.hidden = true;
+  }
+  docPane.addEventListener('scroll', () => { selBub.hidden = true; });
+  selBub.addEventListener('mousedown', (e) => e.preventDefault());   // keep the selection
+  selBub.onclick = () => {
+    const sel = getSelection(); if (!sel || sel.isCollapsed) return;
+    const r = sel.getRangeAt(0); const blk = blockOf(r); if (!blk) return;
+    picked = r.cloneRange(); asking = blk; selBub.hidden = true; hover.hidden = true; showPicked(picked);
     const pr = docPane.getBoundingClientRect(), rr = r.getBoundingClientRect();
     askBox.style.top = `${rr.bottom - pr.top + docPane.scrollTop + 10}px`; askBox.hidden = false; askIn.value = ''; askIn.placeholder = 'Tell Claude what to change'; askIn.focus();
-  }, 0));
+  };
   hover.onclick = () => {
     if (!target) return; asking = target; picked = null; hover.hidden = true;
     asking.classList.add('cx-doc-focus');
     const pr = docPane.getBoundingClientRect(), br = asking.getBoundingClientRect();
     askBox.style.top = `${br.bottom - pr.top + docPane.scrollTop + 8}px`; askBox.hidden = false; askIn.value = ''; askIn.focus();
   };
-  const closeAsk = () => { askBox.hidden = true; asking?.classList.remove('cx-doc-focus'); asking = null; picked = null; };
+  const closeAsk = () => { askBox.hidden = true; asking?.classList.remove('cx-doc-focus'); asking = null; picked = null; showPicked(null); };
   askIn.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAsk(); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void change(); } });
   askIn.addEventListener('input', () => { askIn.style.height = 'auto'; askIn.style.height = `${Math.min(120, askIn.scrollHeight)}px`; });
   askGo.onclick = () => void change();
@@ -253,7 +274,7 @@ You may use **bold** and ==highlight==. ${words ? 'Replace only the selected wor
   const restore = () => { if (!range) return; page.focus({ preventScroll: true }); const s = getSelection(); s?.removeAllRanges(); s?.addRange(range); };
   page.addEventListener('contextmenu', (e) => {
     const s = getSelection(); if (!s || s.isCollapsed || !page.contains(s.anchorNode)) return;
-    e.preventDefault(); range = s.getRangeAt(0).cloneRange();
+    e.preventDefault(); range = s.getRangeAt(0).cloneRange(); selBub.hidden = true;
     const pr = panel.getBoundingClientRect();
     palette.style.left = `${Math.min(e.clientX - pr.left, pr.width - 250)}px`; palette.style.top = `${e.clientY - pr.top + 8}px`; palette.hidden = false;
   });
@@ -261,6 +282,97 @@ You may use **bold** and ==highlight==. ${words ? 'Replace only the selected wor
     restore(); document.execCommand('styleWithCSS', false, 'true'); document.execCommand('hiliteColor', false, hex);
     palette.hidden = true; getSelection()?.removeAllRanges(); page.dispatchEvent(new Event('input'));
   }
+
+  // ── blocks, like Notion: a bgrip on the left of each block; drag it to move the block, click it for a menu ──
+  const bgrip = el('div', 'cx-blk-grip'); bgrip.innerHTML = I.grip; bgrip.hidden = true; docPane.append(bgrip);
+  const drop = el('div', 'cx-blk-drop'); drop.hidden = true; docPane.append(drop);
+  const bmenu = el('div', 'cx-pn-menu cx-blk-menu'); bmenu.hidden = true; docPane.append(bmenu);
+  let gb: HTMLElement | null = null;
+  const topOf = (n: Element | null): HTMLElement | null => { while (n && n.parentElement !== page) n = n.parentElement; return n && n !== page && !n.classList.contains('cx-doc-title') ? n as HTMLElement : null; };
+  const blocks = () => ([...page.children] as HTMLElement[]).filter(b => !b.classList.contains('cx-doc-title'));
+  docPane.addEventListener('mousemove', (e) => {
+    if (dragging || !bmenu.hidden) return;
+    const t = e.target as HTMLElement;
+    if (t.closest?.('.cx-blk-grip')) return;
+    // the bgrip follows the block under the pointer, also when the pointer is in the left margin
+    const pr = page.getBoundingClientRect();
+    const b = topOf(t.closest?.('.cx-doc > *') ?? null) ?? blocks().find(k => { const r = k.getBoundingClientRect(); return e.clientY >= r.top - 4 && e.clientY <= r.bottom + 4 && e.clientX > pr.left; }) ?? null;
+    if (!b) { bgrip.hidden = true; return; }
+    gb = b; const dr = docPane.getBoundingClientRect(), br = b.getBoundingClientRect();
+    const lh = parseFloat(getComputedStyle(b).lineHeight) || 24;
+    bgrip.style.top = `${br.top - dr.top + docPane.scrollTop + (b.tagName === 'FIGURE' ? 4 : Math.max(0, lh / 2 - 11))}px`;
+    bgrip.style.left = `${pr.left - dr.left + 14}px`; bgrip.hidden = false;
+  });
+  docPane.addEventListener('mouseleave', () => { if (!dragging) bgrip.hidden = true; });
+  let dragging = false;
+  bgrip.addEventListener('pointerdown', (e) => {
+    if (!gb) return; e.preventDefault(); bgrip.setPointerCapture(e.pointerId);
+    const src = gb, y0 = e.clientY; let moved = false, before: HTMLElement | null | undefined;
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.abs(ev.clientY - y0) < 4) return;
+      moved = true; dragging = true; src.classList.add('cx-blk-moving'); bmenu.hidden = true;
+      const list = blocks(); const dr = docPane.getBoundingClientRect(), pr = page.getBoundingClientRect();
+      before = list.find(k => { const r = k.getBoundingClientRect(); return ev.clientY < r.top + r.height / 2; }) ?? null;
+      const ref = before ? before.getBoundingClientRect().top - 7 : list[list.length - 1].getBoundingClientRect().bottom + 4;
+      drop.style.top = `${ref - dr.top + docPane.scrollTop}px`; drop.style.left = `${pr.left - dr.left + 40}px`; drop.style.width = `${pr.width - 80}px`; drop.hidden = false;
+      // scroll while dragging near the edges
+      if (ev.clientY < dr.top + 40) docPane.scrollTop -= 12; else if (ev.clientY > dr.bottom - 40) docPane.scrollTop += 12;
+    };
+    const up = () => {
+      bgrip.removeEventListener('pointermove', move); drop.hidden = true; src.classList.remove('cx-blk-moving');
+      if (moved) { if (before !== undefined && before !== src) page.insertBefore(src, before); dragging = false; page.dispatchEvent(new Event('input')); }
+      else openBlockMenu(src);
+    };
+    bgrip.addEventListener('pointermove', move); bgrip.addEventListener('pointerup', up, { once: true });
+  });
+  const TEXTY = ['P', 'H2', 'H3', 'H4', 'BLOCKQUOTE'];
+  function openBlockMenu(b: HTMLElement) {
+    bmenu.innerHTML = '';
+    const item = (label: string, fn: () => void, on = false, danger = false) => { const x = el('button', 'cx-pn-mi' + (on ? ' on' : '') + (danger ? ' danger' : '')); x.textContent = label; x.onclick = () => { bmenu.hidden = true; fn(); page.dispatchEvent(new Event('input')); }; bmenu.append(x); };
+    const isToggle = b.classList.contains('cx-tg');
+    if (TEXTY.includes(b.tagName) || isToggle) {
+      const head = el('div', 'cx-pn-mh'); head.textContent = 'Turn into'; bmenu.append(head);
+      for (const [label, tag] of [['Text', 'P'], ['Heading 1', 'H2'], ['Heading 2', 'H3'], ['Heading 3', 'H4'], ['Quote', 'BLOCKQUOTE']] as const) item(label, () => turnInto(b, tag), b.tagName === tag && !isToggle);
+      item('Toggle list', () => toToggle(b), isToggle);
+      bmenu.append(el('i', 'cx-pn-sep'));
+    }
+    item('Duplicate', () => b.after(b.cloneNode(true)));
+    item('Delete', () => b.remove(), false, true);
+    const dr = docPane.getBoundingClientRect(), gr = bgrip.getBoundingClientRect();
+    bmenu.style.top = `${gr.bottom - dr.top + docPane.scrollTop + 4}px`; bmenu.style.left = `${gr.left - dr.left}px`; bmenu.hidden = false;
+  }
+  const textOfBlock = (b: HTMLElement) => b.classList.contains('cx-tg') ? (b.querySelector('.cx-tg-t')?.innerHTML ?? '') : b.innerHTML;
+  function turnInto(b: HTMLElement, tag: string) {
+    const n = document.createElement(tag); n.innerHTML = textOfBlock(b) || '<br>';
+    if (b.classList.contains('cx-tg')) { const body = [...(b.querySelector('.cx-tg-b')?.children ?? [])]; b.replaceWith(n); n.after(...body); return; }
+    b.replaceWith(n);
+  }
+  function toToggle(b: HTMLElement) {
+    if (b.classList.contains('cx-tg')) return;
+    const t = el('div', 'cx-tg'); t.dataset.open = '1';
+    t.innerHTML = `<div class="cx-tg-h"><span class="cx-tg-a" contenteditable="false"></span><span class="cx-tg-t">${textOfBlock(b)}</span></div><div class="cx-tg-b"><p><br></p></div>`;
+    // a heading takes what follows it, up to the next heading of the same or higher level, into the toggle
+    const lvl = /^H([2-4])$/.exec(b.tagName)?.[1];
+    if (lvl) { const body = t.querySelector('.cx-tg-b')!; body.innerHTML = ''; let n = b.nextElementSibling as HTMLElement | null;
+      while (n && !(/^H[2-4]$/.test(n.tagName) && n.tagName[1] <= lvl) && !n.classList.contains('cx-refs')) { const nx = n.nextElementSibling as HTMLElement | null; body.append(n); n = nx; }
+      if (!body.children.length) body.innerHTML = '<p><br></p>'; t.classList.add('h' + lvl); }
+    b.replaceWith(t);
+  }
+  page.addEventListener('mousedown', (e) => {
+    const a = (e.target as HTMLElement).closest?.('.cx-tg-a'); if (!a) return;
+    e.preventDefault(); const t = a.closest('.cx-tg') as HTMLElement; t.dataset.open = t.dataset.open === '1' ? '0' : '1'; page.dispatchEvent(new Event('input'));
+  });
+  document.addEventListener('pointerdown', (e) => { const t = e.target as Node; if (!bmenu.hidden && !bmenu.contains(t) && !bgrip.contains(t)) bmenu.hidden = true; }, true);
+
+  // text size for the document (kept on this computer)
+  const SIZE_KEY = 'cx:doc-size';
+  const sizes: Record<string, number> = { S: 0.92, M: 1, L: 1.1 };
+  const setSize = (k: string) => { page.style.zoom = String(sizes[k] ?? 1); try { localStorage.setItem(SIZE_KEY, k); } catch { /* fine */ } seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.textContent === k)); };
+  const seg = el('div', 'cx-pn-seg'); seg.innerHTML = '<span>Text size</span>';
+  for (const k of ['S', 'M', 'L']) { const b = el('button', ''); b.textContent = k; b.onclick = (e) => { e.stopPropagation(); setSize(k); }; seg.append(b); }
+  menu.prepend(seg, el('i', 'cx-pn-sep'));
+  let size0 = 'M'; try { size0 = localStorage.getItem(SIZE_KEY) || 'M'; } catch { /* default */ }
+  setSize(size0);
 
   // ── chat ──
   const log = el('div', 'cx-chat-log');
@@ -416,7 +528,7 @@ export function toMarkdown(page: HTMLElement, figures = false): string {
       case 'BLOCKQUOTE': lines.push(`> ${text}`, ''); break;
       case 'HR': lines.push('---', ''); break;
       case 'FIGURE': { const n = [...page.querySelectorAll('figure')].indexOf(b) + 1; if (figures) lines.push(`[[Figure ${n}]]`, ''); else { const cap = b.querySelector('figcaption')?.textContent ?? ''; lines.push(`*${cap}*`, ''); } break; }
-      case 'DIV': break;
+      case 'DIV': if (b.classList.contains('cx-tg')) { lines.push(`**${md(b.querySelector('.cx-tg-t') as HTMLElement).trim()}**`, ''); for (const k of [...(b.querySelector('.cx-tg-b')?.children ?? [])] as HTMLElement[]) { const t = md(k).trim(); if (t) lines.push(t, ''); } } break;
       case 'UL': case 'OL': [...b.children].forEach((li, i) => lines.push(`${b.tagName === 'OL' ? `${i + 1}.` : '-'} ${md(li).trim()}`)); lines.push(''); break;
       default: if (text) lines.push(text, '');
     }

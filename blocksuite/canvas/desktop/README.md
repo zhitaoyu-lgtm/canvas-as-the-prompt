@@ -1,7 +1,7 @@
 # Canvas as the Prompt · desktop
 
 ## Open
-Double-click **Canvas.vbs**. The board opens in its own window (no browser tabs or address bar).
+Double-click **Canvas.vbs** once: it also puts a **Canvas** shortcut (with the app icon) on the Desktop and in the Start menu; use that from then on. The board opens in its own window (no browser tabs or address bar).
 For a desktop icon: right-click Canvas.vbs → Send to → Desktop (create shortcut).
 
 Nothing to install: Node is included (`node/`). Everything runs on this computer at 127.0.0.1:7357.
@@ -17,8 +17,7 @@ Nothing to install: Node is included (`node/`). Everything runs on this computer
   then quit and reopen Claude Desktop. Both use the same board.
 
 ## Update
-Unzip the new version over this folder (replace `app/` and `server.mjs`). The board's content stays: it lives in the window's own storage, not in these files.
-Run **Quit Canvas.cmd** first if the board is open.
+Automatic. Each time Canvas opens it checks the project's `desktop-app` branch on GitHub, downloads only the files that changed (each checked against its sha256) and shows "A new version is ready · Reload". Offline, it simply opens the version it has. The board's content stays: it lives in the window's own storage, not in these files.
 
 ## Stop
 Close the window. To stop the background server too, run **Quit Canvas.cmd**.

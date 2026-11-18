@@ -400,3 +400,43 @@ body.cx-pn-on .cx-pn-grip { display: block; }
 .cx-pn-grip:hover::after, body.cx-resizing .cx-pn-grip::after { opacity: 1; }
 body.cx-resizing, body.cx-resizing * { cursor: col-resize !important; user-select: none !important; }
 body.cx-resizing #app, body.cx-resizing .cx-pn, body.cx-resizing .cx-dock { transition: none !important; }
+
+/* desktop update notice */
+.cx-update { position: fixed; left: 50%; top: 14px; transform: translateX(-50%); z-index: 90; display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px 14px;
+  background: #1d1d1f; color: #fff; border-radius: 10px; font: 500 12.5px/1.2 Inter, system-ui, sans-serif; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+.cx-update button { border: 0; background: rgba(255,255,255,.14); color: #fff; font: inherit; padding: 5px 10px; border-radius: 7px; cursor: pointer; }
+.cx-update button.x { background: transparent; color: rgba(255,255,255,.6); padding: 2px 6px; font-size: 15px; }
+
+/* selection in the document: dark grey, white words; the chosen words stay marked while Claude is asked */
+.cx-doc ::selection { background: rgba(40,40,42,.86); color: #fff; }
+::highlight(cx-picked) { background-color: rgba(40,40,42,.86); color: #fff; }
+.cx-sel-bub { position: absolute; z-index: 5; width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+  background: #1d1d1f !important; color: #fff !important; box-shadow: 0 4px 14px rgba(0,0,0,.18); animation: cx-pop .14s ease-out; }
+.cx-sel-bub svg { width: 17px; height: 17px; }
+.cx-sel-bub:hover { background: #000 !important; }
+@keyframes cx-pop { from { transform: translateY(4px) scale(.92); opacity: 0; } }
+/* blocks */
+.cx-blk-grip { position: absolute; z-index: 3; width: 20px; height: 22px; border-radius: 5px; display: grid; place-items: center; color: #b8b5ad; cursor: grab; user-select: none; }
+.cx-blk-grip:hover { background: #f2f1ee; color: #6e6b63; }
+.cx-blk-grip svg { width: 15px; height: 15px; }
+.cx-blk-drop { position: absolute; z-index: 3; height: 3px; border-radius: 2px; background: #1e96eb; opacity: .55; pointer-events: none; }
+.cx-doc .cx-blk-moving { opacity: .35; }
+.cx-blk-menu { position: absolute; z-index: 6; min-width: 180px; }
+.cx-pn-mh { padding: 6px 10px 4px; font: 500 11px/1.2 Inter, system-ui, sans-serif; color: #9a968b; }
+.cx-pn-mi.on { background: #f2f2f4; }
+.cx-pn-seg { display: flex; align-items: center; gap: 4px; padding: 4px 6px 4px 10px; font: 400 13px/1 Inter, system-ui, sans-serif; color: #1d1d1f; }
+.cx-pn-seg span { flex: 1; }
+.cx-pn .cx-pn-seg button { width: 28px; height: 26px; border-radius: 7px; font: 500 12px/1 Inter, system-ui, sans-serif; color: #6e6e73; }
+.cx-pn .cx-pn-seg button.on { background: #f2f2f4; color: #1d1d1f; }
+/* toggle blocks */
+.cx-doc .cx-tg { margin: 0 0 12px; }
+.cx-doc .cx-tg-h { display: flex; align-items: baseline; gap: 6px; }
+.cx-doc .cx-tg.h2 .cx-tg-t { font: 600 17.5px/1.35 'Source Serif 4', Georgia, serif; }
+.cx-doc .cx-tg.h3 .cx-tg-t { font: 600 15.5px/1.4 'Source Serif 4', Georgia, serif; }
+.cx-doc .cx-tg-a { flex: none; width: 18px; height: 18px; border-radius: 4px; cursor: pointer; position: relative; top: 2px; user-select: none; }
+.cx-doc .cx-tg-a::before { content: ''; position: absolute; left: 6px; top: 4.5px; border: 5px solid transparent; border-left: 7px solid #55524a; border-right: 0; transition: transform .15s ease; transform-origin: 3px 5px; }
+.cx-doc .cx-tg[data-open="1"] .cx-tg-a::before { transform: rotate(90deg); }
+.cx-doc .cx-tg-a:hover { background: #f2f1ee; }
+.cx-doc .cx-tg-t { flex: 1; min-width: 0; }
+.cx-doc .cx-tg-b { padding: 6px 0 0 24px; }
+.cx-doc .cx-tg[data-open="0"] .cx-tg-b { display: none; }

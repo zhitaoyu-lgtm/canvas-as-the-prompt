@@ -45,6 +45,35 @@ const endSentence = (rs: Run[]): Run[] => {
   if (k >= 0 && k < out.length - 1) { const tail = out.splice(k + 1); const dot = out[k].text.endsWith('.') ? (out[k].text = out[k].text.slice(0, -1), '.') : ''; out.push(...tail.map(t => ({ ...t, text: ' ' + t.text.trim() }))); out.push({ text: dot }); }
   return [...out, ...cites];
 };
+/** Text and pictures in a steady rhythm, like an edited article: a section's own picture stays under its heading;
+ *  any other picture waits until at least two paragraphs have passed since the last one, so pictures never pile
+ *  up, and pictures still waiting are let in where the text runs long. Whatever is left goes before References. */
+export function pace(blocks: Blk[]): Blk[] {
+  const out: Blk[] = [], wait: Blk[] = [];
+  let since = 99;
+  const isPic = (b: Blk) => b.type === 'figure' || b.type === 'gallery';
+  const isHead = (b?: Blk) => !!b && (b.type === 'h1' || b.type === 'h2' || b.type === 'h3');
+  const texty = (b: Blk) => b.type === 'text' || b.type === 'quote' || b.type === 'bulleted' || b.type === 'numbered';
+  // spread the pictures evenly over the text: one about every `gap` paragraphs, never closer than two
+  const gap = Math.max(2, Math.floor(blocks.filter(texty).length / (blocks.filter(isPic).length + 1)));
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (isPic(b)) {
+      if (isHead(out[out.length - 1]) && b.type === 'figure' && since > 0) { out.push(b); since = 0; continue; }   // a section's own picture
+      if (since >= gap && !wait.length) { out.push(b); since = 0; } else wait.push(b);
+      continue;
+    }
+    if ((b.type === 'h1' || b.type === 'h2') && textOf(b.runs) === 'References') { out.push(...wait.splice(0)); }
+    out.push(b);
+    if (texty(b)) {
+      since++;
+      if (wait.length && since >= gap && !isHead(blocks[i + 1]) && !isPic(blocks[i + 1])) { out.push(wait.shift()!); since = 0; }
+    }
+  }
+  if (wait.length) { const at = out.findIndex(b => b.type === 'divider'); at < 0 ? out.push(...wait) : out.splice(at, 0, ...wait); }
+  return out;
+}
+
 export function asProse(blocks: Blk[]): Blk[] {
   const out: Blk[] = [];
   let i = 0;
@@ -357,12 +386,12 @@ export function translateBoard(rootEl: any): DocOut {
   }
   const rest: Blk[] = [];
   // the user's own notes, enlarged side by side: what they wrote, in their colours
-  const stickies = cols.flat().filter(i => (i.kind === 'sticky' || i.kind === 'shape') && textOf(i).trim()).sort((a, b) => weight(b) - weight(a)).slice(0, 4).sort((a, b) => a.box.x - b.box.x || a.box.y - b.box.y);
+  const stickies = cols.flat().filter(i => (i.kind === 'sticky' || i.kind === 'shape') && textOf(i).trim()).sort((a, b) => weight(b) - weight(a)).slice(0, 3).sort((a, b) => a.box.x - b.box.x || a.box.y - b.box.y);
   if (stickies.length >= 2) rest.push({ type: 'gallery', boxes: stickies.map(i => i.box), caption: 'Notes written on the board, enlarged' });
   for (const c of cols) rest.push(...say(c.sort((a, b) => a.box.y - b.box.y), undefined, 1));
   // close-ups of the notes the user placed on a source: the placement is the citation
-  const pinned = sourceOrder.map(ref => [by.get(ref)!, ...r.items.filter(i => aboutSource.get(i.ref) === ref)]).filter(g => g[0] && g.length > 1).slice(0, 3);
-  if (pinned.length) rest.push({ type: 'gallery', boxes: pinned.map(union), caption: pinned.length > 1 ? 'Notes placed on their sources, close up' : 'A note placed on its source, close up' });
+  const pinned = sourceOrder.map(ref => [by.get(ref)!, ...r.items.filter(i => aboutSource.get(i.ref) === ref)]).filter(g => g[0] && g.length > 1).slice(0, 2);
+  if (pinned.length) rest.splice(rest[0]?.type === 'gallery' ? 1 : 0, 0, { type: 'gallery', boxes: pinned.map(union), caption: pinned.length > 1 ? 'Notes placed on their sources, close up' : 'A note placed on its source, close up' } as Blk);
   if (rest.length) blocks.push({ type: 'h1', runs: [{ text: sections.length ? 'Other notes' : 'Notes' }] }, ...rest);
   const lineRest = lines(r.items.filter(i => i.kind === 'connector').map(i => i.ref));
   if (lineRest.length) blocks.push(...lineRest);

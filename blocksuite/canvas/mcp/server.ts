@@ -78,6 +78,46 @@ async function claude(req: http.IncomingMessage, res: http.ServerResponse, u: UR
   } catch (e: any) { res.writeHead(502).end(String(e?.message || e)); }
 }
 
+// ---------------------------------------------------------------- updates
+// The desktop app updates itself from the project's GitHub branch `desktop-app`: a manifest (version.json) lists
+// every file with its sha256; only files that changed are downloaded, checked against that hash and written in
+// place. Only app/… and server.mjs can be written. The open board is told, so it can offer to reload.
+const UPDATES = process.env.CANVAS_UPDATE_URL || 'https://raw.githubusercontent.com/zhitaoyu-lgtm/canvas-as-the-prompt/desktop-app/';
+let updated: { version: string; restart: boolean } | null = null;
+async function selfUpdate() {
+  if (process.env.CANVAS_NO_UPDATE || !process.argv.includes('--app')) return;
+  const crypto = await import('node:crypto');
+  const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
+  let local: any = { version: '0', files: {} };
+  try { local = JSON.parse(fs.readFileSync(path.join(HERE, 'version.json'), 'utf8')); } catch { /* first run */ }
+  try {
+    const r = await fetch(UPDATES + 'version.json?t=' + Date.now(), { signal: AbortSignal.timeout(10000) });
+    if (!r.ok) return;
+    const m = await r.json();
+    if (!m?.version || m.version <= local.version) return;
+    const want = Object.entries(m.files as Record<string, string>).filter(([p, h]) => {
+      if (!/^(app\/[\w.\-\/]+|server\.mjs)$/.test(p) || p.includes('..')) return false;
+      try { return sha(fs.readFileSync(path.join(HERE, p))) !== h; } catch { return true; }   // what is on disk decides
+    });
+    log(`update ${local.version} → ${m.version}: ${want.length} files`);
+    if (!want.length) { fs.writeFileSync(path.join(HERE, 'version.json'), JSON.stringify(m)); return; }
+    const got: [string, Buffer][] = [];
+    for (const [p, h] of want) {
+      const f = await fetch(UPDATES + p.split('/').map(encodeURIComponent).join('/'), { signal: AbortSignal.timeout(60000) });
+      if (!f.ok) throw new Error(`${p}: ${f.status}`);
+      const b = Buffer.from(await f.arrayBuffer());
+      if (sha(b) !== h) throw new Error(`${p}: checksum`);
+      got.push([p, b]);
+    }
+    // everything arrived and checked: now write (index.html last, so the page never points at a missing file)
+    got.sort((a, b) => (a[0] === 'app/index.html' ? 1 : 0) - (b[0] === 'app/index.html' ? 1 : 0));
+    for (const [p, b] of got) { const f = path.join(HERE, p); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, b); }
+    fs.writeFileSync(path.join(HERE, 'version.json'), JSON.stringify(m));
+    updated = { version: m.version, restart: want.some(([p]) => p === 'server.mjs') };
+    for (const b of boards) b.send(JSON.stringify({ event: 'updated', ...updated }));
+  } catch (e: any) { log('update skipped:', e?.message || e); }
+}
+
 function startOwner(): Promise<boolean> {
   return new Promise(resolve => {
     const srv = http.createServer((req, res) => {
@@ -101,6 +141,7 @@ function startOwner(): Promise<boolean> {
       wss.handleUpgrade(req, socket, head, ws => {
         if (p === '/bridge') {
           boards.push(ws); log('board connected');
+          if (updated) ws.send(JSON.stringify({ event: 'updated', ...updated }));
           ws.on('message', d => { let m: any; try { m = JSON.parse(String(d)); } catch { return; } if (!settle(m)) relayBack(m); });
           ws.on('close', () => { boards = boards.filter(b => b !== ws); log('board closed'); });
         } else if (p === '/relay') {
@@ -216,6 +257,7 @@ mcp.tool('canvas_export',
   {}, async () => { try { return text((await ask('export')).markdown); } catch (e) { return fail(e); } });
 
 await boot();
+void selfUpdate();
 // `--app`: started by the desktop launcher, not by a chat app; serve the board only
 if (!process.argv.includes('--app')) { await mcp.connect(new StdioServerTransport()); }
 log('ready');

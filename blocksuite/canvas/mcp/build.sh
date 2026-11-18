@@ -10,5 +10,16 @@ NODE_PATH="$B/node_modules" npx esbuild "$HERE/server.ts" --bundle --platform=no
 (cd "$HERE/.." && rm -rf dist && npx vite build)
 rm -rf out/canvas-mcp/app && cp -r "$HERE/../dist" out/canvas-mcp/app
 cp "$HERE/README.md" out/canvas-mcp/ 2>/dev/null || true
+# the update manifest: every app file and the server, with its sha256 (the desktop app compares against it)
+(cd out/canvas-mcp && python3 - <<'PY'
+import hashlib, json, os, time
+files = {}
+for root, _, fs in os.walk('app'):
+    for f in fs:
+        p = os.path.join(root, f).replace(os.sep, '/'); files[p] = hashlib.sha256(open(p, 'rb').read()).hexdigest()
+files['server.mjs'] = hashlib.sha256(open('server.mjs', 'rb').read()).hexdigest()
+json.dump({'version': time.strftime('%Y%m%d%H%M%S', time.gmtime()), 'files': files}, open('version.json', 'w'), indent=0)
+PY
+)
 (cd out && rm -f canvas-mcp.zip && zip -qr canvas-mcp.zip canvas-mcp)
 echo "built $B/out/canvas-mcp.zip"

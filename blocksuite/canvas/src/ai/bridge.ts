@@ -25,10 +25,20 @@ export function mountBridge(rootEl: any) {
     ws.onerror = () => { /* onclose follows */ };
     ws.onmessage = async (ev) => {
       let msg: any; try { msg = JSON.parse(String(ev.data)); } catch { return; }
+      if (msg?.event === 'updated') { updatedToast(msg); return; }
       if (!msg?.id) return;
       try { ws?.send(JSON.stringify({ id: msg.id, ok: true, result: await handle(msg.op, msg.args ?? {}) })); }
       catch (e: any) { ws?.send(JSON.stringify({ id: msg.id, ok: false, error: String(e?.message ?? e) })); }
     };
+  };
+  // the desktop app fetched a new version in the background: offer to load it
+  const updatedToast = (m: any) => {
+    if (document.querySelector('.cx-update')) return;
+    const t = document.createElement('div'); t.className = 'cx-update';
+    t.innerHTML = `<span>${m.restart ? 'A new version is ready. Quit and reopen Canvas to use it.' : 'A new version is ready.'}</span>`;
+    if (!m.restart) { const b = document.createElement('button'); b.textContent = 'Reload'; b.onclick = () => location.reload(); t.append(b); }
+    const x = document.createElement('button'); x.className = 'x'; x.textContent = '×'; x.onclick = () => t.remove(); t.append(x);
+    document.body.append(t);
   };
   const retry = () => { setTimeout(connect, wait); wait = Math.min(wait * 2, 15000); };
   connect();
