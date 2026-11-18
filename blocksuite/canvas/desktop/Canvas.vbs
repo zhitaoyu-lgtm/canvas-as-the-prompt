@@ -64,11 +64,11 @@ If IsArray(keys) Then
   Next
 End If
 If appId = "" Then
-  appId = "iebdchmdinjpbeinhnmpieagcihdlfnn"
+  appId = "ejbeaomhpkdflohhnopebfhkkchmahcm"   ' the id Edge gave Canvas on Vincent's computer
   userData = sh.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\Microsoft\Edge\User Data"
   If fs.FolderExists(userData) Then
     For Each d In fs.GetFolder(userData).SubFolders
-      If profile = "" And fs.FolderExists(d.Path & "\Web Applications\Manifest Resources\" & appId) Then profile = d.Name
+      If profile = "" And fs.FolderExists(d.Path & "\Web Applications\_crx__" & appId) Then profile = d.Name
     Next
   End If
 End If
