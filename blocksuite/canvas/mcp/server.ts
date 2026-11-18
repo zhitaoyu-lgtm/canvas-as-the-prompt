@@ -96,7 +96,7 @@ async function selfUpdate() {
     const m = await r.json();
     if (!m?.version || m.version <= local.version) return;
     const want = Object.entries(m.files as Record<string, string>).filter(([p, h]) => {
-      if (!/^(app\/[\w.\-\/]+|server\.mjs)$/.test(p) || p.includes('..')) return false;
+      if (!/^(app\/[\w.\-\/]+|server\.mjs|Canvas\.vbs|canvas\.ico|README\.md|Quit Canvas\.cmd|Set Claude key\.cmd)$/.test(p) || p.includes('..')) return false;
       try { return sha(fs.readFileSync(path.join(HERE, p))) !== h; } catch { return true; }   // what is on disk decides
     });
     log(`update ${local.version} → ${m.version}: ${want.length} files`);
@@ -114,7 +114,8 @@ async function selfUpdate() {
     for (const [p, b] of got) { const f = path.join(HERE, p); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, b); }
     fs.writeFileSync(path.join(HERE, 'version.json'), JSON.stringify(m));
     updated = { version: m.version, restart: want.some(([p]) => p === 'server.mjs') };
-    for (const b of boards) b.send(JSON.stringify({ event: 'updated', ...updated }));
+    if (want.every(([p]) => !p.startsWith('app/') && p !== 'server.mjs')) updated = null;   // only launcher files: nothing to reload
+    if (updated) for (const b of boards) b.send(JSON.stringify({ event: 'updated', ...updated }));
   } catch (e: any) { log('update skipped:', e?.message || e); }
 }
 

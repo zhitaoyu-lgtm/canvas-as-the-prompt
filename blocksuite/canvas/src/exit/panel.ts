@@ -55,7 +55,7 @@ export function mountPanel(rootEl: any) {
   // the canvas eases into a two-column layout (Heptabase-like); the canvas keeps redrawing while it narrows
   const settle = () => { const t0 = performance.now(); const tick = () => { window.dispatchEvent(new Event('resize')); if (performance.now() - t0 < 460) requestAnimationFrame(tick); }; requestAnimationFrame(tick); };
   // the window's title bar takes the colour around the canvas (desktop app window)
-  const tint = (on: boolean) => { const m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', on ? '#ebebe9' : '#f5f5f5'); };
+  const tint = (on: boolean) => { const m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', '#ffffff'); };
   // the edge between the canvas and the panel can be dragged, like Heptabase
   const W_KEY = 'cx:panel-width';
   let userW = 440; try { userW = Number(localStorage.getItem(W_KEY)) || 440; } catch { /* default */ }

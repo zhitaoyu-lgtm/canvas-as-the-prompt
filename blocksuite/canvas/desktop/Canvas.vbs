@@ -34,4 +34,17 @@ For i = 1 To 40
   If ready Then Exit For
   WScript.Sleep 250
 Next
-sh.Run "msedge --app=http://127.0.0.1:7357/ --window-size=1440,900", 1, False
+' installed as an Edge app (Install Canvas in Edge, once)? then open that: its own crisp taskbar icon and title bar
+appId = "iebdchmdinjpbeinhnmpieagcihdlfnn"
+userData = sh.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\Microsoft\Edge\User Data"
+profile = ""
+If fs.FolderExists(userData) Then
+  For Each d In fs.GetFolder(userData).SubFolders
+    If profile = "" And fs.FolderExists(d.Path & "\Web Applications\Manifest Resources\" & appId) Then profile = d.Name
+  Next
+End If
+If profile <> "" Then
+  sh.Run "msedge --profile-directory=""" & profile & """ --app-id=" & appId, 1, False
+Else
+  sh.Run "msedge --app=http://127.0.0.1:7357/ --window-size=1440,900", 1, False
+End If
