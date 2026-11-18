@@ -9,8 +9,9 @@ rm -rf "$W" && mkdir -p "$W" && cd "$W" && git init -q && git checkout -q -b des
 cp -r "$SRC/app" "$SRC/server.mjs" "$SRC/version.json" .
 cp "$HERE_D/Canvas.vbs" "$HERE_D/canvas.ico" "$HERE_D/README.md" "$HERE_D/Quit Canvas.cmd" "$HERE_D/Set Claude key.cmd" .
 python3 - <<'PY'
-import hashlib, json
+import hashlib, json, time
 m = json.load(open('version.json'))
+m['version'] = time.strftime('%Y%m%d%H%M%S', time.gmtime())   # every publish is a new version
 for f in ['Canvas.vbs', 'canvas.ico', 'README.md', 'Quit Canvas.cmd', 'Set Claude key.cmd']:
     m['files'][f] = hashlib.sha256(open(f, 'rb').read()).hexdigest()
 json.dump(m, open('version.json', 'w'), indent=0)
