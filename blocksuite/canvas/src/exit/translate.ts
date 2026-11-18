@@ -34,7 +34,7 @@ export type Blk =
   // a few things from the board, enlarged and set side by side
   | { type: 'gallery'; boxes: { x: number; y: number; w: number; h: number }[]; caption: string }
   // a picture the document draws itself (map, table, chart, note cards); html is ready to place
-  | { type: 'visual'; kind: string; head: string; html: string; caption: string; box?: { x: number; y: number; w: number; h: number } };
+  | { type: 'visual'; kind: string; head: string; html: string; caption: string; box?: { x: number; y: number; w: number; h: number }; fixed?: boolean };
 export type DocOut = { title: string; blocks: Blk[] };
 
 // ── as prose: a document reads in paragraphs, like a book; lists only where a list is the point ──
@@ -61,11 +61,11 @@ export function pace(blocks: Blk[]): Blk[] {
   const texty = (b: Blk) => b.type === 'text' || b.type === 'quote' || b.type === 'bulleted' || b.type === 'numbered';
   const firstPic = blocks.findIndex(isPic);
   const body: Blk[] = [], floating: Blk[] = [];
-  blocks.forEach((b, i) => { if (isPic(b) && i !== firstPic && !(b.type === 'figure' && isHead(blocks[i - 1]))) floating.push(b); else body.push(b); });
+  blocks.forEach((b, i) => { if (isPic(b) && i !== firstPic && !isHead(blocks[i - 1]) && !(b as any).fixed) floating.push(b); else body.push(b); });
   if (!floating.length) return body;
   const refAt = body.findIndex(b => isHead(b) && textOf((b as any).runs) === 'References');
   const end = refAt < 0 ? body.findIndex(b => b.type === 'divider') : refAt;
-  const slots = body.slice(0, end < 0 ? body.length : end).map((b, i) => texty(b) ? i : -1).filter(i => i >= 0);
+  const slots = body.slice(0, end < 0 ? body.length : end).map((b, i) => texty(b) && !isPic(body[i + 1] ?? ({} as Blk)) && !isPic(body[i - 1] ?? ({} as Blk)) ? i : -1).filter(i => i >= 0);
   if (!slots.length) { const at = end < 0 ? body.length : end; body.splice(at, 0, ...floating); return body; }
   const K = floating.length, T = slots.length;
   const after = new Map<number, Blk[]>();
@@ -390,7 +390,54 @@ export function translateBoard(rootEl: any): DocOut {
     const c = cols.find(c => { const x0 = Math.min(...c.map(k => k.box.x)), x1 = Math.max(...c.map(k => k.box.x + k.box.w)); return i.box.x + i.box.w / 2 > x0 && i.box.x + i.box.w / 2 < x1; });
     c ? c.push(i) : cols.push([i]);
   }
+  let timelineDone = false, srcHeadAt = -1;
+  const kindOf = (m = '') => /paper|pdf/i.test(m) ? 'Paper' : /video/i.test(m) ? 'Video' : /forum|blog|thread|post/i.test(m) ? 'Post' : /[a-z0-9-]+\.(com|org|net|io|ai|so|edu|app|dev|google)/i.test(m) ? 'Product' : 'Card';
+  const loose = cols.map(c => c.sort((a, b) => a.box.y - b.box.y)).flat();
+  const lSources = loose.filter(i => isSource(i));
+  if (!sections.length && lSources.length >= 2) {
+    // a board of loose sources and notes reads best as chapters: what the user asked for, then the sources by kind
+    const lNotes = loose.filter(i => isNote(i) && textOf(i).trim() && !aboutSource.has(i.ref));
+    const lOther = loose.filter(i => !lSources.includes(i) && !lNotes.includes(i) && !aboutSource.has(i.ref));
+    const N = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
+    const num = (n: number) => N[n] ?? String(n);
+    if (lNotes.length) {
+      blocks.push({ type: 'h1', runs: [{ text: 'What the board asks for' }] });
+      if (lNotes.length >= 2) blocks.push({ type: 'visual', kind: 'notes', head: 'Your notes', html: noteCards(lNotes.slice(0, 6).map(i => ({ text: words(textOf(i)), fill: fillOf(i) }))), caption: 'The notes as written on the board, in their colours', box: union(lNotes) });
+      lNotes.forEach(i => used.add(i.ref));
+      const sent = lNotes.map(i => endSentence([{ text: words(textOf(i)) }]).map(r => r.text).join('').trim());
+      blocks.push({ type: 'text', runs: [{ text: `${num(lNotes.length)} notes set the terms. `, bold: true }, { text: sent.join(' ') }] });
+    }
+    const groups: [string, string, (n: number, ys: number[]) => string][] = [
+      ['Paper', 'Research', (n, ys) => `${num(n)} ${n > 1 ? 'papers' : 'paper'}${ys.length > 1 ? `, from ${Math.min(...ys)} to ${Math.max(...ys)},` : ys.length ? ` from ${ys[0]}` : ''} give the older ground.`],
+      ['Product', 'Products and sites', n => `${num(n)} current ${n > 1 ? 'products and sites show' : 'product shows'} how tools handle it today.`],
+      ['Video', 'Videos', n => `${num(n)} ${n > 1 ? 'videos show' : 'video shows'} tools in use.`],
+      ['Post', 'Posts and threads', n => `${num(n)} ${n > 1 ? 'posts record' : 'post records'} what people try.`],
+      ['Card', 'Other sources', n => `${num(n)} more ${n > 1 ? 'cards' : 'card'} on the board.`],
+    ];
+    blocks.push({ type: 'h1', runs: [{ text: 'Sources' }] }); srcHeadAt = blocks.length;
+    const pinnedG = sourceOrder.length ? [] : [] as Item[][];
+    void pinnedG;
+    const pinnedAll = lSources.map(src => [src, ...r.items.filter(i => aboutSource.get(i.ref) === src.ref)]).filter(g => g.length > 1);
+    for (const [k, title, lead] of groups) {
+      const g = lSources.filter(i => kindOf(cardOf(i)?.meta ?? linkOf(i) ?? '') === k);
+      if (!g.length) continue;
+      const yOf = (i: Item) => +(/\b(1[89]\d\d|20\d\d)\b/.exec(cardOf(i)?.meta ?? '')?.[1] ?? 0);
+      const ys = g.map(yOf).filter(Boolean);
+      blocks.push({ type: 'h2', runs: [{ text: title }] }, { type: 'text', runs: [{ text: lead(g.length, ys), bold: true }] }, ...say(g, undefined, 1));
+      // research in order of time, said right after the papers
+      const dated = g.filter(yOf).map(i => ({ year: yOf(i), label: cardOf(i)?.title ?? words(textOf(i)).slice(0, 40), n: sources.get(i.ref)?.n ?? 0 }));
+      if (k === 'Paper' && dated.length >= 2) { blocks.push({ type: 'visual', kind: 'timeline', head: 'Timeline', html: timeline(dated, []), caption: 'The research on the board, in order of publication', fixed: true }); timelineDone = true; }
+      // notes placed on these sources: drawn as citations, right after the sources they sit on
+      const here = pinnedAll.filter(p => g.includes(p[0])).slice(0, 2);
+      if (here.length) { blocks.push({ type: 'visual', kind: 'pinned', head: 'Placed on a source', box: union(here.flat()), fixed: true,
+        html: pinnedViz(here.map(p => { const s = sources.get(p[0].ref); return { n: s?.n ?? 0, title: s?.title ?? words(textOf(p[0])).slice(0, 60), meta: s?.meta, notes: p.slice(1).map(i => ({ text: words(textOf(i)), fill: fillOf(i) })) }; })),
+        caption: here.length > 1 ? 'Notes placed on sources become citations of them' : 'A note placed on a source becomes a citation of it' } as Blk); }
+    }
+    const other = say(lOther, undefined, 1);
+    if (other.length) blocks.push({ type: 'h1', runs: [{ text: 'Other notes' }] }, ...other);
+  }
   const rest: Blk[] = [];
+  if (!(!sections.length && lSources.length >= 2)) {
   // the user's own notes, enlarged side by side: what they wrote, in their colours
   const stickies = cols.flat().filter(i => (i.kind === 'sticky' || i.kind === 'shape') && textOf(i).trim()).sort((a, b) => weight(b) - weight(a)).slice(0, 3).sort((a, b) => a.box.x - b.box.x || a.box.y - b.box.y);
   const own = cols.flat().filter(i => isNote(i) && textOf(i).trim() && !aboutSource.has(i.ref)).sort((a, b) => a.box.x - b.box.x || a.box.y - b.box.y).slice(0, 6);
@@ -402,6 +449,7 @@ export function translateBoard(rootEl: any): DocOut {
   if (pinned.length) rest.splice(rest[0]?.type === 'visual' ? 1 : 0, 0, { type: 'visual', kind: 'pinned', head: 'Placed on a source', box: union(pinned.flat()),
     html: pinnedViz(pinned.map(g => { const s = sources.get(g[0].ref); return { n: s?.n ?? 0, title: s?.title ?? words(textOf(g[0])).slice(0, 60), meta: s?.meta, notes: g.slice(1).map(i => ({ text: words(textOf(i)), fill: fillOf(i) })) }; })),
     caption: pinned.length > 1 ? 'Notes placed on sources become citations of them' : 'A note placed on a source becomes a citation of it' } as Blk);
+  }
   if (rest.length) blocks.push({ type: 'h1', runs: [{ text: sections.length ? 'Other notes' : 'Notes' }] }, ...rest);
   const lineRest = lines(r.items.filter(i => i.kind === 'connector').map(i => i.ref));
   if (lineRest.length) blocks.push(...lineRest);
@@ -415,13 +463,15 @@ export function translateBoard(rootEl: any): DocOut {
   if (open.length) blocks.push({ type: 'h1', runs: [{ text: 'Open questions' }] }, ...open.slice(0, 8));
 
   if (sources.size >= 2) {
-    const kindOf = (m = '') => /paper/i.test(m) ? 'Paper' : /pdf/i.test(m) ? 'Paper' : /video/i.test(m) ? 'Video' : /forum/i.test(m) ? 'Forum thread' : /blog/i.test(m) ? 'Blog post' : /[a-z0-9-]+\.(com|org|net|io|ai|so|edu|app|dev|google)/i.test(m) ? 'Product / site' : 'Card';
+    const KN: Record<string, string> = { Paper: 'Paper', Video: 'Video', Post: 'Post', Product: 'Product / site', Card: 'Card' };
+    const kindName = (m = '') => KN[kindOf(m)];
     const yearOf = (m = '') => /\b(1[89]\d\d|20\d\d)\b/.exec(m)?.[1];
-    const rows = sourceOrder.map(ref => { const s = sources.get(ref)!; return { n: s.n, title: s.title, kind: kindOf(s.meta), year: yearOf(s.meta), says: s.body ? clip(s.body, 110) : '', notes: r.items.filter(i => aboutSource.get(i.ref) === ref).map(i => clip(textOf(i), 60)) }; });
+    const rows = sourceOrder.map(ref => { const s = sources.get(ref)!; return { n: s.n, title: s.title, kind: kindName(s.meta), year: yearOf(s.meta), says: s.body ? clip(s.body, 110) : '', notes: r.items.filter(i => aboutSource.get(i.ref) === ref).map(i => clip(textOf(i), 60)) }; });
     const sb = union(sourceOrder.map(ref => by.get(ref)!).filter(Boolean));
-    blocks.push({ type: 'visual', kind: 'table', head: 'Sources at a glance', html: sourceTable(rows), caption: `${rows.length} sources on the board, with what the board says about each`, box: sb });
+    const table: Blk = { type: 'visual', kind: 'table', head: 'Sources at a glance', html: sourceTable(rows), caption: `${rows.length} sources on the board, with what the board says about each`, box: sb, fixed: srcHeadAt >= 0 };
+    if (srcHeadAt >= 0) blocks.splice(srcHeadAt, 0, table); else blocks.push(table);
     const dated = rows.filter(r => r.year).map(r => ({ year: +r.year!, label: r.title, n: r.n }));
-    if (dated.length >= 2) {
+    if (dated.length >= 2 && !timelineDone) {
       const und = new Map<string, number>(); for (const r of rows.filter(r => !r.year)) und.set(r.kind, (und.get(r.kind) ?? 0) + 1);
       blocks.push({ type: 'visual', kind: 'timeline', head: 'Timeline', html: timeline(dated, [...und].map(([k, n]) => ({ label: (n > 1 ? k.replace(/ \/ site$/, 's / sites').replace(/(Video|Card|Blog post|Forum thread)$/, '$1s') : k).toLowerCase(), n }))), caption: 'Dated sources in order; undated products and sites are today’s examples' });
     }
@@ -430,7 +480,8 @@ export function translateBoard(rootEl: any): DocOut {
     const comp = [...count].map(([label, value]) => ({ label: value > 1 && !/s$/.test(label) ? label.replace(/^Product \/ site$/, 'Products / sites') + (label === 'Product / site' ? '' : 's') : label, value }));
     if (notesAll.length) comp.push({ label: 'Your notes', value: notesAll.length, color: fillOf(notesAll[0]) ?? '#ffd3a8' } as any);
     const placed = notesAll.filter(i => aboutSource.has(i.ref)).length; if (placed) comp.push({ label: 'Notes placed on a source', value: placed, color: '#8b877c' } as any);
-    if (comp.length >= 3) blocks.push({ type: 'visual', kind: 'bars', head: 'What the board is made of', html: bars(comp.sort((a, b) => b.value - a.value)), caption: 'Things on the board, by kind' });
+    if (comp.length >= 3) { const bv: Blk = { type: 'visual', kind: 'bars', head: 'What the board is made of', html: bars(comp.sort((a, b) => b.value - a.value)), caption: 'Things on the board, by kind', fixed: srcHeadAt > 1 };
+      if (srcHeadAt > 1) blocks.splice(srcHeadAt - 1, 0, bv); else blocks.push(bv); }
   }
   if (sources.size) {
     blocks.push({ type: 'h1', runs: [{ text: 'References' }] });

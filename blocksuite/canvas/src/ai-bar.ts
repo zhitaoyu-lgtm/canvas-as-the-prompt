@@ -118,6 +118,8 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   const toolbarEl = () => deepFind(document, e => e.tagName === 'EDITOR-TOOLBAR' && (e as El).getBoundingClientRect().width > 0);
   const toolbarKids = (t: El) => [...t.children].filter(c => c.tagName !== 'CX-AI-ENTRY' && !c.querySelector?.('cx-ai-entry')) as El[];
 
+  // (the older flow, from the toolbar's Ask button; kept for the MCP/demo paths that call it)
+  // @ts-ignore unused now that the dot opens the capsule
   async function openBar() {
     if (open || busy) return;
     toolbar = toolbarEl(); if (!toolbar) return;
@@ -159,7 +161,7 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     await cap.animate([{ left: `${cr.left}px`, width: `${cr.width}px` }, { left: `${pivotL}px`, width: `${pivotW}px` }], { duration: 220, easing: 'cubic-bezier(.4,0,.6,1)', fill: 'forwards' }).finished;
     cap.classList.remove('on'); cap.getAnimations().forEach(x => x.cancel());
     const t = toolbar; toolbar = null;
-    if (!t) return;
+    if (!t) { placeDot(); return; }
     t.style.visibility = '';
     if (!restore) { t.getAnimations().forEach(x => x.cancel()); toolbarKids(t).forEach(k => k.getAnimations().forEach(x => x.cancel())); return; }
     t.animate([{ clipPath: `inset(0 0 0 ${cutL}px round 14px)` }, { clipPath: 'inset(0 0 0 0 round 14px)' }], { duration: 230, easing: 'cubic-bezier(.2,.9,.25,1.05)' }).finished.then(() => t.getAnimations().forEach(x => x.cancel()));
@@ -181,7 +183,7 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     const L = rr.left + ax - pad, T = rr.top + ay - pad;
     pendBox.style.left = `${L}px`; pendBox.style.top = `${T}px`;
     pendBox.style.width = `${bx - ax + pad * 2}px`; pendBox.style.height = `${by - ay + pad * 2}px`;
-    badge.style.left = `${L - 22}px`; badge.style.top = `${T + pad}px`;   // level with the top edge of the selection
+    badge.style.left = `${L + (bx - ax) + pad * 2 + 6}px`; badge.style.top = `${T + pad - 2}px`;   // where the selection dot was: outside the top-right corner
   }
   function startWorking() {
     gfx.selection.clear?.() ?? gfx.selection.set({ elements: [] });
@@ -223,14 +225,80 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     try { rec.start(); } catch { mic.classList.remove('live'); }
   });
 
-  window.addEventListener('cx-ai-open', () => openBar());
+  // ── left click selects quietly; right click edits ───────────────────────────────
+  // A selection shows only its outline and one small blue dot outside its top-right corner. The resize handles
+  // still work but are not drawn; AFFiNE's element toolbar appears only on right click. The dot opens the
+  // instruction capsule just above the selection; while Claude works, the 2×2 dots take the dot's place.
+  const dot = h('button', 'cx-sel-dot'); dot.setAttribute('aria-label', 'Ask Claude about this'); layer.append(dot);
+  let tbOn = false;
+  const SEL_CSS = '.handle > *, .rotate, [class*="rotate-handle"] { opacity: 0 !important; }';
+  const TB_CSS = ':host(:not([data-cx-tb])) editor-toolbar { opacity: 0 !important; pointer-events: none !important; }';
+  const inject = (tag: string, css: string) => { const host = deepFind(document, e => e.tagName === tag) as El | null; const sr = host?.shadowRoot; if (!sr || sr.querySelector('style[data-cx]')) return host; const st = document.createElement('style'); st.dataset.cx = '1'; st.textContent = css; sr.append(st); return host; };
+  const toolbarHost = () => deepFind(document, e => e.tagName === 'AFFINE-TOOLBAR-WIDGET') as El | null;
+  const setTb = (on: boolean) => { tbOn = on; const hst = toolbarHost(); if (hst) on ? hst.setAttribute('data-cx-tb', '') : hst.removeAttribute('data-cx-tb'); };
+  setInterval(() => { inject('EDGELESS-SELECTED-RECT', SEL_CSS); inject('AFFINE-TOOLBAR-WIDGET', TB_CSS); }, 400);
+  const selBound = () => {
+    const els = gfx.selection.selectedElements as any[]; if (!els.length) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const e of els) { const b = e.elementBound; x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h); }
+    const rr = rootEl.getBoundingClientRect(); const [ax, ay] = gfx.viewport.toViewCoord(x0, y0); const [bx, by] = gfx.viewport.toViewCoord(x1, y1);
+    return { L: rr.left + ax, T: rr.top + ay, R: rr.left + bx, B: rr.top + by };
+  };
+  function placeDot() {
+    const b = selBound();
+    const show = !!b && !open && !busy && !gfx.selection.editing && !document.body.classList.contains('cx-dragging');
+    dot.classList.toggle('on', show);
+    if (b && show) { dot.style.left = `${b.R + 9}px`; dot.style.top = `${b.T + 1}px`; }
+  }
+  const loop = () => { placeDot(); requestAnimationFrame(loop); }; requestAnimationFrame(loop);
+  window.addEventListener('pointerdown', e => { if ((e.target as El).closest?.('.cx-ai-layer')) return; if (e.button === 0) { document.body.classList.add('cx-dragging'); if (tbOn) setTb(false); } }, true);
+  window.addEventListener('pointerup', () => document.body.classList.remove('cx-dragging'), true);
+  gfx.selection.slots?.updated?.subscribe?.(() => { if (tbOn && !holdTb) setTb(false); });
+  let holdTb = false;
+  rootEl.addEventListener('contextmenu', (e: MouseEvent) => {
+    if ((e.target as El).closest?.('input, textarea, [contenteditable="true"]') && gfx.selection.editing) return;
+    const [mx, my] = gfx.viewport.toModelCoordFromClientCoord([e.clientX, e.clientY]);
+    let hit: any = null; try { hit = gfx.getElementByPoint(mx, my); } catch { /* none */ }
+    const sel = gfx.selection.selectedElements as any[];
+    if (!hit && !sel.length) return;
+    e.preventDefault(); e.stopPropagation();
+    holdTb = true;
+    const want = hit && !sel.some(s => s.id === hit.id) ? [hit.id] : sel.map(s => s.id);
+    setTb(true);
+    // AFFiNE folds its toolbar on any pointer press; selecting again (after the press is over) opens it
+    setTimeout(() => { gfx.selection.set({ elements: [] }); gfx.selection.set({ elements: want }); setTb(true); setTimeout(() => { holdTb = false; }, 50); }, 40);
+  }, true);
+
+  // the dot → the capsule, opened just above the selection, as wide as it (within reason)
+  async function openFromDot() {
+    if (open || busy) return;
+    const b = selBound(); if (!b) return;
+    const sel = gfx.selection.selectedElements as any[]; ids = sel.map(m => m.id);
+    const { label } = describe(sel);
+    input.value = ''; input.placeholder = `What should happen to ${label}?`;
+    setTb(false); open = true; dot.classList.remove('on');
+    const H = 42, w = Math.max(300, Math.min(520, b.R - b.L));
+    const left = Math.max(16, Math.min(b.L, innerWidth - 16 - w)), top = Math.max(12, b.T - H - 10);
+    const d = dot.getBoundingClientRect();
+    pivotL = d.left - 4; pivotW = 16;
+    cap.style.top = `${top}px`; cap.style.height = `${H}px`; cap.style.setProperty('--h', `${H}px`); cap.style.setProperty('--pw', `16px`);
+    cap.classList.add('on', 'from-dot');
+    cap.animate([{ left: `${d.left - 4}px`, width: '16px', top: `${d.top - 4}px`, opacity: .4 }, { left: `${left}px`, width: `${w}px`, top: `${top}px`, opacity: 1 }], { duration: 280, easing: 'cubic-bezier(.2,.9,.25,1.05)', fill: 'forwards' });
+    cap.style.left = `${left}px`; cap.style.width = `${w}px`;
+    cap.classList.add('wide');
+    setTimeout(() => input.focus(), 160);
+  }
+  dot.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); });
+  dot.addEventListener('click', e => { e.stopPropagation(); openFromDot(); });
+
+  window.addEventListener('cx-ai-open', () => openFromDot());
   // Keyboard: "/" with a selection opens the prompt.
   window.addEventListener('keydown', e => {
     if (e.key !== '/' || open) return;
     const t = e.target as El;
     if (t?.closest?.('input, textarea, [contenteditable="true"]')) return;
     if (!gfx.selection.selectedElements.length || gfx.selection.editing) return;
-    e.preventDefault(); openBar();
+    e.preventDefault(); openFromDot();
   });
   // Clicking the board elsewhere closes it; so does a selection change.
   window.addEventListener('pointerdown', e => { if (open && !(e.target as El).closest?.('.cx-ai-layer')) closeBar(); }, true);

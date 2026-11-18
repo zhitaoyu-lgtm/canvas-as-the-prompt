@@ -140,7 +140,8 @@ export function mountPanel(rootEl: any) {
       const sys = `You turn a draft into a short, well-written document. The draft was translated from the user's spatial canvas (a whiteboard where placement carries meaning), so its structure is the user's: keep every heading, in the same order, and every [[Figure n]] line exactly where it is.
 Write in paragraphs, like a carefully edited book chapter: a short opening paragraph, then 1–3 paragraphs under each heading. Use a bullet list only if the content is truly a list. No new headings.
 Keep every citation marker like [2] after the claim it supports. Keep ==highlighted== phrases highlighted (they are what the user stressed). Say what the arrangement means (which notes sit with which source, what is grouped, what is still open); never invent sources or facts that are not in the draft.
-English. Plain Markdown: ## for headings, ### for sub-headings. Return only the document body, without the title and without the references list.`;
+English. Plain Markdown: ## for headings, ### for sub-headings. Return only the document body, without the title and without the references list.
+Shape: read like a short book chapter. Mostly paragraphs; bullet points only where the draft has a real list. Start every paragraph with one short topic sentence in **bold** that says what the paragraph is about, then the detail. Keep ## and ### headings as they are (they get numbered).`;
       const mock = (window as any).cxMockWrite;
       const raw = String(mock ? (typeof mock === 'function' ? await mock(md) : mock) : await ask(sys, md.replace(/\n## References[\s\S]*$/, ''))).trim();
       if (run !== writing || page.innerHTML.replace(status.outerHTML, '') !== before) return;     // the user changed it meanwhile: keep theirs
@@ -459,7 +460,7 @@ export function render(title: string, blocks: Blk[]): string {
     if (b.type === 'figure') { fig++; out.push(`<figure class="cx-fig cx-shot" data-box="${Math.round(b.box.x)},${Math.round(b.box.y)},${Math.round(b.box.w)},${Math.round(b.box.h)}" contenteditable="false">${figHead(b.caption.replace(/\.$/, ''), b.box)}<figcaption>Figure ${fig}. ${esc(b.caption)}${/\.$/.test(b.caption) ? '' : ', as arranged on the board.'}</figcaption></figure>`); return; }
     if (b.type === 'divider') { out.push('<hr>'); return; }
     const t = runs(b.runs);
-    if (b.type === 'h1') { refs = /References/.test(t); out.push(`<h2>${t}</h2>`); }
+    if (b.type === 'h1') { refs = /References/.test(t); out.push(refs ? `<h2 class="cx-nonum">${t}</h2>` : `<h2>${t}</h2>`); }
     else if (b.type === 'h2') out.push(`<h3>${t}</h3>`);
     else if (b.type === 'h3') out.push(`<h4>${t}</h4>`);
     else if (b.type === 'quote' && i === 0) out.push(`<p class="cx-lede">${t}</p>`);

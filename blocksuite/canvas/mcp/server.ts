@@ -259,6 +259,8 @@ mcp.tool('canvas_export',
 
 await boot();
 void selfUpdate();
+// keep checking while the app stays open, so an update reaches a window that was never closed
+if (process.argv.includes('--app')) setInterval(() => { if (!updated) void selfUpdate(); }, 10 * 60 * 1000);
 // `--app`: started by the desktop launcher, not by a chat app; serve the board only
 if (!process.argv.includes('--app')) { await mcp.connect(new StdioServerTransport()); }
 log('ready');
