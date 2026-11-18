@@ -6,7 +6,7 @@
 // The document is a one-way snapshot: re-translated when it is opened and the board has changed, unless the
 // user has edited it; then a line offers the update instead.
 
-import { ask, available, ModelError, setApiKey } from '../ai/model';
+import { ask, available, ModelError } from '../ai/model';
 import { readBoard, toPrompt } from '../ai/reading';
 import { snapshot } from '../ai/snapshot';
 import { asProse, translateBoard, type Blk, type Run } from './translate';
@@ -207,7 +207,7 @@ You may use **bold** and ==highlight==. ${words ? 'Replace only the selected wor
         page.dispatchEvent(new Event('input'));
       }
       closeAsk(); getSelection()?.removeAllRanges();
-    } catch (e: any) { flash(e instanceof ModelError && e.code === 'no_model' ? 'Connect Claude in the Chat tab first' : 'Claude could not answer'); }
+    } catch (e: any) { flash(e instanceof ModelError && e.code === 'no_model' ? 'Claude isn’t connected on this computer' : 'Claude could not answer'); }
     finally { askBox.classList.remove('busy'); askIn.disabled = false; }
   }
 
@@ -237,14 +237,11 @@ You may use **bold** and ==highlight==. ${words ? 'Replace only the selected wor
   const input = document.createElement('textarea'); input.className = 'cx-chat-in'; input.placeholder = 'Reply to Claude…'; input.rows = 1;
   const go = btn('cx-chat-go', I.send, 'Send');
   box.append(input, go); chatPane.append(log, box);
-  // on this computer, without a claude.ai account behind the page, Claude needs the user's own key (kept only here)
-  const keyCard = el('div', 'cx-key'); keyCard.hidden = true;
-  keyCard.innerHTML = '<b>Connect Claude</b><p>Paste your Anthropic API key. It stays on this computer and is only sent to Anthropic.</p>';
-  const keyIn = document.createElement('input'); keyIn.type = 'password'; keyIn.placeholder = 'sk-ant-…'; keyIn.autocomplete = 'off';
-  const keySave = el('button', 'cx-key-save'); keySave.textContent = 'Save';
-  keyCard.append(keyIn, keySave); chatPane.insertBefore(keyCard, box);
-  const checkKey = async () => { const ok = await available(); keyCard.hidden = ok; log.hidden = !ok; };
-  keySave.onclick = async () => { const k = keyIn.value.trim(); if (!k) return; setApiKey(k); keyIn.value = ''; await checkKey(); };
+  // no setup inside the app: on this computer the key lives in a file the server reads; if it is missing, say so quietly
+  const keyNote = el('div', 'cx-key'); keyNote.hidden = true;
+  keyNote.innerHTML = '<p>Claude isn’t connected on this computer yet. See README → Claude.</p>';
+  chatPane.insertBefore(keyNote, box);
+  const checkKey = async () => { keyNote.hidden = await available(); };
   tChat.addEventListener('click', () => void checkKey());
   const history: { role: 'user' | 'assistant'; text: string }[] = [];
   input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = `${Math.min(160, input.scrollHeight)}px`; });
@@ -266,7 +263,7 @@ Read the arrangement, not just the words. Reply in the user's language.`;
       wait.classList.remove('busy'); wait.innerHTML = blocksOf(a); history.push({ role: 'assistant', text: a });
     } catch (e: any) {
       wait.classList.remove('busy'); wait.classList.add('err');
-      wait.textContent = e instanceof ModelError && e.code === 'no_model' ? 'Connect Claude above to chat.' : 'Couldn’t reach Claude. Try again.';
+      wait.textContent = e instanceof ModelError && e.code === 'no_model' ? 'Claude isn’t connected on this computer.' : 'Couldn’t reach Claude. Try again.';
     }
     log.scrollTop = log.scrollHeight;
   }

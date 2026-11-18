@@ -51,11 +51,39 @@ function settle(msg: any) {
 
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.wasm': 'application/wasm', '.ico': 'image/x-icon' };
 
+// ---------------------------------------------------------------- Claude for the board
+// The user's own Anthropic key, kept in a file next to the app (or ANTHROPIC_API_KEY). The page never sees it:
+// it posts to /__claude/v1/messages and this server forwards the call to Anthropic.
+function claudeKey(): string | null {
+  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY.trim();
+  for (const f of [path.join(HERE, 'claude-key.txt'), path.join(HERE, '..', 'claude-key.txt')]) {
+    try { const k = fs.readFileSync(f, 'utf8').trim(); if (k) return k; } catch { /* not there */ }
+  }
+  return null;
+}
+async function claude(req: http.IncomingMessage, res: http.ServerResponse, u: URL) {
+  // only the board itself may use it: same origin, and a header a plain cross-site form cannot send
+  const origin = String(req.headers.origin || '');
+  const own = origin === `http://127.0.0.1:${PORT}` || origin === `http://localhost:${PORT}`;
+  if (u.pathname === '/__claude') { res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ok: !!claudeKey() })); return; }
+  if (req.method !== 'POST' || !own || req.headers['x-canvas'] !== 'claude') { res.writeHead(403).end(); return; }
+  const key = claudeKey(); if (!key) { res.writeHead(401).end('no key'); return; }
+  const chunks: Buffer[] = []; for await (const c of req) chunks.push(c as Buffer);
+  try {
+    const r = await fetch('https://api.anthropic.com' + u.pathname.slice('/__claude'.length), {
+      method: 'POST', body: Buffer.concat(chunks),
+      headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+    });
+    res.writeHead(r.status, { 'content-type': r.headers.get('content-type') || 'application/json' }).end(Buffer.from(await r.arrayBuffer()));
+  } catch (e: any) { res.writeHead(502).end(String(e?.message || e)); }
+}
+
 function startOwner(): Promise<boolean> {
   return new Promise(resolve => {
     const srv = http.createServer((req, res) => {
       const u = new URL(req.url || '/', URL_);
       if (u.pathname === '/__quit' && req.headers['x-canvas'] === 'quit') { res.writeHead(200).end('bye'); setTimeout(() => process.exit(0), 100); return; }
+      if (u.pathname === '/__claude' || u.pathname.startsWith('/__claude/')) { void claude(req, res, u); return; }
       let f = path.normalize(path.join(APP, decodeURIComponent(u.pathname)));
       if (!f.startsWith(path.normalize(APP))) { res.writeHead(403).end(); return; }
       if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(APP, 'index.html');

@@ -7,7 +7,8 @@ For a desktop icon: right-click Canvas.vbs → Send to → Desktop (create short
 Nothing to install: Node is included (`node/`). Everything runs on this computer at 127.0.0.1:7357.
 
 ## Claude
-- In the board: open the side panel (top right) → Chat → paste your Anthropic API key once. It is kept on this computer only.
+- Once, before the first start: double-click **Set Claude key.cmd** and paste your Anthropic API key. It is saved as `claude-key.txt` in this folder; the board's server sends it only to Anthropic, and the page itself never sees it. There is no key screen inside the app.
+  (Or create `claude-key.txt` yourself with the key on one line. Updates don't touch this file.)
 - From Claude Desktop (put chat content on the board, read it, export it): Settings → Developer → Edit Config, add
 ```json
 { "mcpServers": { "canvas": { "command": "C:\\Users\\<you>\\canvas-desktop\\node\\node.exe",
