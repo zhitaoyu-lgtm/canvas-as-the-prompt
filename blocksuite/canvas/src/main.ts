@@ -45,6 +45,13 @@ new Schema().register(AffineSchemas);
 
 const BOARD = 'board:main';
 
+// Small text when the board is zoomed out: by default the browser snaps each letter to whole pixels, so at small
+// sizes letters crowd into each other. Ask for exact glyph positions instead, for text drawn on the canvas
+// (stickies, headings, line labels); board.css asks the same for the cards.
+{ const proto: any = CanvasRenderingContext2D.prototype;
+  for (const fn of ['fillText', 'strokeText', 'measureText']) { const orig = proto[fn];
+    proto[fn] = function (this: any, ...a: any[]) { if (this.textRendering !== 'geometricPrecision') { try { this.textRendering = 'geometricPrecision'; this.fontKerning = 'normal'; } catch { /* older engine */ } } return orig.apply(this, a); }; } }
+
 async function main() {
   // One workspace, one board, kept in the app's own local storage (IndexedDB), so it is still there next time.
   const collection = new TestWorkspace({

@@ -581,3 +581,5 @@ affine-edgeless-note edgeless-note-background { box-shadow: none !important; }
 /* Cards stay sharp at any zoom: without this the browser keeps one bitmap of each card and scales it,
    which smears small text when the board is zoomed out */
 gfx-viewport > *, affine-edgeless-note, affine-frame, affine-bookmark, affine-edgeless-image, affine-image { will-change: auto !important; }
+/* exact letter positions at every zoom (no crowding of small text) */
+gfx-viewport, affine-edgeless-root { text-rendering: geometricPrecision; -webkit-font-smoothing: antialiased; font-kerning: normal; }
