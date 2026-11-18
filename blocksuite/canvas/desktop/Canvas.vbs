@@ -4,7 +4,7 @@ Set sh = CreateObject("WScript.Shell")
 Set fs = CreateObject("Scripting.FileSystemObject")
 here = fs.GetParentFolderName(WScript.ScriptFullName)
 sh.CurrentDirectory = here
-' a real app entry: Desktop and Start menu shortcuts with the Canvas icon, pointing at this folder
+' a real app entry: a Desktop shortcut with the Canvas icon, pointing at this folder
 Sub MakeLink(p)
   Set l = sh.CreateShortcut(p)
   l.TargetPath = sh.ExpandEnvironmentStrings("%SystemRoot%") & "\System32\wscript.exe"
@@ -16,7 +16,6 @@ Sub MakeLink(p)
 End Sub
 On Error Resume Next
 MakeLink sh.SpecialFolders("Desktop") & "\Canvas.lnk"
-MakeLink sh.SpecialFolders("Programs") & "\Canvas.lnk"
 Err.Clear
 On Error GoTo 0
 sh.Run """" & here & "\node\node.exe"" """ & here & "\server.mjs"" --app", 0, False
