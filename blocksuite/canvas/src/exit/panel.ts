@@ -53,7 +53,25 @@ export function mountPanel(rootEl: any) {
   let tab: 'doc' | 'chat' = 'doc', wide = false;
   // the canvas eases into a two-column layout (Heptabase-like); the canvas keeps redrawing while it narrows
   const settle = () => { const t0 = performance.now(); const tick = () => { window.dispatchEvent(new Event('resize')); if (performance.now() - t0 < 460) requestAnimationFrame(tick); }; requestAnimationFrame(tick); };
-  const show = (on: boolean) => { panel.classList.toggle('on', on); panel.inert = !on; open.classList.toggle('off', on); document.body.classList.toggle('cx-pn-on', on); settle(); if (on && tab === 'doc') refresh(); };
+  // the window's title bar takes the colour around the canvas (desktop app window)
+  const tint = (on: boolean) => { const m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', on ? '#ebebe9' : '#f5f5f5'); };
+  // the edge between the canvas and the panel can be dragged, like Heptabase
+  const W_KEY = 'cx:panel-width';
+  let userW = 440; try { userW = Number(localStorage.getItem(W_KEY)) || 440; } catch { /* default */ }
+  const clampW = (w: number) => Math.round(Math.max(340, Math.min(w, window.innerWidth * 0.7)));
+  const setW = (w: number) => document.body.style.setProperty('--pnw', `${clampW(w)}px`);
+  setW(userW);
+  const grip = el('div', 'cx-pn-grip'); document.body.append(grip);
+  grip.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); grip.setPointerCapture(e.pointerId);
+    document.body.classList.add('cx-resizing'); wide = false; panel.classList.remove('wide'); bExpand.innerHTML = I.expand;
+    let raf = 0;
+    const move = (ev: PointerEvent) => { userW = clampW(window.innerWidth - ev.clientX - 12); setW(userW); if (!raf) raf = requestAnimationFrame(() => { raf = 0; window.dispatchEvent(new Event('resize')); }); };
+    const up = () => { grip.removeEventListener('pointermove', move); document.body.classList.remove('cx-resizing'); try { localStorage.setItem(W_KEY, String(userW)); } catch { /* fine */ } window.dispatchEvent(new Event('resize')); };
+    grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up, { once: true }); grip.addEventListener('pointercancel', up, { once: true });
+  });
+  grip.addEventListener('dblclick', () => { userW = 440; setW(userW); try { localStorage.setItem(W_KEY, '440'); } catch { /* fine */ } settle(); });
+  const show = (on: boolean) => { tint(on); panel.classList.toggle('on', on); panel.inert = !on; open.classList.toggle('off', on); document.body.classList.toggle('cx-pn-on', on); settle(); if (on && tab === 'doc') refresh(); };
   const setTab = (t: 'doc' | 'chat') => {
     tab = t; tDoc.classList.toggle('on', t === 'doc'); tChat.classList.toggle('on', t === 'chat');
     docPane.hidden = t !== 'doc'; chatPane.hidden = t !== 'chat'; bMore.hidden = t !== 'doc';
@@ -61,7 +79,7 @@ export function mountPanel(rootEl: any) {
   };
   open.onclick = () => show(true);
   bClose.onclick = () => show(false);
-  bExpand.onclick = () => { wide = !wide; panel.classList.toggle('wide', wide); document.body.style.setProperty('--pnw', wide ? 'min(880px, 60vw)' : '440px'); bExpand.innerHTML = wide ? I.shrink : I.expand; settle(); };
+  bExpand.onclick = () => { wide = !wide; panel.classList.toggle('wide', wide); wide ? document.body.style.setProperty('--pnw', 'min(880px, 60vw)') : setW(userW); bExpand.innerHTML = wide ? I.shrink : I.expand; settle(); };
   tDoc.onclick = () => setTab('doc'); tChat.onclick = () => setTab('chat');
 
   // ── document ──

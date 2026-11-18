@@ -391,3 +391,12 @@ body.cx-pn-on .cx-dock { left: calc((100vw - var(--pnw, 440px) - 16px) / 2 + 8px
 .cx-doc-status i { width: 5px; height: 5px; border-radius: 3px; background: #c9c5b8; animation: cxDot 1s infinite ease-in-out; }
 .cx-doc-status i:nth-child(2) { animation-delay: .15s; } .cx-doc-status i:nth-child(3) { animation-delay: .3s; }
 .cx-doc-status span { margin-left: 6px; }
+
+/* the draggable edge between canvas and panel: invisible until hovered, then a thin line */
+.cx-pn-grip { display: none; position: fixed; top: 8px; bottom: 8px; z-index: 75; width: 12px; cursor: col-resize;
+  left: calc(100vw - var(--pnw, 440px) - 18px); }
+body.cx-pn-on .cx-pn-grip { display: block; }
+.cx-pn-grip::after { content: ''; position: absolute; left: 5px; top: 0; bottom: 0; width: 2px; border-radius: 2px; background: #1e96eb; opacity: 0; transition: opacity .15s ease .1s; }
+.cx-pn-grip:hover::after, body.cx-resizing .cx-pn-grip::after { opacity: 1; }
+body.cx-resizing, body.cx-resizing * { cursor: col-resize !important; user-select: none !important; }
+body.cx-resizing #app, body.cx-resizing .cx-pn, body.cx-resizing .cx-dock { transition: none !important; }
