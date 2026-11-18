@@ -515,21 +515,24 @@ body.cx-resizing #app, body.cx-resizing .cx-pn, body.cx-resizing .cx-dock { tran
 .cx-hover { position: fixed; pointer-events: none; box-sizing: border-box; border: 1px solid rgba(0, 0, 0, .2); opacity: 0; transition: opacity .12s ease; }
 .cx-hover.on { opacity: 1; }
 .cx-pend-box { border: 1.5px solid rgba(12, 140, 233, .6) !important; box-sizing: border-box; }
-.cx-ai-layer .cx-pend-dots { grid-template-columns: 3px 3px; gap: 3px; }
-.cx-ai-layer .cx-pend-dots i:nth-child(n) { width: 3px; height: 3px; background: rgba(12, 140, 233, .33); animation: none; }
+.cx-ai-layer .cx-pend-dots { grid-template-columns: 4px 4px; gap: 3px; }
+.cx-ai-layer .cx-pend-dots i:nth-child(n) { width: 4px; height: 4px; background: rgba(12, 140, 233, .33); animation: none; }
 .cx-ai-layer .cx-pend-dots.on i:nth-child(n) { animation: cx-cycle 1.2s ease-in-out infinite; }
 .cx-ai-layer .cx-pend-dots.on i:nth-child(2) { animation-delay: -.9s; }
 .cx-ai-layer .cx-pend-dots.on i:nth-child(4) { animation-delay: -.6s; }
 .cx-ai-layer .cx-pend-dots.on i:nth-child(3) { animation-delay: -.3s; }
 @keyframes cx-cycle { 0%, 100% { background: rgba(12, 140, 233, .25); } 50% { background: rgba(12, 140, 233, 1); } }
-.cx-sel-dot::after { width: 6px !important; height: 6px !important; background: #0c8ce9 !important; box-shadow: none !important; }
-.cx-sel-dot:hover::after { width: 8px !important; height: 8px !important; }
+.cx-sel-dot::after { width: 8px !important; height: 8px !important; background: #0c8ce9 !important; box-shadow: none !important; }
+.cx-sel-dot:hover::after { width: 11px !important; height: 11px !important; }
 
 /* sections: Heptabase's blue — a pale wash, a clear thin border, a solid title tab */
 affine-frame .affine-frame-container {
   background: rgba(83, 177, 243, .08) !important;
   border: 1px solid #73bef1 !important;
+  border-radius: calc(8px * var(--cx-z, 1)) !important;
 }
+/* one corner radius for cards and sections */
+affine-edgeless-note > div, affine-edgeless-note edgeless-note-background { border-radius: 8px !important; }
 
 /* the instruction capsule: small, beside the selection's top-right corner, two lines at most */
 .cx-cap.from-dot { border-radius: 12px; height: auto !important; align-items: flex-end; }

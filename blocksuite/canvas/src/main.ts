@@ -67,6 +67,10 @@ async function main() {
   }
   if (!doc.loaded) doc.load();
   const store = doc.getStore();
+  // Undo / redo: this store's history never gets its "loaded" hook here, so its can-undo flags stay false and
+  // the keyboard shortcut does nothing. Keep the flags in step with the undo stack ourselves.
+  { const h: any = (store as any).history; const sync = () => { try { h._updateCanUndoRedoSignals(); h.onUpdated?.next?.(); } catch { /* engine changed */ } };
+    for (const ev of ['stack-cleared', 'stack-item-added', 'stack-item-popped', 'stack-item-updated']) h?.undoManager?.on(ev, sync); sync(); }
 
   const editor = document.createElement('affine-editor-container') as any;
   editor.autofocus = true;

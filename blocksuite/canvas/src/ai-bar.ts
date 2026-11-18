@@ -93,7 +93,7 @@ function radiusModel(e: any): number {
   const fl = e.flavour ?? '';
   const b = e.elementBound;
   if (fl === 'affine:note') return Number(e.props?.edgeless?.style?.borderRadius ?? e.edgeless?.style?.borderRadius ?? 8);
-  if (fl === 'affine:frame') return 12;
+  if (fl === 'affine:frame') return 8;
   if (e.type === 'shape') {
     if (e.shapeType === 'ellipse') return Math.min(b.w, b.h) / 2;
     const r = Number(e.radius ?? 0);
@@ -290,16 +290,19 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   setInterval(() => { inject('EDGELESS-SELECTED-RECT', SEL_CSS); inject('AFFINE-TOOLBAR-WIDGET', TB_CSS); }, 400);
   setInterval(() => injectAll('AFFINE-FRAME-TITLE', FT_CSS), 900);
   const selBound = () => { const els = gfx.selection.selectedElements as any[]; return els.length ? boundOf(els) : null; };
-  let selHost: El | null = null;
+  let selHost: El | null = null, lastZ = 0;
   function placeDot() {
     const els = gfx.selection.selectedElements as any[];
     const b = els.length ? boundOf(els) : null;
     const show = !!b && !open && !busy && !gfx.selection.editing && !document.body.classList.contains('cx-dragging');
     dot.classList.toggle('on', show);
-    if (b && show) { dot.style.left = `${b.R + 7}px`; dot.style.top = `${b.T + 2.5}px`; }
+    if (b && show) { dot.style.left = `${b.R + 8}px`; dot.style.top = `${b.T + 4}px`; }
     // the outline follows the element's own corners
     if (!selHost || !selHost.isConnected) selHost = deepFind(document, e => e.tagName === 'EDGELESS-SELECTED-RECT') as El | null;
     if (els.length && selHost) selHost.style.setProperty('--cx-r', `${radiusOf(els)}px`);
+    // the quiet look is in place before the outline's first paint (no flash of handles)
+    if (selHost?.shadowRoot && !selHost.shadowRoot.querySelector('style[data-cx]')) { const st = document.createElement('style'); st.dataset.cx = '1'; st.textContent = SEL_CSS; selHost.shadowRoot.append(st); }
+    const z = zoom(); if (z !== lastZ) { lastZ = z; rootEl.style.setProperty('--cx-z', String(z)); }
     placeHover();
   }
   // Hover: a fainter, thinner grey outline around block elements (stickies, cards, sections)
@@ -331,7 +334,10 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     document.body.classList.add('cx-dragging'); if (tbOn) setTb(false);
   }, true);
   window.addEventListener('pointerup', () => document.body.classList.remove('cx-dragging'), true);
-  gfx.selection.slots?.updated?.subscribe?.(() => { if (tbOn && !holdTb) setTb(false); });
+  let tbIds = '';
+  const idsNow = () => (gfx.selection.selectedElements as any[]).map(m => m.id).sort().join(',');
+  // the toolbar stays for as long as the same things are selected
+  gfx.selection.slots?.updated?.subscribe?.(() => { if (tbOn && !holdTb && idsNow() !== tbIds) setTb(false); });
   let holdTb = false;
   rootEl.addEventListener('contextmenu', (e: MouseEvent) => {
     if ((e.target as El).closest?.('input, textarea, [contenteditable="true"]') && gfx.selection.editing) return;
@@ -352,7 +358,9 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     const want = hit && !selIds.includes(hit.id) ? [hit.id] : selIds;
     setTb(true);
     // AFFiNE folds its toolbar on any pointer press; selecting again (after the press is over) opens it
-    setTimeout(() => { gfx.selection.set({ elements: [] }); gfx.selection.set({ elements: want }); setTb(true); setTimeout(() => { holdTb = false; }, 50); }, 40);
+    tbIds = [...want].sort().join(',');
+    const again = () => { gfx.selection.set({ elements: [] }); gfx.selection.set({ elements: want }); setTb(true); };
+    setTimeout(() => { again(); setTimeout(() => { if (idsNow() !== tbIds) again(); holdTb = false; }, 160); }, 40);
   }, true);
 
   // the dot → the capsule, opened just above the selection, as wide as it (within reason)

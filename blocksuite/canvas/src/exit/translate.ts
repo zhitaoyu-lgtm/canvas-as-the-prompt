@@ -486,7 +486,9 @@ export function translateBoard(rootEl: any): DocOut {
   }
   blocks.push({ type: 'divider' });
   blocks.push({ type: 'text', runs: [{ text: `Translated from the board on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}. Headings are its sections; a point marked [n] was placed on that source; highlighted points were made big, circled, underlined, voted on or raised more than once.`, italic: true, muted: true }] });
-  return { title, blocks };
+  // drawn diagrams (the board map, the pinned-note sketch) broke on busy boards: the document keeps to what is
+  // reliable — text, the source table, the bar chart, the user's notes and pictures taken from the board
+  return { title, blocks: blocks.filter(b => !(b.type === 'visual' && (b.kind === 'map' || b.kind === 'pinned' || b.kind === 'timeline'))) };
 }
 
 const clip = (t: string, n: number) => { const s = words(t); return s.length > n ? s.slice(0, n - 1) + '…' : s; };

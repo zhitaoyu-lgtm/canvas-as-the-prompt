@@ -30,7 +30,7 @@ export const TINT: Record<Hue, string> = Object.fromEntries(HUES.map(h => [h, h 
 export const TEXT = { ink: '#1e1e1e', body: '#3a3a3c', muted: '#8a8984', line: '#e6e6e6' };
 export const TYPE = { caption: 12, small: 14, body: 16, title: 20, heading: 28 } as const;
 export const FONT = 'blocksuite:surface:Inter';
-export const RADIUS = { sticky: 0.04, card: 16, section: 12, pill: 0.5 } as const;
+export const RADIUS = { sticky: 0.04, card: 8, section: 8, pill: 0.5 } as const;
 export const SHADOW = {
   sticky: { blur: 6, offsetX: 0, offsetY: 2, color: 'rgba(0,0,0,0.06)' },
   card: '--affine-note-shadow-box',

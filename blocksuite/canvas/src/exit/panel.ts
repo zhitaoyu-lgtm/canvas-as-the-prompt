@@ -15,7 +15,7 @@ import { asProse, pace, translateBoard, type Blk, type Run } from './translate';
 const KEY = 'cx:document';
 type Saved = { title: string; html: string; board: string; edited: boolean; gen?: string };
 // bump when the way documents are written changes: unedited documents are written again
-const GEN = '2026-11-18';
+const GEN = '2026-11-18b';
 
 const I = {
   panel: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.75" y="3.75" width="14.5" height="12.5" rx="2.5"/><path d="M12.25 3.75v12.5M14.25 7h1M14.25 9.5h1"/></svg>',

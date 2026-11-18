@@ -36,7 +36,7 @@ interface Distance {
 
 const ALIGN_THRESHOLD = 8;
 const DISTRIBUTION_LINE_OFFSET = 1;
-const STROKE_WIDTH = 2;
+const STROKE_WIDTH = 1.25;
 const DISTRIBUTE_ALIGN_MAX_CANDIDATES = 160;
 const DISTRIBUTE_ALIGN_MAX_COST_MS = 5;
 const DISTRIBUTE_ALIGN_COOLDOWN_FRAMES = 2;
@@ -719,8 +719,10 @@ export class SnapOverlay extends Overlay {
     const { viewport } = this.gfx;
     const strokeWidth = STROKE_WIDTH / viewport.zoom;
 
-    ctx.strokeStyle = '#8B5CF6';
+    ctx.save();
+    ctx.strokeStyle = '#0C8CE9';
     ctx.lineWidth = strokeWidth;
+    ctx.setLineDash([5 / viewport.zoom, 4 / viewport.zoom]);
     ctx.beginPath();
 
     [
@@ -742,7 +744,7 @@ export class SnapOverlay extends Overlay {
       ctx.stroke(new Path2D(d));
     });
 
-    ctx.strokeStyle = '#CC4187';
+    ctx.strokeStyle = '#0C8CE9';
     this._distributedAlignLines.forEach(line => {
       const bar = 10 / viewport.zoom;
       let d = '';
@@ -763,6 +765,7 @@ export class SnapOverlay extends Overlay {
       }
       ctx.stroke(new Path2D(d));
     });
+    ctx.restore();
   }
 
   private _isSkippedElement(element: GfxModel) {
