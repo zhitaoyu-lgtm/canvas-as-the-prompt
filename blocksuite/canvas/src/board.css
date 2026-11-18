@@ -198,7 +198,7 @@ affine-drag-handle-widget { display: none !important; }
 /* ── Link cards (bookmarks, vertical): picture on top, words below ── */
 .affine-bookmark-card.vertical.edgeless {
   border: none; border-radius: 16px; overflow: hidden;
-  box-shadow: 0 4px 7px rgba(0,0,0,.12);
+  box-shadow: 0 1px 2px rgba(0,0,0,.05), 0 0 0 .5px rgba(0,0,0,.05);
 }
 .affine-bookmark-card.vertical.edgeless .affine-bookmark-banner { width: 100%; height: 182px; margin: 0; }
 .affine-bookmark-card.vertical.edgeless .affine-bookmark-banner img,
@@ -573,3 +573,7 @@ affine-edgeless-note > div, affine-edgeless-note edgeless-note-background { bord
   .cx-doc .cx-bars .row { grid-template-columns: minmax(0, 40%) 1fr 1.6em; gap: 8px; font-size: 11.5px; }
   .cx-doc .cx-notes { grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); }
 }
+
+/* cards: Heptabase's shadow — barely there, tight to the edge */
+affine-edgeless-note > div, affine-edgeless-note edgeless-note-background { box-shadow: 0 1px 2px rgba(0, 0, 0, .05), 0 0 0 .5px rgba(0, 0, 0, .05) !important; }
+affine-edgeless-note edgeless-note-background { box-shadow: none !important; }
