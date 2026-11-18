@@ -107,9 +107,32 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   const gfx = rootEl.gfx;
   const layer = h('div', 'cx-ai-layer');
   const zoom = () => gfx.viewport.zoom ?? 1;
+  // The corner radius actually drawn for an element, in screen px. Blocks are measured from their own DOM
+  // (cards scale with the zoom, sections keep a fixed radius); canvas shapes come from the model.
+  const rCache = new Map<string, number>();
+  const radiusOne = (e: any): number => {
+    const z = zoom(), b = e.elementBound, key = `${e.id}:${z.toFixed(3)}:${Math.round(b?.w ?? 0)}x${Math.round(b?.h ?? 0)}`;
+    const hit = rCache.get(key); if (hit !== undefined) return hit;
+    let r = radiusModel(e) * z;
+    if (e.flavour) {
+      try {
+        const v = (gfx.std?.view?.getBlock?.(e.id) ?? null) as El | null;
+        if (v) {
+          const vr = v.getBoundingClientRect(); r = 0;
+          for (const n of [v, ...Array.from(v.querySelectorAll('*')).slice(0, 14)] as El[]) {
+            const cr = parseFloat(getComputedStyle(n).borderTopLeftRadius) || 0; if (!cr) continue;
+            const nr = n.getBoundingClientRect(); if (nr.width < vr.width * .9 || nr.height < vr.height * .9) continue;
+            r = cr * (n.offsetWidth ? nr.width / n.offsetWidth : 1); break;
+          }
+        }
+      } catch { /* keep the model's */ }
+    }
+    if (rCache.size > 400) rCache.clear();
+    rCache.set(key, r); return r;
+  };
   const radiusOf = (els: any[]) => {
-    const rs = els.map(radiusModel);
-    return (els.length === 1 || rs.every(r => r === rs[0]) ? rs[0] : 8 / zoom()) * zoom();
+    const rs = els.map(radiusOne);
+    return els.length === 1 || rs.every(r => Math.abs(r - rs[0]) < .5) ? rs[0] : 8;
   };
   const boundOf = (els: any[]) => {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -257,12 +280,15 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   // instruction capsule just above the selection; while Claude works, the 2×2 dots take the dot's place.
   const dot = h('button', 'cx-sel-dot'); dot.setAttribute('aria-label', 'Ask Claude about this'); layer.append(dot);
   let tbOn = false;
-  const SEL_CSS = '.handle > *, .rotate, [class*="rotate-handle"] { opacity: 0 !important; } .affine-edgeless-selected-rect { border-width: 1px !important; border-color: #0c8ce9 !important; border-radius: var(--cx-r, 0px) !important; }';
+  const SEL_CSS = '.handle > *, .rotate, [class*="rotate-handle"] { opacity: 0 !important; } .affine-edgeless-selected-rect { border-width: 1.5px !important; border-color: #0c8ce9 !important; border-radius: var(--cx-r, 0px) !important; }';
+  const FT_CSS = ':host { background-color: #53b1f3 !important; color: #14212b !important; border: 0 !important; border-radius: 6px !important; padding: 0 8px !important; font-weight: 600 !important; font-size: 13px !important; } :host(:hover) { background-color: #45a6ea !important; }';
   const TB_CSS = ':host(:not([data-cx-tb])) editor-toolbar { opacity: 0 !important; pointer-events: none !important; }';
   const inject = (tag: string, css: string) => { const host = deepFind(document, e => e.tagName === tag) as El | null; const sr = host?.shadowRoot; if (!sr || sr.querySelector('style[data-cx]')) return host; const st = document.createElement('style'); st.dataset.cx = '1'; st.textContent = css; sr.append(st); return host; };
   const toolbarHost = () => deepFind(document, e => e.tagName === 'AFFINE-TOOLBAR-WIDGET') as El | null;
   const setTb = (on: boolean) => { tbOn = on; const hst = toolbarHost(); if (hst) on ? hst.setAttribute('data-cx-tb', '') : hst.removeAttribute('data-cx-tb'); };
+  const injectAll = (tag: string, css: string) => { const walk = (r: Document | ShadowRoot) => { for (const e of Array.from(r.querySelectorAll('*')) as El[]) { if (e.tagName === tag && e.shadowRoot && !e.shadowRoot.querySelector('style[data-cx]')) { const st = document.createElement('style'); st.dataset.cx = '1'; st.textContent = css; e.shadowRoot.append(st); } if (e.shadowRoot && /FRAME-TITLE|EDGELESS-ROOT|EDITOR/.test(e.tagName)) walk(e.shadowRoot); } }; walk(document); };
   setInterval(() => { inject('EDGELESS-SELECTED-RECT', SEL_CSS); inject('AFFINE-TOOLBAR-WIDGET', TB_CSS); }, 400);
+  setInterval(() => injectAll('AFFINE-FRAME-TITLE', FT_CSS), 900);
   const selBound = () => { const els = gfx.selection.selectedElements as any[]; return els.length ? boundOf(els) : null; };
   let selHost: El | null = null;
   function placeDot() {
@@ -295,7 +321,15 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     hov.style.borderRadius = `${radiusOf([hit])}px`;
   }
   const loop = () => { placeDot(); requestAnimationFrame(loop); }; requestAnimationFrame(loop);
-  window.addEventListener('pointerdown', e => { if ((e.target as El).closest?.('.cx-ai-layer')) return; if (e.button === 0) { document.body.classList.add('cx-dragging'); if (tbOn) setTb(false); } }, true);
+  const inChrome = (e: Event) => e.composedPath().some(n => /TOOLBAR|MENU|PANEL|PICKER|POPUP|PORTAL|DROPDOWN|TOOLTIP/.test((n as El).tagName ?? ''));
+  let lastSel: string[] = [];
+  window.addEventListener('pointerdown', e => {
+    if ((e.target as El).closest?.('.cx-ai-layer')) return;
+    if (e.button === 2) { lastSel = (gfx.selection.selectedElements as any[]).map(m => m.id); return; }
+    if (e.button !== 0 || inChrome(e)) return;
+    if (!e.composedPath().includes(rootEl)) return;
+    document.body.classList.add('cx-dragging'); if (tbOn) setTb(false);
+  }, true);
   window.addEventListener('pointerup', () => document.body.classList.remove('cx-dragging'), true);
   gfx.selection.slots?.updated?.subscribe?.(() => { if (tbOn && !holdTb) setTb(false); });
   let holdTb = false;
@@ -303,11 +337,19 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     if ((e.target as El).closest?.('input, textarea, [contenteditable="true"]') && gfx.selection.editing) return;
     const [mx, my] = gfx.viewport.toModelCoordFromClientCoord([e.clientX, e.clientY]);
     let hit: any = null; try { hit = gfx.getElementByPoint(mx, my); } catch { /* none */ }
-    const sel = gfx.selection.selectedElements as any[];
-    if (!hit && !sel.length) return;
+    if (inChrome(e)) return;
+    let selIds = (gfx.selection.selectedElements as any[]).map(m => m.id);
+    // a right press can change the selection before this fires: several things selected stay selected
+    // when the press lands on one of them, or anywhere inside their outline
+    if (lastSel.length > 1 && selIds.length <= 1) {
+      const els = lastSel.map(id => gfx.getElementById(id)).filter(Boolean) as any[];
+      const b = els.length ? boundOf(els) : null;
+      if ((hit && lastSel.includes(hit.id)) || (b && e.clientX >= b.L && e.clientX <= b.R && e.clientY >= b.T && e.clientY <= b.B)) selIds = els.map(m => m.id);
+    }
+    if (!hit && !selIds.length) return;
     e.preventDefault(); e.stopPropagation();
     holdTb = true;
-    const want = hit && !sel.some(s => s.id === hit.id) ? [hit.id] : sel.map(s => s.id);
+    const want = hit && !selIds.includes(hit.id) ? [hit.id] : selIds;
     setTb(true);
     // AFFiNE folds its toolbar on any pointer press; selecting again (after the press is over) opens it
     setTimeout(() => { gfx.selection.set({ elements: [] }); gfx.selection.set({ elements: want }); setTb(true); setTimeout(() => { holdTb = false; }, 50); }, 40);
@@ -319,19 +361,25 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     const b = selBound(); if (!b) return;
     const sel = gfx.selection.selectedElements as any[]; ids = sel.map(m => m.id);
     const { label } = describe(sel);
-    input.value = ''; input.placeholder = `What should happen to ${label}?`;
+    input.value = ''; input.placeholder = ''; input.setAttribute('aria-label', `What should happen to ${label}?`);
     setTb(false); open = true; dot.classList.remove('on');
-    const w = Math.min(280, innerWidth - 32);
+    const w = Math.min(236, innerWidth - 32);
     cap.getAnimations().forEach(x => x.cancel());
     cap.style.width = `${w}px`; cap.style.height = '';
     cap.classList.add('on', 'from-dot', 'wide');
     fit();
-    const H = cap.getBoundingClientRect().height;
-    // right edge on the selection's right edge, just above it; anchored by its bottom so a second line grows upward
-    const left = Math.max(16, Math.min(b.R - w, innerWidth - 16 - w)), bottom = Math.max(H + 12, b.T - 8);
-    cap.style.left = `${left}px`; cap.style.top = 'auto'; cap.style.bottom = `${innerHeight - bottom}px`;
-    const ox = b.R + 7 - left, below = b.T + 2.5 - bottom;   // the dot, in the capsule's own frame
-    cap.style.transformOrigin = `${ox}px calc(100% + ${below}px)`;
+    const H = cap.getBoundingClientRect().height, gap = 10;
+    if (b.R + gap + w <= innerWidth - 16) {
+      // beside the top-right corner, level with the top edge; a second line grows downward
+      const top = Math.max(12, Math.min(b.T, innerHeight - H - 12));
+      cap.style.left = `${b.R + gap}px`; cap.style.top = `${top}px`; cap.style.bottom = 'auto';
+      cap.style.transformOrigin = `${-gap + 7}px ${b.T + 2.5 - top}px`;
+    } else {
+      // no room beside it: above, right edges aligned; a second line grows upward
+      const left = Math.max(16, Math.min(b.R - w, innerWidth - 16 - w)), bottom = Math.max(H + 12, b.T - 8);
+      cap.style.left = `${left}px`; cap.style.top = 'auto'; cap.style.bottom = `${innerHeight - bottom}px`;
+      cap.style.transformOrigin = `${b.R + 7 - left}px calc(100% + ${b.T + 2.5 - bottom}px)`;
+    }
     cap.animate([{ transform: 'scale(.04)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }], { duration: 260, easing: 'cubic-bezier(.2,.9,.25,1.04)' });
     setTimeout(() => input.focus(), 120);
   }

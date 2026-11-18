@@ -15,7 +15,7 @@ import { asProse, pace, translateBoard, type Blk, type Run } from './translate';
 const KEY = 'cx:document';
 type Saved = { title: string; html: string; board: string; edited: boolean; gen?: string };
 // bump when the way documents are written changes: unedited documents are written again
-const GEN = '2026-11-17';
+const GEN = '2026-11-18';
 
 const I = {
   panel: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.75" y="3.75" width="14.5" height="12.5" rx="2.5"/><path d="M12.25 3.75v12.5M14.25 7h1M14.25 9.5h1"/></svg>',
@@ -114,6 +114,15 @@ export function mountPanel(rootEl: any) {
         img.src = url; img.alt = f.querySelector('figcaption')?.textContent ?? ''; f.removeAttribute('data-box');
       } catch { /* leave the caption */ }
     }
+    // pictures placed on the board are used as they are
+    for (const im of [...page.querySelectorAll<HTMLImageElement>('img[data-cx-img]')]) {
+      try {
+        const m: any = gfx.getElementById(im.dataset.cxImg!); const sid = m?.props?.sourceId ?? m?.sourceId;
+        const blob = sid ? await store.blobSync.get(sid) : null;
+        if (!blob) { im.closest('figure')?.remove(); continue; }
+        im.src = await jpeg(blob); im.removeAttribute('data-cx-img');
+      } catch { im.closest('figure')?.remove(); }
+    }
     // galleries: each thing on its own, enlarged, in a row
     for (const f of [...page.querySelectorAll<HTMLElement>('figure.cx-gal[data-boxes]')]) {
       const row = el('div', 'cx-gal-row');
@@ -143,7 +152,7 @@ export function mountPanel(rootEl: any) {
 Write in paragraphs, like a carefully edited book chapter: a short opening paragraph, then 1–3 paragraphs under each heading. Use a bullet list only if the content is truly a list. No new headings.
 Keep every citation marker like [2] after the claim it supports. Keep ==highlighted== phrases highlighted (they are what the user stressed). Say what the arrangement means (which notes sit with which source, what is grouped, what is still open); never invent sources or facts that are not in the draft.
 English. Plain Markdown: ## for headings, ### for sub-headings. Return only the document body, without the title and without the references list.
-Shape: read like a short book chapter. Mostly paragraphs; bullet points only where the draft has a real list. Start every paragraph with one short topic sentence in **bold** that says what the paragraph is about, then the detail. Keep ## and ### headings as they are (they get numbered).`;
+Shape: read like a short book chapter. Mostly paragraphs; bullet points only where the draft has a real list. Start every paragraph with one short topic sentence in **bold** that says what the paragraph is about, then the detail. In each section, mark the one sentence or phrase that matters most with ==highlight== (at most one per section, never the bold topic sentence). Keep ## and ### headings as they are (they get numbered).`;
       const mock = (window as any).cxMockWrite;
       const raw = String(mock ? (typeof mock === 'function' ? await mock(md) : mock) : await ask(sys, md.replace(/\n## References[\s\S]*$/, ''))).trim();
       if (run !== writing || page.innerHTML.replace(status.outerHTML, '') !== before) return;     // the user changed it meanwhile: keep theirs

@@ -23,7 +23,7 @@
 
 import { readBoard, type Item, type Reading } from '../ai/reading';
 
-import { bars, boardMap, mapLegend, noteCards, pinned as pinnedViz, sourceTable, timeline, type MapItem } from './visuals';
+import { bars, boardMap, mapLegend, noteCards, pinned as pinnedViz, sourceTable, type MapItem } from './visuals';
 
 export type Run = { text: string; bold?: boolean; italic?: boolean; link?: string; hl?: string; muted?: boolean };
 export type Blk =
@@ -426,7 +426,6 @@ export function translateBoard(rootEl: any): DocOut {
       blocks.push({ type: 'h2', runs: [{ text: title }] }, { type: 'text', runs: [{ text: lead(g.length, ys), bold: true }] }, ...say(g, undefined, 1));
       // research in order of time, said right after the papers
       const dated = g.filter(yOf).map(i => ({ year: yOf(i), label: cardOf(i)?.title ?? words(textOf(i)).slice(0, 40), n: sources.get(i.ref)?.n ?? 0 }));
-      if (k === 'Paper' && dated.length >= 2) { blocks.push({ type: 'visual', kind: 'timeline', head: 'Timeline', html: timeline(dated, []), caption: 'The research on the board, in order of publication', fixed: true }); timelineDone = true; }
       // notes placed on these sources: drawn as citations, right after the sources they sit on
       const here = pinnedAll.filter(p => g.includes(p[0])).slice(0, 2);
       if (here.length) { blocks.push({ type: 'visual', kind: 'pinned', head: 'Placed on a source', box: union(here.flat()), fixed: true,
@@ -471,10 +470,6 @@ export function translateBoard(rootEl: any): DocOut {
     const table: Blk = { type: 'visual', kind: 'table', head: 'Sources at a glance', html: sourceTable(rows), caption: `${rows.length} sources on the board, with what the board says about each`, box: sb, fixed: srcHeadAt >= 0 };
     if (srcHeadAt >= 0) blocks.splice(srcHeadAt, 0, table); else blocks.push(table);
     const dated = rows.filter(r => r.year).map(r => ({ year: +r.year!, label: r.title, n: r.n }));
-    if (dated.length >= 2 && !timelineDone) {
-      const und = new Map<string, number>(); for (const r of rows.filter(r => !r.year)) und.set(r.kind, (und.get(r.kind) ?? 0) + 1);
-      blocks.push({ type: 'visual', kind: 'timeline', head: 'Timeline', html: timeline(dated, [...und].map(([k, n]) => ({ label: (n > 1 ? k.replace(/ \/ site$/, 's / sites').replace(/(Video|Card|Blog post|Forum thread)$/, '$1s') : k).toLowerCase(), n }))), caption: 'Dated sources in order; undated products and sites are today’s examples' });
-    }
     const count = new Map<string, number>(); for (const r of rows) count.set(r.kind, (count.get(r.kind) ?? 0) + 1);
     const notesAll = r.items.filter(i => isNote(i) && textOf(i).trim());
     const comp = [...count].map(([label, value]) => ({ label: value > 1 && !/s$/.test(label) ? label.replace(/^Product \/ site$/, 'Products / sites') + (label === 'Product / site' ? '' : 's') : label, value }));
@@ -483,6 +478,8 @@ export function translateBoard(rootEl: any): DocOut {
     if (comp.length >= 3) { const bv: Blk = { type: 'visual', kind: 'bars', head: 'What the board is made of', html: bars(comp.sort((a, b) => b.value - a.value)), caption: 'Things on the board, by kind', fixed: srcHeadAt > 1 };
       if (srcHeadAt > 1) blocks.splice(srcHeadAt - 1, 0, bv); else blocks.push(bv); }
   }
+  const photos = r.items.filter(i => i.kind === 'image' && i.box.w >= 120).slice(0, 4);
+  for (const ph of photos) blocks.push({ type: 'visual', kind: 'photo', head: 'From the board', html: `<img data-cx-img="${ph.id}" alt="">`, caption: words(textOf(ph)).trim() || 'A picture placed on the board', box: ph.box });
   if (sources.size) {
     blocks.push({ type: 'h1', runs: [{ text: 'References' }] });
     for (const ref of sourceOrder) { const s = sources.get(ref)!; blocks.push({ type: 'numbered', runs: [{ text: s.title, link: s.url }, ...(s.meta ? [{ text: `. ${s.meta}`, muted: true }] : [])] }); }
