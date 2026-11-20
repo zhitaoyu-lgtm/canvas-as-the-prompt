@@ -18,11 +18,15 @@ import { addComment, removeCommentsOn } from './comments';
 import { toast } from './proposals';
 import { snapshot as shot } from './snapshot';
 import { markAi } from './provenance';
+import { Trace } from './trace';
+import { mountIntent, type GeneralIntent } from './intent';
+import { mountEvidence } from './evidence';
 
 const STABLE_MS = 1800, POLL_MS = 600, NEAR = 48;
 const DEFAULT_FRAME = /^(frame|section|untitled)(\s*\d+)?$/i;
 
 type Intent =
+  | GeneralIntent
   | { type: 'section'; key: string; frame: any; title: string; inside: Set<string> }
   | { type: 'group'; key: string; anchor: Item; members: Item[] }
   | { type: 'mark'; key: string; sig: string; label: string; marks: { mark: Item; host: Item }[] }
@@ -47,8 +51,13 @@ export function mountSense(rootEl: any) {
   const failed = new Map<string, number>();   // key → when it failed; tried again after a minute
   const retry = (key: string) => { const t = failed.get(key); return !!t && Date.now() - t > 60_000; };
   let base = new Map<string, string>(), last = new Map<string, string>(), recent = new Set<string>();
-  let quietSince = 0, busy = false, pointerDown = false, pending: Pending | null = null;
+  let quietSince = 0, busy = false, pointerDown = false, pending: any = null;
   const dev: any = (window as any).cxSense = { log: [] as any[], enabled: true };
+  const trace = new Trace(gfx, store);
+  const general = mountIntent(rootEl, trace);
+  mountEvidence(rootEl);
+  // an "ask" answered with one of its options runs the general path again, with that option as the request
+  general.dev.followUp = (i: GeneralIntent) => { if (busy || pending) return; busy = true; const stop = thinking(i); general.run(i, () => { pending = null; rebase(); }).then(p => { if (p && !p.isClosed()) pending = p; }).catch(e => console.warn('[intent]', e)).finally(() => { stop(); busy = false; }); };
 
   addEventListener('pointerdown', () => { pointerDown = true; }, true);
   addEventListener('pointerup', () => { pointerDown = false; quietSince = Date.now(); }, true);
@@ -69,6 +78,7 @@ export function mountSense(rootEl: any) {
   };
 
   setInterval(async () => {
+    trace.poll();
     if (!dev.enabled || busy || pending) return;
     const now = snapshot();
     let changed = false;
@@ -93,7 +103,7 @@ export function mountSense(rootEl: any) {
 
   // While Claude thinks: the 2×2 dots breathe at the top-left of the place it is thinking about. Nothing else.
   function thinking(intent: Intent): () => void {
-    const area = intent.type === 'point' ? intent.label.box : intent.type === 'section' ? box(intent.frame) : intent.type === 'group' ? union([intent.anchor.box, ...intent.members.map(m => m.box)]) : intent.type === 'link' ? intent.line.box : intent.type === 'label' ? union(intent.members.map(m => m.box)) : intent.type === 'more' || intent.type === 'stress' ? intent.item.box : intent.marks[intent.marks.length - 1].host.box;
+    const area = intent.type === 'general' ? intent.area : intent.type === 'point' ? intent.label.box : intent.type === 'section' ? box(intent.frame) : intent.type === 'group' ? union([intent.anchor.box, ...intent.members.map(m => m.box)]) : intent.type === 'link' ? intent.line.box : intent.type === 'label' ? union(intent.members.map(m => m.box)) : intent.type === 'more' || intent.type === 'stress' ? intent.item.box : intent.marks[intent.marks.length - 1].host.box;
     const d = document.createElement('div'); d.className = 'cx-sense-think'; d.innerHTML = '<i></i><i></i><i></i><i></i>'; document.body.append(d);
     let raf = 0;
     const tick = () => { const rr = rootEl.getBoundingClientRect(); const [x, y] = gfx.viewport.toViewCoord(area.x, area.y); d.style.left = (rr.left + x - 18) + 'px'; d.style.top = (rr.top + y) + 'px'; /* level with the top edge */ raf = requestAnimationFrame(tick); };
@@ -131,6 +141,8 @@ export function mountSense(rootEl: any) {
         const near = (pt: number[], o: Item, pad: number) => pt[0] >= o.box.x - pad && pt[0] <= o.box.x + o.box.w + pad && pt[1] >= o.box.y - pad && pt[1] <= o.box.y + o.box.h + pad;
         const diag = Math.hypot(b.w, b.h), closed = Math.hypot(P[0][0] - P[P.length - 1][0], P[0][1] - P[P.length - 1][1]) < Math.max(40, diag * 0.28);
         // a loop around things: one thing → more like it; several → name them as a group
+        // a loop with a line leaving it is part of a bigger statement: the general path reads the whole
+        if (closed && b.w > 60 && b.h > 40 && r.items.some(c => c.kind === 'connector' && (c.arrow?.from === i.ref || c.arrow?.to === i.ref))) continue;
         if (closed && b.w > 60 && b.h > 40) {
           const inside = things.filter(o => { const cx = o.box.x + o.box.w / 2, cy = o.box.y + o.box.h / 2; let c = false; for (let k = 0, j = P.length - 1; k < P.length; j = k++) { const [xi, yi] = P[k], [xj, yj] = P[j]; if ((yi > cy) !== (yj > cy) && cx < (xj - xi) * (cy - yi) / (yj - yi) + xi) c = !c; } return c; });
           const key = `loop:${i.id}`; if (handled.has(key) && !retry(key)) continue;
@@ -160,9 +172,13 @@ export function mountSense(rootEl: any) {
           else { const pts: number[][] = el.points ?? [], b = el.elementBound, tip = img === to ? pts[pts.length - 1] : pts[0]; if (tip) spot = [Math.min(1, Math.max(0, (b.x + tip[0] - img.box.x) / img.box.w)), Math.min(1, Math.max(0, (b.y + tip[1] - img.box.y) / img.box.h))]; }
           return { type: 'point', key, label: lab, image: img, line: i, spot };
         } }
+      if (i.kind === 'connector') continue;                            // lines the user draws with the tool: the general path reads them
       const key = `link:${i.id}`; if (handled.has(key) && !retry(key)) continue;
       return { type: 'link', key, from, to, line: i, drawn, style };
     }
+    // 2b · any other form the user just settled (arrows into blanks, out of a list, into one thing, a line
+    //      between two things, a tension, an open slot, a question …): the model decides what it means
+    { const g = general.detect(r, touched); if (g && (!handled.has(g.key) || retry(g.key))) return g; }
     // 3 · the same mark beside two or more things
     const marks = new Map<string, { mark: Item; host: Item }[]>();
     for (const [mRef, hRef] of r.relations.attached) {
@@ -226,6 +242,7 @@ export function mountSense(rootEl: any) {
   // ── asking Claude which things belong ──
   async function respond(intent: Intent) {
     handled.add(intent.key);
+    if (intent.type === 'general') { const p = await general.run(intent, () => { pending = null; rebase(); }); if (p && !p.isClosed()) pending = p; return; }
     if (intent.type === 'link') return respondLink(intent);
     if (intent.type === 'label') return respondLabel(intent);
     if (intent.type === 'stress') return respondStress(intent);

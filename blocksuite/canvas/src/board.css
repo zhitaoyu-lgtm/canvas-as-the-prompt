@@ -588,3 +588,20 @@ gfx-viewport, affine-edgeless-root { text-rendering: geometricPrecision; -webkit
 affine-edgeless-note {
   color: color-mix(in srgb, #121212 calc(clamp(0, (var(--cx-z, 1) - .25) * 5, 1) * 100%), #8e8d91);
 }
+
+/* General path: ghost answers, the fork switch, the ask, evidence */
+.cx-sense-veil.ghost { background: rgba(255,255,255,.45); outline: 1px dashed rgba(30,136,229,.55); outline-offset: 1px; transition: background .15s ease; }
+.cx-sense-veil.ghost.near { background: rgba(255,255,255,0); }
+.cx-intent-bar .cx-sense-label { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.cx-seg { display: inline-flex; padding: 2px; gap: 2px; background: #f2f2f4; border-radius: 999px; }
+.cx-intent-bar .cx-seg button { width: auto; height: 24px; padding: 0 11px; border: 0; border-radius: 999px; background: transparent; color: #6e6e73; font: 500 12px Inter, -apple-system, sans-serif; white-space: nowrap; }
+.cx-intent-bar .cx-seg button.on { background: #fff; color: #1d1d1f; box-shadow: 0 0 0 .5px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.08); }
+.cx-ask { display: inline-flex; gap: 6px; }
+.cx-intent-bar .cx-ask button { width: auto; height: 26px; padding: 0 12px; border-radius: 999px; border: 1px solid #e6e6e6; background: #fff; color: #1d1d1f; font: 500 12px Inter, -apple-system, sans-serif; white-space: nowrap; }
+.cx-intent-bar .cx-ask button:hover { border-color: rgba(30,136,229,.5); }
+.cx-evidence { position: fixed; z-index: 34; max-width: 260px; padding: 9px 11px; background: #fff; border-radius: 10px; pointer-events: none;
+  box-shadow: 0 0 0 .5px rgba(0,0,0,.1), 0 4px 12px rgba(0,0,0,.07); font: 400 12px/1.45 Inter, -apple-system, "PingFang SC", sans-serif; color: #1d1d1f; }
+.cx-evidence[hidden] { display: none; }
+.cx-evidence .src { font-weight: 600; color: #6e6e73; font-size: 11px; letter-spacing: .02em; }
+.cx-evidence .q { margin-top: 4px; color: #3a3a3c; }
+.cx-evidence .src + .q { padding-top: 4px; border-top: 1px solid #f0f0f0; }
