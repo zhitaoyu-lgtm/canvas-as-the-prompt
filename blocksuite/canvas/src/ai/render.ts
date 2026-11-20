@@ -65,7 +65,8 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, cb
   const layout = String(ans.grammar?.layout ?? '').toLowerCase();
 
   // things nothing may land on
-  const obstacles: Box[] = r.items.filter(i => !['frame', 'connector', 'group'].includes(i.kind) && !(i.kind === 'drawing' && i.box.w * i.box.h > 90000) && !(i.children?.length && i.kind !== 'card')).map(i => i.box);
+  const formLines = new Set(form?.lines ?? []);
+  const obstacles: Box[] = r.items.filter(i => !formLines.has(i.ref) && !['frame', 'connector', 'group'].includes(i.kind) && !(i.kind === 'drawing' && i.box.w * i.box.h > 90000) && !(i.children?.length && i.kind !== 'card')).map(i => i.box);
   // the user's lines are obstacles too: sampled along their path
   const lineDots: Box[] = [];
   for (const c of r.items.filter(i => i.kind === 'connector')) { const e: any = gfx.getElementById(c.id); if (!e?.getPointByOffsetDistance) continue; for (let k = 1; k < 16; k++) { try { const p = e.getPointByOffsetDistance(k / 16); lineDots.push({ x: p[0] - 6, y: p[1] - 6, w: 12, h: 12 }); } catch { break; } } }
@@ -139,6 +140,36 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, cb
     let b = along.dir === 'down' ? { x: along.last.x, y: along.last.y + along.last.h + along.gap, w, h } : { x: along.last.x + along.last.w + along.gap, y: along.last.y, w, h };
     for (let k = 0; k < 30 && !free(b); k++) b = along.dir === 'down' ? { ...b, y: b.y + 24 } : { ...b, x: b.x + 24 };
     along.last = b; return b;
+  }
+  // free ends of the user's lines: an answer lands where the line points, its near edge on the tip
+  const ends = [...(form?.ends ?? [])].map(e => {
+    // which way an end points: away from the thing its line leaves (a curve's last stretch can mislead)
+    if (!hub) return { ...e, edge: null as number | null };
+    const vx = e.x - cx(hub.box), vy = e.y - cy(hub.box);
+    return Math.abs(vx) >= Math.abs(vy) * 0.6 ? { ...e, dx: Math.sign(vx) || 1, dy: 0, edge: null as number | null } : { ...e, dx: 0, dy: Math.sign(vy) || 1, edge: null as number | null };
+  }).sort((a, b) => (Math.abs(a.dy) > Math.abs(a.dx) ? a.x - b.x : a.y - b.y));
+  // several ends on one side line up on one edge, like a column the user would have made
+  for (const side of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const g = ends.filter(e => e.dx === side[0] && e.dy === side[1]); if (g.length < 2) continue;
+    const edge = side[0] > 0 ? Math.max(...g.map(e => e.x)) : side[0] < 0 ? Math.min(...g.map(e => e.x)) : side[1] > 0 ? Math.max(...g.map(e => e.y)) : Math.min(...g.map(e => e.y));
+    g.forEach(e => { e.edge = edge; });
+  }
+  const endSize = (() => {
+    if (ends.length < 2) return null;
+    let d = 1e9; for (let i = 0; i < ends.length; i++) for (let j = i + 1; j < ends.length; j++) d = Math.min(d, Math.max(Math.abs(ends[i].x - ends[j].x), Math.abs(ends[i].y - ends[j].y)));
+    return Math.max(112, snap(d - 24));
+  })();
+  let endK = 0;
+  function atEnd(w: number, h: number): Box | null {
+    while (endK < ends.length) {
+      const e = ends[endK++], G = 16;
+      const horiz = Math.abs(e.dx) >= Math.abs(e.dy);
+      const ex = horiz && e.edge != null ? e.edge : e.x, ey = !horiz && e.edge != null ? e.edge : e.y;
+      const b = horiz ? { x: e.dx >= 0 ? ex + G : ex - G - w, y: e.y - h / 2, w, h } : { x: e.x - w / 2, y: e.dy >= 0 ? ey + G : ey - G - h, w, h };
+      if (free(b)) return b;
+      for (let k = 1; k < 8; k++) { const c = horiz ? { ...b, x: b.x + Math.sign(e.dx || 1) * k * 16 } : { ...b, y: b.y + Math.sign(e.dy || 1) * k * 16 }; if (free(c)) return c; }
+    }
+    return null;
   }
   function onRing(w: number, h: number): Box | null {
     if (!hub || targets.length < 2) return null;
@@ -217,7 +248,8 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, cb
     }
     // 2 · new cards: references stack beside their parent, the rest continue the user's arrangement
     const rest = cards.filter(c => !c.slot);
-    const sticky = template ? { w: template.box.w, h: template.box.h } : { w: 184, h: 184 };
+    let sticky = template ? { w: template.box.w, h: template.box.h } : { w: 184, h: 184 };
+    if (endSize && Math.max(sticky.w, sticky.h) > endSize) { const k = endSize / Math.max(sticky.w, sticky.h); sticky = { w: snap(sticky.w * k), h: snap(sticky.h * k) }; }
     const vb = gfx.viewport.viewportBounds, stage = { x: vb.x + vb.w * 0.4, y: vb.y + vb.h * 0.3 };
     const notes: { id: string; card: Card; parent?: Box }[] = [];
     let ringN = 0;
@@ -232,20 +264,38 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, cb
         notes.push({ id, card: c, parent: parentItem?.box });
         created.push(id); continue;
       }
-      let at: Box | null = null;
-      if (/radial|loose|ring/.test(layout)) at = onRing(sticky.w, sticky.h) ?? nextAlong(sticky.w, sticky.h);
+      let at: Box | null = atEnd(sticky.w, sticky.h); const landed = !!at;
+      if (at) { /* on a free end */ }
+      else if (/radial|loose|ring/.test(layout)) at = onRing(sticky.w, sticky.h) ?? nextAlong(sticky.w, sticky.h);
       else if (/line|bridge|midpoint/.test(layout) || form?.kind === 'bridge' || form?.kind === 'pair' || form?.kind === 'link') at = nearLine(sticky.w, sticky.h, k, rest.length);
       else at = nextAlong(sticky.w, sticky.h) ?? onRing(sticky.w, sticky.h);
       at = at ?? anywhere(sticky.w, sticky.h);
       placed.push(at);
       const id = stickyLike(c.text, at);
       created.push(id); focus.push(id); ringN++;
-      if (hub && (form.kind === 'fan-out' || form.kind === 'fan-in') && !/line|midpoint/.test(layout)) created.push(form.kind === 'fan-in' ? lineLike(id, hub.id) : lineLike(hub.id, id));
+      if (!landed && hub && (form.kind === 'fan-out' || form.kind === 'fan-in') && !/line|midpoint/.test(layout)) created.push(form.kind === 'fan-in' ? lineLike(id, hub.id) : lineLike(hub.id, id));
       const ev = { source: sourceName(c.source), quote: c.quote ?? '' }; if (ev.source || ev.quote) setEvidence(store, id, ev);
     }
     if (notes.length) {
       await frames2(); await frames2();
+      // a set's references keep the set's own order: one tidy column beside a column of labels (each card level
+      // with its label when there is room, otherwise stacked in order), or under each label of a row
+      const setCol = form?.kind === 'set' && form.facts.arrangement === 'column', setRow = form?.kind === 'set' && form.facts.arrangement === 'row';
+      const tRefs = new Set(form?.targets ?? []);
+      if (setCol || setRow) notes.sort((a, b) => { const pa = a.card.parent ? r.byRef.get(a.card.parent)?.box : null, pb = b.card.parent ? r.byRef.get(b.card.parent)?.box : null; return (pa ? (setCol ? pa.y : pa.x) : 1e9) - (pb ? (setCol ? pb.y : pb.x) : 1e9); });
+      const leftOfHub = !!hub && targets.length > 0 && cx(hub.box) > cx(targets[0].box), aboveHub = !!hub && targets.length > 0 && cy(hub.box) > cy(targets[0].box);
+      const edgeX = targets.length ? (leftOfHub ? Math.min(...targets.map(t => t.box.x)) - 24 - 220 : Math.max(...targets.map(t => t.box.x + t.box.w)) + 24) : 0;
+      let curY = -1e9; const colY = new Map<string, number>();
       for (const n of notes) {
+        if ((setCol || setRow) && n.card.parent && tRefs.has(n.card.parent)) {
+          const pb = r.byRef.get(n.card.parent)!.box, b1 = box(n.id)!;
+          let at: Box;
+          if (setCol) { at = { x: edgeX, y: Math.max(pb.y, curY), w: 220, h: b1.h }; curY = at.y + at.h + 12; }
+          else { const edgeY = aboveHub ? Math.min(...targets.map(t => t.box.y)) : Math.max(...targets.map(t => t.box.y + t.box.h)) + 16; const y0 = colY.get(n.card.parent) ?? edgeY; at = aboveHub ? { x: pb.x, y: y0 - b1.h - 16, w: 220, h: b1.h } : { x: pb.x, y: y0, w: 220, h: b1.h }; colY.set(n.card.parent, aboveHub ? at.y : at.y + at.h + 12); }
+          placed.push(at); moveTo(n.id, at); focus.push(n.id);
+          const ev0 = { source: sourceName(n.card.source), quote: n.card.quote ?? '' }; if (ev0.quote) setEvidence(store, n.id, ev0);
+          continue;
+        }
         const b0 = box(n.id)!; const parent = n.parent ?? (n.card.parent ? (() => { const s = r.byRef.get(n.card.parent!); return s ? s.box : null; })() : null);
         const at = parent ? beside(parent, 220, b0.h) : (nextAlong(220, b0.h) ?? anywhere(220, b0.h));
         placed.push(at); moveTo(n.id, at); focus.push(n.id);

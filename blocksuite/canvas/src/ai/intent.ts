@@ -17,6 +17,7 @@ import { coerce, validate, type V5 } from './validate';
 import { renderAnswer, type PendingSet } from './render';
 import { needsPicture, snapshot as shot } from './snapshot';
 import type { Trace } from './trace';
+import { Habits } from './habits';
 
 export type GeneralIntent = { type: 'general'; key: string; forms: Form[]; area: Box; request?: string; reading?: Reading };
 
@@ -26,6 +27,8 @@ export function mountIntent(rootEl: any, trace: Trace) {
   const gfx = rootEl.gfx, store = rootEl.std.store;
   const dev: any = (window as any).cxIntent = { debug: false, log: [] as any[], enabled: true, last: null as any };
   dev.trace = trace;
+  const habits = new Habits(gfx, store); dev.habits = habits;
+  const idsOf = (r: Reading) => (f: Form) => [f.hub, ...f.targets, ...f.lines].map(ref => (ref ? r.byRef.get(ref)?.id : undefined)).filter(Boolean) as string[];
   dev.refOf = (id: string) => readBoard(gfx).byId.get(id)?.ref;
   dev.forget = () => { trace.acts = []; trace.poll(); trace.acts = []; };
   const say = (...a: any[]) => { if (dev.debug) console.log('[intent]', ...a); };
@@ -66,6 +69,7 @@ export function mountIntent(rootEl: any, trace: Trace) {
     L.push('', 'FORMS (detected by code; meaning not decided)', ...serialiseForms(forms, r));
     const qs = serialiseQuestions(r); L.push('', 'QUESTIONS', ...(qs.length ? qs : ['none']));
     const ks = serialiseKeys(store, r); L.push('', 'KEYS', ...(ks.length ? ks : ['none']));
+    const hs = habits.serialise(forms); L.push('', 'HABITS', ...(hs.length ? hs : ['none']));
     const acts = trace.serialise(r); L.push('', 'ACT', ...(acts.length ? acts : ['none']));
     L.push('', `PHASE: ${trace.phase()}`, `SELECTED: ${r.selection.length ? r.selection.join(' ') : 'no'}`, `REQUEST: ${request ?? 'none'}`);
     return L.join('\n');
@@ -98,11 +102,12 @@ export function mountIntent(rootEl: any, trace: Trace) {
     const a0 = coerce(raw);
     const entry: any = { at: new Date().toLocaleTimeString(), forms: serialiseForms(forms, r), user, raw, ms: Date.now() - t0 };
     dev.log.unshift(entry); dev.log.length = Math.min(dev.log.length, 20); dev.last = entry;
-    if (!a0) { entry.result = 'unusable answer'; return null; }
+    habits.open(forms, idsOf(r));
+    if (!a0) { entry.result = 'unusable answer'; habits.settle(forms, 'not offered'); return null; }
     const { answer, edits } = validate(a0, r, forms);
     entry.edits = edits; entry.answer = answer;
     say(answer.strength, answer.function, edits);
-    if (answer.strength === 'silent' || (intent.request && answer.strength === 'ask')) { entry.result = 'silent'; return null; }
+    if (answer.strength === 'silent' || (intent.request && answer.strength === 'ask')) { entry.result = 'silent'; habits.settle(forms, 'not offered'); return null; }
     const f0 = forms[0];
     const scope = (): any => f0.facts.container ? { kind: 'section', id: f0.facts.container.id, title: f0.facts.container.title } : { kind: 'region', box: { x: f0.box.x - f0.box.w / 2, y: f0.box.y - f0.box.h / 2, w: f0.box.w * 2, h: f0.box.h * 2 } };
     const sig = f0.signature;
@@ -110,11 +115,12 @@ export function mountIntent(rootEl: any, trace: Trace) {
       onKeep: (fn, other) => {
         if (fn) addKey(store, { scope: scope(), form: sig, means: fn, source: other ? 'chosen' : 'accepted' });
         if (other) addKey(store, { scope: scope(), form: sig, means: other, source: 'not-chosen' });
-        trace.note('accept', [], fn);
+        trace.note('accept', [], fn); habits.settle(forms, other ? 'chose' : 'accepted', fn);
       },
-      onDrop: fn => { addKey(store, { scope: scope(), form: sig, means: fn || 'this reading', source: 'dismissed' }); trace.note('dismiss', [], fn); },
+      onDrop: fn => { addKey(store, { scope: scope(), form: sig, means: fn || 'this reading', source: 'dismissed' }); trace.note('dismiss', [], fn); habits.settle(forms, 'dismissed', fn || answer.function || 'this reading'); },
       onAsk: option => {
         addKey(store, { scope: scope(), form: sig, means: option, source: 'chosen' });
+        habits.settle(forms, 'chose', option);
         (dev.followUp as ((i: GeneralIntent) => void) | undefined)?.({ ...intent, key: intent.key + ':ask', request: option });
       },
       done,
@@ -127,7 +133,7 @@ export function mountIntent(rootEl: any, trace: Trace) {
   dev.fixture = () => { const r = readBoard(gfx); const forms = detectForms(gfx, r, new Set((gfx.gfxElements as any[]).map(e => e.id)), trace); return { text: message(r, forms), forms }; };
   dev.forms = (ids?: string[]) => { const r = readBoard(gfx); return serialiseForms(detectForms(gfx, r, new Set(ids ?? (gfx.gfxElements as any[]).map(e => e.id)), trace), r).join('\n'); };
   dev.blank = (ref: string) => isBlank(readBoard(gfx).byRef.get(ref));
-  return { detect, run, dev };
+  return { detect, run, dev, tick: () => habits.tick(trace) };
 }
 
 export type { V5 };

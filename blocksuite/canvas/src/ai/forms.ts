@@ -15,6 +15,7 @@ export type Form = {
   targets: string[];            // refs
   lines: string[];              // connector refs
   box: Box;                     // everything in the form
+  ends?: { line: string; x: number; y: number; dx: number; dy: number }[];   // free ends of its lines: where an answer can land
   facts: {
     targetState: 'blank' | 'open-ended' | 'existing' | 'mixed';
     count: number;
@@ -71,6 +72,7 @@ export function sourceTypeOf(it?: Item): { type: string; listItems?: number } {
 
 function lineStyleOf(gfx: any, c: Item): string {
   const el: any = gfx.getElementById(c.id); if (!el) return 'line';
+  if (c.kind === 'drawing' || c.kind === 'highlight') return (c as any).handStyle ?? 'hand-drawn';
   const m = ['straight', 'elbow', 'curve'][el.mode ?? 0] ?? 'line';
   const both = (el.frontEndpointStyle ?? 'None') !== 'None' && (el.rearEndpointStyle ?? 'None') !== 'None';
   return (el.strokeStyle === 'dash' ? 'dashed ' : '') + m + (both ? ' double-headed' : '');
@@ -125,6 +127,46 @@ function neighbourhood(r: Reading, area0: Box, container: Item | undefined, excl
 export function detectForms(gfx: any, r: Reading, touched: Set<string>, trace?: Trace): Form[] {
   const forms: Form[] = [];
   const conns = r.items.filter(i => i.kind === 'connector' && i.arrow);
+  const freeEnds = new Map<string, { x: number; y: number; dx: number; dy: number }>();
+  const heads = new Set<string>();
+  // lines drawn by hand count as lines: a pen stroke that leaves a thing (or arrives at one). A small stroke at
+  // its far end is its arrowhead. Loops and scribbles are not lines.
+  {
+    const things = r.items.filter(i => !['connector', 'drawing', 'highlight', 'frame', 'group'].includes(i.kind));
+    const at = (p: number[]) => { let best: Item | undefined, bd = 30; for (const o of things) { const dx = Math.max(o.box.x - p[0], 0, p[0] - (o.box.x + o.box.w)), dy = Math.max(o.box.y - p[1], 0, p[1] - (o.box.y + o.box.h)); const d = Math.hypot(dx, dy); if (d < bd) { bd = d; best = o; } } return best; };
+    const strokes = r.items.filter(i => i.kind === 'drawing' || i.kind === 'highlight').map(i => {
+      const el: any = gfx.getElementById(i.id); const pts: number[][] = el?.points ?? []; if (pts.length < 2) return null;
+      const b = el.elementBound, P = pts.map(q0 => [b.x + q0[0], b.y + q0[1]]);
+      let len = 0; for (let k = 1; k < P.length; k++) len += Math.hypot(P[k][0] - P[k - 1][0], P[k][1] - P[k - 1][1]);
+      return { i, P, len, a: P[0], z: P[P.length - 1], size: Math.max(b.w, b.h) };
+    }).filter(Boolean) as { i: Item; P: number[][]; len: number; a: number[]; z: number[]; size: number }[];
+    const long = strokes.filter(s0 => s0.size > 70 && Math.hypot(s0.a[0] - s0.z[0], s0.a[1] - s0.z[1]) > Math.max(60, s0.len * 0.45));
+    const small = strokes.filter(s0 => s0.size <= 70);
+    for (const s0 of long) {
+      const A = at(s0.a), Z = at(s0.z);
+      if (!A && !Z) continue;
+      const headAt = (p: number[]) => small.filter(h => Math.hypot(cx(h.i.box) - p[0], cy(h.i.box) - p[1]) < 46);
+      const hz = headAt(s0.z), ha = headAt(s0.a);
+      // drawn in one go with its head: the stroke doubles back at the end
+      let from = A, to = Z, tip = s0.z, tail = s0.a;
+      if (ha.length && !hz.length) { from = Z; to = A; tip = s0.a; tail = s0.z; }
+      if (from && to && from === to) continue;
+      [...hz, ...ha].forEach(h => heads.add(h.i.ref));
+      const headed = hz.length + ha.length > 0;
+      const k = Math.max(0, s0.P.length - 1 - Math.ceil(s0.P.length / 5)), q0 = tip === s0.z ? s0.P[k] : s0.P[Math.min(s0.P.length - 1, Math.ceil(s0.P.length / 5))];
+      const n = Math.hypot(tip[0] - q0[0], tip[1] - q0[1]) || 1;
+      if (!to || !from) freeEnds.set(s0.i.ref, { x: tip[0], y: tip[1], dx: (tip[0] - q0[0]) / n, dy: (tip[1] - q0[1]) / n });
+      // curved or straight, by how far the path strays from its chord
+      const chord = Math.hypot(tip[0] - tail[0], tip[1] - tail[1]);
+      const pseudo: any = { ...s0.i, arrow: { from: from?.ref, to: to?.ref, directed: true }, handStyle: `hand-drawn ${s0.len > chord * 1.03 ? 'curve' : 'line'}${headed ? ' with a drawn arrowhead' : ''}` };
+      conns.push(pseudo);
+    }
+    for (const c of r.items.filter(i => i.kind === 'connector' && i.arrow && (!i.arrow.to || !i.arrow.from))) {
+      const el: any = gfx.getElementById(c.id); const p = (c.arrow!.to ? el?.source?.position : el?.target?.position) as number[] | undefined; if (!p) continue;
+      const o = c.arrow!.to ?? c.arrow!.from, ob = o ? r.byRef.get(o)?.box : undefined; const vx = ob ? p[0] - cx(ob) : 1, vy = ob ? p[1] - cy(ob) : 0, n = Math.hypot(vx, vy) || 1;
+      freeEnds.set(c.ref, { x: p[0], y: p[1], dx: vx / n, dy: vy / n });
+    }
+  }
   const isTouched = (it?: Item) => !!it && touched.has(it.id);
   const used = new Set<string>();
   const out = new Map<string, Item[]>(), inn = new Map<string, Item[]>();
@@ -146,7 +188,8 @@ export function detectForms(gfx: any, r: Reading, touched: Set<string>, trace?: 
     const blanks = targets.filter(isBlank).length, open = lines.filter(c => !c.arrow?.to || !c.arrow?.from).length;
     const targetState = targets.length && blanks === targets.length ? 'blank' : open && !targets.length ? 'open-ended' : blanks || open ? 'mixed' : 'existing';
     const styles = [...new Set(lines.map(c => lineStyleOf(gfx, c)))];
-    const lineStyle = styles.length === 1 ? styles[0] : styles.length ? 'mixed' : 'none';
+    const hand = styles.length > 1 && styles.every(x => x.startsWith('hand-drawn'));
+    const lineStyle = styles.length === 1 ? styles[0] : hand ? `hand-drawn ${styles.some(x => /curve/.test(x)) ? 'curve' : 'line'}${styles.some(x => /arrowhead/.test(x)) ? ' with a drawn arrowhead' : ''}` : styles.length ? 'mixed' : 'none';
     const container = containerOf(hub ?? targets[0]);
     const up = hub ? (inn.get(hub.ref) ?? []).filter(c => !lines.includes(c)).map(c => `${c.arrow!.from ?? '(free)'} → ${hub.ref}${c.arrow!.label ? ` labelled ${q(c.arrow!.label)} [by ${c.author}]` : ''}`) : [];
     const filled = targets.filter(t => !isBlank(t) && t.text.trim());
@@ -164,9 +207,10 @@ export function detectForms(gfx: any, r: Reading, touched: Set<string>, trace?: 
       },
       signature: '',
     };
+    const ends = lines.map(c => ({ line: c.ref, ...(freeEnds.get(c.ref) as any) })).filter(e => typeof e.x === 'number'); if (ends.length) f.ends = ends;
     if (hub?.kind === 'drawing') { const inL = r.items.filter(i => i.parent === hub.ref && i.kind !== 'connector'); if (inL.length) f.facts.marker = `${hub.ref} is a hand-drawn loop around ${inL.map(i => i.ref).join(' ')}` + (f.facts.marker ? '; ' + f.facts.marker : ''); }
     f.facts.neighbourhood = neighbourhood(r, f.box, container, new Set(all.map(i => i.ref)));
-    f.signature = [kind, st.type, targetState, lineStyle.replace(/^dashed /, '')].join(' · ');
+    f.signature = [kind, st.type, targetState, lineStyle.replace(/^dashed /, '').replace(/^hand-drawn.*$/, 'hand-drawn')].join(' · ');
     all.forEach(i => used.add(i.ref));
     forms.push(f);
     return f;
@@ -246,7 +290,7 @@ export function detectForms(gfx: any, r: Reading, touched: Set<string>, trace?: 
       const tryAxis = (col: boolean) => {
         const c0 = (o: Item) => col ? cx(o.box) : cy(o.box), span = (o: Item) => col ? o.box.w : o.box.h;
         let best: Item[] = [];
-        for (const a of comp) { const run = comp.filter(o => Math.abs(c0(o) - c0(a)) <= span(a) * 0.2); if (run.length > best.length) best = run; }
+        for (const a of comp) { const e0 = (o: Item) => col ? o.box.x : o.box.y; const run = comp.filter(o => Math.abs(c0(o) - c0(a)) <= Math.min(span(a), span(o)) * 0.2 || Math.abs(e0(o) - e0(a)) <= 10); if (run.length > best.length) best = run; }
         return best;
       };
       const colRun = tryAxis(true), rowRun = tryAxis(false);

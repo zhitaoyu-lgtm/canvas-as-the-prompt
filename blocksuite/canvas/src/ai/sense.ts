@@ -78,7 +78,7 @@ export function mountSense(rootEl: any) {
   };
 
   setInterval(async () => {
-    trace.poll();
+    trace.poll(); general.tick();
     if (!dev.enabled || busy || pending) return;
     const now = snapshot();
     let changed = false;
@@ -125,6 +125,8 @@ export function mountSense(rootEl: any) {
       return { type: 'section', key, frame: f, title, inside };
     }
     // 2 · a line between two things: an arrow, or a pen stroke that starts on one thing and ends on another
+    // several lines sharing an end are one form (a fan), not separate links: the general path reads them together
+    { const g = general.detect(r, touched); if (g && g.forms.some(f => f.kind === 'fan-in' || f.kind === 'fan-out') && (!handled.has(g.key) || retry(g.key))) return g; }
     for (const i of touchedItems) {
       const el: any = gfx.getElementById(i.id); if (!el) continue;
       let from: Item | undefined, to: Item | undefined, drawn = false, style = 'line';
