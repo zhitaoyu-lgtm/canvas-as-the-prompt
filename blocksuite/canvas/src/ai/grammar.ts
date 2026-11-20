@@ -82,6 +82,16 @@ Answer with a list of actions. Use only these parts; combine them freely. Refer 
    "edges":[{"from":"a","to":"b","label":"selection","dashed":false}]}
                                                               a system / architecture / flow / process map: each role has its own shape and
                                                               hue, laid out in layers along the arrows; keep members of a zone next to each other in the flow
+{"do":"journey", "title":"…", "subtitle":"who · what, one line", "stages":["Discover","Sign up","First use"], "place":PLACE,
+   "rows":[{"label":"Goal","kind":"text","cells":["Title — one line of detail", …one per stage]},
+           {"label":"Actions","kind":"list","cells":[["step","step"], …]},
+           {"label":"Touchpoints","kind":"tags","cells":[["Website","Email"], …]},
+           {"label":"Feeling","kind":"emotion","cells":[{"score":4,"text":"Curious"}, …]},        score 1 (low) – 5 (high): drawn as one curve across the stages
+           {"label":"Pain points","kind":"sticky","colour":"red","cells":["…" or ["…","…"], …]},
+           {"label":"Opportunities","kind":"sticky","colour":"green","cells":[…]}]}
+                                                              a user / customer journey map or service blueprint: ALWAYS this part, never sections of cards.
+                                                              3–6 stages, 4–7 rows, one cell per stage in every row ("" for none); keep cells short
+                                                              (text ≤ 14 words, notes ≤ 12 words, ≤ 4 list items). Always include one emotion row.
 {"do":"matrix", "title":"…", "x":["Low effort","High effort"], "y":["Low value","High value"], "place":PLACE,
    "cells":[{"title":"Do now","subtitle":"High value · low effort","items":[{"title":"…","text":"…"}]}, …4 cells: top-left, top-right, bottom-left, bottom-right]}
 {"do":"legend", "entries":[{"colour":"red","label":"Pain point"}], "place":PLACE}

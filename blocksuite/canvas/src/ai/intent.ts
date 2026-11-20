@@ -52,7 +52,7 @@ export function mountIntent(rootEl: any, trace: Trace) {
       return true;
     });
     if (!forms.length) return null;
-    const blankNow = forms.some(f => f.facts.targetState === 'blank' || f.facts.targetState === 'mixed' || f.kind === 'slot');
+    const blankNow = forms.some(f => f.facts.targetState === 'blank' || f.facts.targetState === 'mixed' || f.kind === 'slot' || f.kind === 'set');
     if (trace.phase() === 'collecting' && !blankNow) { say('collecting, quiet'); return null; }
     const ids = forms.flatMap(f => [f.hub, ...f.targets, ...f.lines]).filter(Boolean).sort().join(',');
     const key = `general:${forms.map(f => f.signature).join('|')}:${ids}:${forms.map(f => f.facts.targetState).join(',')}`;

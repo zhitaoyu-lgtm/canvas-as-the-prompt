@@ -7,7 +7,7 @@
 import type { Box, Item, Reading } from './reading';
 import type { Trace } from './trace';
 
-export type FormKind = 'fan-out' | 'fan-in' | 'link' | 'bridge' | 'pair' | 'slot' | 'open' | 'question';
+export type FormKind = 'fan-out' | 'fan-in' | 'link' | 'bridge' | 'pair' | 'slot' | 'open' | 'question' | 'set';
 export type Form = {
   id: string;
   kind: FormKind;
@@ -227,6 +227,43 @@ export function detectForms(gfx: any, r: Reading, touched: Set<string>, trace?: 
     make('slot', undefined, [it], [], { arrangement: `${g.layout}${g.rows ? ` ${g.rows}×${g.cols}` : ''} of ${g.kinds}`, neighbourhood: '' });
     const f = forms[forms.length - 1]; f.facts.upstream = [`in ${g.ref} with ${filled.slice(0, 6).map(m => `${m.ref} ${q(m.text, 30)}`).join(', ')}`];
   }
+  // a set: short labels placed tightly with no lines, one of them standing off an aligned run of the others
+  // (to its side, above it, another colour). Geometry only: what the one is to the many is the model's call.
+  {
+    const lined = new Set<string>(); for (const c of conns) { if (c.arrow!.from) lined.add(c.arrow!.from); if (c.arrow!.to) lined.add(c.arrow!.to); }
+    const gapOf = (a: Box, b: Box) => Math.max(0, Math.max(a.x - (b.x + b.w), b.x - (a.x + a.w)), Math.max(a.y - (b.y + b.h), b.y - (a.y + a.h)));
+    const label = (i: Item) => ['sticky', 'shape', 'text', 'tag'].includes(i.kind) && i.author === 'user' && !used.has(i.ref) && !lined.has(i.ref) && i.text.trim().length >= 1 && i.text.trim().length <= 48 && !i.children?.length;
+    const pool = r.items.filter(label), seenSet = new Set<string>();
+    for (const t of pool.filter(isTouched)) {
+      if (seenSet.has(t.ref)) continue;
+      const comp = [t], queue = [t];
+      while (queue.length && comp.length <= 10) { const c = queue.shift()!; for (const o of pool) if (!comp.includes(o) && o.parent === t.parent && gapOf(o.box, c.box) <= Math.max(48, Math.min(c.box.w, c.box.h) * 0.4)) { comp.push(o); queue.push(o); } }
+      comp.forEach(o => seenSet.add(o.ref));
+      if (comp.length < 3 || comp.length > 9) continue;
+      // nothing else may crowd it: material in between means a pile, not a set
+      const u = union(comp.map(o => o.box));
+      if (r.items.some(o => !comp.includes(o) && !['frame', 'connector', 'group', 'drawing', 'highlight'].includes(o.kind) && o.parent === t.parent && gapOf(o.box, u) < 24)) continue;
+      const tryAxis = (col: boolean) => {
+        const c0 = (o: Item) => col ? cx(o.box) : cy(o.box), span = (o: Item) => col ? o.box.w : o.box.h;
+        let best: Item[] = [];
+        for (const a of comp) { const run = comp.filter(o => Math.abs(c0(o) - c0(a)) <= span(a) * 0.2); if (run.length > best.length) best = run; }
+        return best;
+      };
+      const colRun = tryAxis(true), rowRun = tryAxis(false);
+      const run = (colRun.length >= rowRun.length ? colRun : rowRun), col = run === colRun;
+      const rest = comp.filter(o => !run.includes(o));
+      if (run.length < 2 || rest.length !== 1) continue;
+      const head = rest[0];
+      run.sort((a, b) => col ? a.box.y - b.box.y : a.box.x - b.box.x);
+      const sameHue = new Set(run.map(o => o.colour ?? '')).size === 1;
+      const facts = [`${head.ref} stands off a ${col ? 'column' : 'row'} of ${run.length}`, `no lines drawn`,
+        sameHue && head.colour && head.colour !== run[0].colour ? `${head.ref} is ${head.colour}, the ${run.length} are all ${run[0].colour}` : sameHue ? 'all one colour' : 'mixed colours',
+        `gaps ${Math.round(Math.min(...run.map(o => gapOf(o.box, head.box))))}–${Math.round(Math.max(...run.slice(1).map((o, k) => gapOf(o.box, run[k].box)), 0))} px (set tightly)`,
+        `words: ${head.ref} ${q(head.text.trim(), 30)} · ${run.map(o => `${o.ref} ${q(o.text.trim(), 30)}`).join(' · ')}`];
+      const f = make('set', head, run, [], { marker: facts.join('; ') });
+      f.facts.count = run.length; f.facts.targetState = 'existing';
+    }
+  }
   // a question title that just received material
   for (const f of r.items.filter(i => i.kind === 'frame' && /\?\s*$|？\s*$|^(why|what|which|how|who|为什么|哪些|怎么|如何|是否)/i.test(i.text.trim()))) {
     const kids = r.items.filter(i => i.parent === f.ref && i.kind !== 'connector');
@@ -242,7 +279,7 @@ export function serialiseForms(forms: Form[], r: Reading): string[] {
     const x = f.facts;
     const nb = f.targets.filter(t => isBlank(r.byRef.get(t))).length;
     const tState = x.targetState === 'blank' ? `blank ×${nb || f.targets.length}` : x.targetState;
-    const head = f.kind === 'fan-in' ? `${f.id} fan-in into ${f.hub} ← ${f.targets.join(' ')}` : f.kind === 'pair' ? `${f.id} pair (two-way line) between ${f.targets.join(' and ')}` : f.kind === 'slot' ? `${f.id} slot ${f.targets.join(' ')}` : f.kind === 'question' ? `${f.id} question container ${f.hub} ${q(r.byRef.get(f.hub!)!.text)} holds ${f.targets.join(' ')}` : `${f.id} ${f.kind} from ${f.hub ?? '?'} → ${f.targets.join(' ') || '(free end)'}`;
+    const head = f.kind === 'fan-in' ? `${f.id} fan-in into ${f.hub} ← ${f.targets.join(' ')}` : f.kind === 'pair' ? `${f.id} pair (two-way line) between ${f.targets.join(' and ')}` : f.kind === 'slot' ? `${f.id} slot ${f.targets.join(' ')}` : f.kind === 'set' ? `${f.id} set (no lines): ${f.hub} beside ${f.targets.join(' ')}` : f.kind === 'question' ? `${f.id} question container ${f.hub} ${q(r.byRef.get(f.hub!)!.text)} holds ${f.targets.join(' ')}` : `${f.id} ${f.kind} from ${f.hub ?? '?'} → ${f.targets.join(' ') || '(free end)'}`;
     const bits = [`targets ${tState}`];
     if (x.arrangement !== 'none') bits.push(x.arrangement + (x.aligned ? ', aligned' : ''), x.equalSize && f.targets.length > 1 ? 'equal size' : '');
     if (f.lines.length) bits.push(x.lineStyle + (f.lines.length > 1 ? ` ×${f.lines.length}` : ''));

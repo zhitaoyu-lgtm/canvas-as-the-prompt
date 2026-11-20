@@ -693,6 +693,114 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     created.push(...ids); groupIds(ids, String(a.title ?? 'Scores')); newBoxes.push(box);
   }
 
+
+  // Journey map: one designed table. Stages run across the top as numbered headers; each row is a layer with
+  // its name in a quiet column on the left and hairlines between rows. A row has a kind, and each kind has its
+  // own look: plain text, a short list, small pills (touchpoints), notes in one hue (pains, wins, opportunities),
+  // and a feeling curve drawn across the stages with a dot and a word at each one.
+  function journey(a: Action) {
+    const stages: string[] = (a.stages ?? []).map((x: any) => String(x?.label ?? x)); if (stages.length < 2) return;
+    const rows: any[] = (a.rows ?? []).filter((r0: any) => r0 && Array.isArray(r0.cells));
+    const n = stages.length, COL = n <= 4 ? 232 : 208, GAP = 20, LABEL = 132, PAD = 40, ROWPAD = 20;
+    const gridW = n * COL + (n - 1) * GAP, W = PAD + LABEL + GAP + gridW + PAD;
+    const F = 'blocksuite:surface:Inter';
+    const ids: string[] = [];
+    type Draw = (x: number, y: number) => void;
+    const draws: Draw[] = [];
+    const txtH = (t: string, size: number, weight: number, w: number) => wrapLines(t, size, weight, w).length * Math.round(size * 1.4);
+    const txt = (t: string, x: number, y: number, w: number, size: number, weight: string, colour: string, align = 'left') => {
+      const lines = wrapLines(t, size, Number(weight), w); const y0 = new Y.Text(); y0.insert(0, lines.join('\n'));
+      ids.push(addEl({ type: 'text', xywh: xywh({ x, y, w, h: lines.length * Math.round(size * 1.4) }), text: y0, fontSize: size, fontWeight: weight, color: colour, fontFamily: F, textAlign: align }));
+    };
+    const rect = (b: Box, fill: string, radius = 0.06, stroke?: string) => { const id = addEl({ type: 'shape', shapeType: 'rect', radius, xywh: xywh(b), filled: true, fillColor: fill, strokeColor: stroke ?? 'transparent', strokeWidth: stroke ? 1 : 0, text: new Y.Text() }); ids.push(id); return id; };
+    const hair = (x: number, y: number, w: number) => ids.push(addEl({ type: 'connector', mode: 0, source: { position: [x, y] }, target: { position: [x + w, y] }, stroke: '#ececec', strokeWidth: 1, strokeStyle: 'solid', frontEndpointStyle: 'None', rearEndpointStyle: 'None' }));
+    const colX = (i: number) => PAD + LABEL + GAP + i * (COL + GAP);
+    const listOf = (c: any): string[] => (Array.isArray(c) ? c : String(c ?? '').split(/\n|;\s+/)).map((x: any) => String(x).replace(/^[-•*]\s*/, '').trim()).filter(Boolean);
+
+    // title block
+    let y = PAD;
+    if (a.title) { const t = clean(String(a.title)); const h = txtH(t, 24, 700, W - PAD * 2); draws.push((X, Y0) => txt(t, X + PAD, Y0 + PAD, W - PAD * 2, 24, '700', TEXT.ink)); y += h + 6; }
+    if (a.subtitle) { const t = clean(String(a.subtitle)); const y1 = y, h = txtH(t, 14, 400, W - PAD * 2); draws.push((X, Y0) => txt(t, X + PAD, Y0 + y1, W - PAD * 2, 14, '400', TEXT.muted)); y += h; }
+    y += a.title || a.subtitle ? 28 : 0;
+    // stage headers: a soft bar with a small dark number and the stage name
+    { const y1 = y, hh = Math.max(44, ...stages.map(st => txtH(st, 15, 600, COL - 60) + 24));
+      draws.push((X, Y0) => stages.forEach((st, i) => {
+        const bx = X + colX(i);
+        rect({ x: bx, y: Y0 + y1, w: COL, h: hh }, '#f3f3f5', Math.min(0.5, 12 / hh));
+        const d = addEl({ type: 'shape', shapeType: 'ellipse', xywh: xywh({ x: bx + 12, y: Y0 + y1 + (hh - 22) / 2, w: 22, h: 22 }), filled: true, fillColor: '#1d1d1f', strokeColor: 'transparent', strokeWidth: 0, text: (() => { const t = new Y.Text(); t.insert(0, String(i + 1)); return t; })(), color: '#ffffff', fontSize: 12, fontWeight: '600', fontFamily: F, textAlign: 'center', textHorizontalAlign: 'center', textVerticalAlign: 'center', padding: [0, 0] });
+        ids.push(d);
+        const th = txtH(st, 15, 600, COL - 60);
+        txt(st, bx + 44, Y0 + y1 + (hh - th) / 2, COL - 60, 15, '600', TEXT.ink);
+      }));
+      y += hh + 8; }
+
+    for (const row of rows) {
+      const kind = String(row.kind ?? 'text'), cells: any[] = row.cells.slice(0, n), hue = base(String(row.colour ?? (kind === 'sticky' ? 'yellow' : 'blue'))).replace('purple', 'blue').replace('violet', 'blue');
+      const label = clean(String(row.label ?? ''));
+      let h = 0; const cellDraw: Draw[] = [];
+      if (kind === 'emotion') {
+        // a feeling curve: higher = better; a dot per stage, the word under it
+        const BAND = 96, pts = cells.map((c: any) => ({ s: Math.max(1, Math.min(5, Number(c?.score ?? c ?? 3))), t: clean(String(c?.text ?? '')) }));
+        const wordH = Math.max(0, ...pts.map(p2 => p2.t ? txtH(p2.t, 13, 400, COL - 8) : 0));
+        h = BAND + (wordH ? 10 + wordH : 0);
+        cellDraw.push((X, Y0) => {
+          const P = pts.map((p2, i) => ({ x: X + colX(i) + COL / 2, y: Y0 + 10 + (BAND - 20) * (1 - (p2.s - 1) / 4) }));
+          ids.push(addEl({ type: 'connector', mode: 0, source: { position: [X + colX(0), Y0 + BAND / 2] }, target: { position: [X + colX(n - 1) + COL, Y0 + BAND / 2] }, stroke: '#e3e3e6', strokeWidth: 1, strokeStyle: 'dash', frontEndpointStyle: 'None', rearEndpointStyle: 'None' }));
+          for (let i = 0; i + 1 < P.length; i++) ids.push(addEl({ type: 'connector', mode: 2, source: { position: [P[i].x, P[i].y] }, target: { position: [P[i + 1].x, P[i + 1].y] }, stroke: '#3dadff', strokeWidth: 2.5, strokeStyle: 'solid', frontEndpointStyle: 'None', rearEndpointStyle: 'None' }));
+          P.forEach((q, i) => {
+            const low = pts[i].s <= 2, high = pts[i].s >= 4;
+            ids.push(addEl({ type: 'shape', shapeType: 'ellipse', xywh: xywh({ x: q.x - 8, y: q.y - 8, w: 16, h: 16 }), filled: true, fillColor: low ? '#f24822' : high ? '#34c759' : '#ffffff', strokeColor: low ? '#f24822' : high ? '#34c759' : '#3dadff', strokeWidth: 2.5, text: new Y.Text() }));
+            if (pts[i].t) txt(pts[i].t, X + colX(i) + 4, Y0 + BAND + 10, COL - 8, 13, '400', TEXT.body, 'center');
+          });
+        });
+      } else if (kind === 'tags') {
+        const lay = cells.map((c: any) => { const tags = listOf(c).slice(0, 6); let x = 0, yy = 0; const out: { t: string; x: number; y: number; w: number }[] = [];
+          for (const t of tags) { const w = Math.min(COL, Math.ceil(textWidth(t, 12)) + 22); if (x + w > COL && x > 0) { x = 0; yy += 30; } out.push({ t, x, y: yy, w }); x += w + 6; }
+          return { out, h: tags.length ? yy + 24 : 0 }; });
+        h = Math.max(24, ...lay.map(l => l.h));
+        cellDraw.push((X, Y0) => lay.forEach((l, i) => l.out.forEach(pl => {
+          rect({ x: X + colX(i) + pl.x, y: Y0 + pl.y, w: pl.w, h: 24 }, '#ffffff', 0.5, '#e3e3e6');
+          txt(pl.t, X + colX(i) + pl.x + 11, Y0 + pl.y + 4, pl.w - 20, 12, '500', TEXT.body);
+        })));
+      } else if (kind === 'sticky') {
+        // notes in the row's hue: as wide as the column, as tall as their words; several in a cell stack
+        const fill = STICKY[hue] ?? STICKY.yellow;
+        const lay = cells.map((c: any) => { let yy = 0; const out = listOf(Array.isArray(c) ? c : [c]).slice(0, 3).map(t0 => { const t = clean(t0), hh = Math.max(64, txtH(t, 14, 400, COL - 28) + 28); const o = { t, y: yy, h: hh }; yy += hh + 8; return o; }); return { out, h: Math.max(0, yy - 8) }; });
+        { const one = Math.max(64, ...lay.flatMap(l => l.out.map(o => o.h))); for (const l of lay) { let yy = 0; for (const o of l.out) { o.h = one; o.y = yy; yy += one + 8; } l.h = Math.max(0, yy - 8); } }
+        h = Math.max(64, ...lay.map(l => l.h));
+        cellDraw.push((X, Y0) => lay.forEach((l, i) => l.out.forEach(o => {
+          const t = new Y.Text(); t.insert(0, wrapLines(o.t, 14, 400, COL - 28).join('\n'));
+          ids.push(addEl({ type: 'shape', shapeType: 'rect', radius: 0.05, xywh: xywh({ x: X + colX(i), y: Y0 + o.y, w: COL, h: o.h }), filled: true, fillColor: fill, strokeColor: 'transparent', strokeWidth: 0, color: TEXT.ink, fontSize: 14, fontFamily: F,
+            textAlign: 'left', textHorizontalAlign: 'left', textVerticalAlign: 'top', padding: [14, 14], shadow: SHADOW.sticky, text: t }));
+        })));
+      } else {
+        // text, or a short list: a bold first line when the cell has "Title — detail"
+        const lay = cells.map((c: any) => {
+          if (kind === 'list' || Array.isArray(c)) { const items = listOf(c).slice(0, 5).map(clean); let yy = 0; const out = items.map(t => { const hh = txtH(t, 14, 400, COL - 16); const o = { t, y: yy, h: hh }; yy += hh + 6; return o; }); return { list: out, h: Math.max(0, yy - 6) }; }
+          const raw = clean(String(c ?? '')); const k = raw.indexOf(' — '); const head = k > 0 ? raw.slice(0, k) : raw, body0 = k > 0 ? raw.slice(k + 3) : '', body = body0 ? body0[0].toUpperCase() + body0.slice(1) : '';
+          const hh = txtH(head, 14, k > 0 || row.strong ? 600 : 400, COL), bh = body ? txtH(body, 13, 400, COL) : 0;
+          return { head, body, strong: k > 0 || !!row.strong, hh, h: hh + (body ? 4 + bh : 0) };
+        });
+        h = Math.max(20, ...lay.map(l => l.h));
+        cellDraw.push((X, Y0) => lay.forEach((l: any, i) => {
+          if (l.list) l.list.forEach((o: any) => { ids.push(addEl({ type: 'shape', shapeType: 'ellipse', xywh: xywh({ x: X + colX(i) + 2, y: Y0 + o.y + 8, w: 4, h: 4 }), filled: true, fillColor: '#aeaeb2', strokeColor: 'transparent', strokeWidth: 0, text: new Y.Text() })); txt(o.t, X + colX(i) + 16, Y0 + o.y, COL - 16, 14, '400', TEXT.body); });
+          else if (l.head) { txt(l.head, X + colX(i), Y0, COL, 14, l.strong ? '600' : '400', l.strong ? TEXT.ink : TEXT.body); if (l.body) txt(l.body, X + colX(i), Y0 + l.hh + 4, COL, 13, '400', TEXT.muted); }
+        }));
+      }
+      const y1 = y, lh = txtH(label, 13, 600, LABEL);
+      const rh = Math.max(h, lh);
+      draws.push((X, Y0) => { hair(X + PAD, Y0 + y1, W - PAD * 2); txt(label, X + PAD, Y0 + y1 + ROWPAD, LABEL, 13, '600', '#6e6e73'); cellDraw.forEach(d => d(X, Y0 + y1 + ROWPAD)); });
+      y += ROWPAD + rh + ROWPAD;
+    }
+    const H = y + PAD - ROWPAD;
+    const box = place(a.place, W, H, anchorOf(a) ?? reading.selection[0]);
+    const card = addEl({ type: 'shape', shapeType: 'rect', radius: 0.012, xywh: xywh(box), filled: true, fillColor: '#ffffff', strokeColor: 'transparent', strokeWidth: 0, shadow: { blur: 10, offsetX: 0, offsetY: 3, color: 'rgba(0,0,0,0.07)' }, text: new Y.Text() });
+    draws.forEach(d => d(box.x, box.y));
+    ids.unshift(card);
+    created.push(...ids); groupIds(ids, String(a.title ?? 'Journey map')); newBoxes.push(box);
+    if (a.name) named.set(a.name, { id: card, box });
+  }
+
   // Tags: small quiet pills inside a thing's bottom edge. On a coloured thing the pill is white (one
   // accent is enough); on a white thing it is soft gray. The tag's own colour is only a small dot.
   // Pills keep a 12px inset from every edge and wrap upward into a new row when a row is full.
@@ -1261,6 +1369,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
         case 'circle': circle(a); break;
         case 'funnel': funnel(a); break;
         case 'bars': bars(a); break;
+        case 'journey': journey(a); break;
         case 'cluster': {
           // the clusters take the place the loose notes occupied (they are moving anyway)
           const all = (a.groups ?? []).flatMap((g: any) => g.refs ?? []).map((r: string) => boxOfRef(r)).filter(Boolean) as Box[];
