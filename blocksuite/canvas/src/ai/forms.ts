@@ -31,6 +31,7 @@ export type Form = {
     neighbourhood: string;
     firstFilled?: string;       // the only target the user already typed in ("Day 1")
     marker?: string;            // what sits on a bridge: a small drawn circle, a blank note
+    precedents?: { line: string; from: string; to: string; text: string; by: 'user' | 'ai'; ageSec: number }[];   // the same form, already completed nearby
     authorAll: 'user' | 'ai' | 'mixed';
     ageSec: number;
   };
@@ -129,6 +130,7 @@ export function detectForms(gfx: any, r: Reading, touched: Set<string>, trace?: 
   const conns = r.items.filter(i => i.kind === 'connector' && i.arrow);
   const freeEnds = new Map<string, { x: number; y: number; dx: number; dy: number }>();
   const heads = new Set<string>();
+  const regionOf = new Map<string, string>();   // loop ref → the thing it circles a part of
   // lines drawn by hand count as lines: a pen stroke that leaves a thing (or arrives at one). A small stroke at
   // its far end is its arrowhead. Loops and scribbles are not lines.
   {
@@ -140,10 +142,22 @@ export function detectForms(gfx: any, r: Reading, touched: Set<string>, trace?: 
       let len = 0; for (let k = 1; k < P.length; k++) len += Math.hypot(P[k][0] - P[k - 1][0], P[k][1] - P[k - 1][1]);
       return { i, P, len, a: P[0], z: P[P.length - 1], size: Math.max(b.w, b.h) };
     }).filter(Boolean) as { i: Item; P: number[][]; len: number; a: number[]; z: number[]; size: number }[];
+    // a loop drawn on part of a bigger thing (a region of a picture, a paragraph of a note) marks that part
+    const loops = strokes.filter(s0 => s0.size > 50 && s0.P.length >= 6 && Math.hypot(s0.a[0] - s0.z[0], s0.a[1] - s0.z[1]) < Math.max(40, s0.len * 0.2)).map(s0 => {
+      const over = (o: Item) => Math.max(0, Math.min(s0.i.box.x + s0.i.box.w, o.box.x + o.box.w) - Math.max(s0.i.box.x, o.box.x)) * Math.max(0, Math.min(s0.i.box.y + s0.i.box.h, o.box.y + o.box.h) - Math.max(s0.i.box.y, o.box.y));
+      const host = things.filter(o => over(o) >= area(s0.i.box) * 0.8 && area(s0.i.box) < area(o.box) * 0.7).sort((a, b) => area(a.box) - area(b.box))[0];
+      return { ...s0, host };
+    });
+    const loopAt = (p: number[]) => loops.find(l => p[0] >= l.i.box.x - 14 && p[0] <= l.i.box.x + l.i.box.w + 14 && p[1] >= l.i.box.y - 14 && p[1] <= l.i.box.y + l.i.box.h + 14);
+    for (const l of loops) if (l.host) regionOf.set(l.i.ref, l.host.ref);
     const long = strokes.filter(s0 => s0.size > 70 && Math.hypot(s0.a[0] - s0.z[0], s0.a[1] - s0.z[1]) > Math.max(60, s0.len * 0.45));
     const small = strokes.filter(s0 => s0.size <= 70);
     for (const s0 of long) {
-      const A = at(s0.a), Z = at(s0.z);
+      if (loops.some(l => l.i === s0.i)) continue;
+      let A = at(s0.a), Z = at(s0.z);
+      // a line that starts (or ends) on a circled region speaks about that region, not the whole thing
+      const la = loopAt(s0.a), lz = loopAt(s0.z);
+      if (la && (!A || la.host === A)) A = la.i; if (lz && lz !== la && (!Z || lz.host === Z)) Z = lz.i;
       if (!A && !Z) continue;
       const headAt = (p: number[]) => small.filter(h => Math.hypot(cx(h.i.box) - p[0], cy(h.i.box) - p[1]) < 46);
       const hz = headAt(s0.z), ha = headAt(s0.a);
@@ -208,7 +222,8 @@ export function detectForms(gfx: any, r: Reading, touched: Set<string>, trace?: 
       signature: '',
     };
     const ends = lines.map(c => ({ line: c.ref, ...(freeEnds.get(c.ref) as any) })).filter(e => typeof e.x === 'number'); if (ends.length) f.ends = ends;
-    if (hub?.kind === 'drawing') { const inL = r.items.filter(i => i.parent === hub.ref && i.kind !== 'connector'); if (inL.length) f.facts.marker = `${hub.ref} is a hand-drawn loop around ${inL.map(i => i.ref).join(' ')}` + (f.facts.marker ? '; ' + f.facts.marker : ''); }
+    if (hub && regionOf.has(hub.ref)) { const host = r.byRef.get(regionOf.get(hub.ref)!)!; f.facts.marker = `${hub.ref} is a hand-drawn loop around one part of ${host.ref} (${host.kind}${host.text.trim() ? ' ' + q(host.text.trim(), 30) : ''}): the line speaks about that part` + (f.facts.marker ? '; ' + f.facts.marker : ''); }
+    else if (hub?.kind === 'drawing') { const inL = r.items.filter(i => i.parent === hub.ref && i.kind !== 'connector'); if (inL.length) f.facts.marker = `${hub.ref} is a hand-drawn loop around ${inL.map(i => i.ref).join(' ')}` + (f.facts.marker ? '; ' + f.facts.marker : ''); }
     f.facts.neighbourhood = neighbourhood(r, f.box, container, new Set(all.map(i => i.ref)));
     f.signature = [kind, st.type, targetState, lineStyle.replace(/^dashed /, '').replace(/^hand-drawn.*$/, 'hand-drawn')].join(' · ');
     all.forEach(i => used.add(i.ref));
@@ -314,6 +329,27 @@ export function detectForms(gfx: any, r: Reading, touched: Set<string>, trace?: 
     if (kids.length < 2 || !kids.some(isTouched)) continue;
     make('question', f, kids, []);
   }
+  // precedents: the same form, already completed close by. A line of the same family, leaving the same kind of
+  // thing, that ends at a note with words. Code only pairs them up; what was demonstrated is the model's call.
+  {
+    const fam = (c: Item) => (c.kind === 'connector' ? 'tool' : 'hand');
+    const alike = (a?: Item, b?: Item) => !!a && !!b && a !== b && a.kind === b.kind && (regionOf.has(a.ref) || regionOf.has(b.ref) ? regionOf.get(a.ref) === regionOf.get(b.ref) : a.parent === b.parent && sourceTypeOf(a).type === sourceTypeOf(b).type);
+    for (const f of forms) {
+      if (!['blank', 'open-ended', 'mixed'].includes(f.facts.targetState)) continue;
+      const hub = f.hub ? r.byRef.get(f.hub) : undefined; if (!hub) continue;
+      const mine = conns.filter(c => f.lines.includes(c.ref));
+      const pres: NonNullable<Form['facts']['precedents']> = [];
+      for (const c of conns) {
+        if (f.lines.includes(c.ref) || !c.arrow?.from || !mine.some(m => fam(m) === fam(c))) continue;
+        const from = r.byRef.get(c.arrow.from); if (!(from === hub && !f.targets.includes(c.arrow.to ?? '')) && !alike(from, hub)) continue;
+        let to = c.arrow.to ? r.byRef.get(c.arrow.to) : undefined;
+        if (!to) { const e = freeEnds.get(c.ref); if (e) to = r.items.find(o => !['connector', 'drawing', 'highlight', 'frame', 'group'].includes(o.kind) && o.text.trim() && Math.hypot(Math.max(o.box.x - e.x, 0, e.x - (o.box.x + o.box.w)), Math.max(o.box.y - e.y, 0, e.y - (o.box.y + o.box.h))) < 90); }
+        if (!to || isBlank(to) || !to.text.trim() || to.text.trim().length > 120) continue;
+        pres.push({ line: c.ref, from: from!.ref, to: to.ref, text: to.text.trim(), by: to.author, ageSec: Math.min(trace?.ageOf(to.id) ?? 9999, 9999) });
+      }
+      if (pres.length) { f.facts.precedents = pres.slice(0, 4); if (!f.facts.firstFilled) { const u = pres.find(x => x.by === 'user'); if (u) f.facts.firstFilled = u.text.slice(0, 40); } }
+    }
+  }
   return forms;
 }
 
@@ -335,7 +371,8 @@ export function serialiseForms(forms: Form[], r: Reading): string[] {
       if (x.sourceType === 'list' && f.kind === 'fan-out') s += ` (count ${x.count} ${x.count === x.listItems ? '=' : '≠'} ${x.listItems})`;
       L.push(s);
     }
-    if (x.firstFilled) L.push(`   one target already typed by the user: ${q(x.firstFilled)}; the others are blank`);
+    if (x.precedents?.length) L.push(`   precedent${x.precedents.length > 1 ? 's' : ''} (the same form, already completed): ${x.precedents.map(p0 => `${p0.from} → ${p0.to} ${q(p0.text, 50)} [written by ${p0.by}]`).join('; ')}`);
+    else if (x.firstFilled) L.push(`   one target already typed by the user: ${q(x.firstFilled)}; the others are blank`);
     if (x.marker) L.push(`   ${x.marker}`);
     if (x.labels.length) L.push(`   labels: ${x.labels.map(l => `${l.line} ${q(l.text)} [by ${l.by}]`).join('; ')}`);
     if (x.upstream.length) L.push(`   upstream: ${x.upstream.join('; ')}`);

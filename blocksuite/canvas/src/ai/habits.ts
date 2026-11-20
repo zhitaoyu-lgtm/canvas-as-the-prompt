@@ -13,7 +13,7 @@ import type { Trace } from './trace';
 
 export type Habit = { t: number; outcome: 'accepted' | 'dismissed' | 'chose' | 'not offered' | 'pending'; fn?: string; next?: string };
 type Book = Record<string, Habit[]>;
-type Watch = { sig: string; t0: number; ids: Set<string>; box: { x: number; y: number; w: number; h: number }; ends: { x: number; y: number }[]; habit: Habit };
+type Watch = { sig: string; t0: number; ids: Set<string>; blanks: Set<string>; box: { x: number; y: number; w: number; h: number }; ends: { x: number; y: number }[]; habit: Habit };
 
 const KEY = 'cx:habits', PER = 6, SIGS = 60, WATCH_MS = 75_000;
 const read = (): Book => { try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { return {}; } };
@@ -22,20 +22,24 @@ const write = (b: Book) => { try { const keys = Object.keys(b); if (keys.length 
 export class Habits {
   private book: Book = read();
   private watches: Watch[] = [];
+  private aiAt = new Map<string, number>();   // notes the AI wrote into, and when: its own writing is not the user's act
   constructor(private gfx: any, private store: any) {}
 
   /** A form was noticed (and maybe answered). Start watching what follows. */
-  open(forms: Form[], idsOf: (f: Form) => string[]): void {
+  open(forms: Form[], idsOf: (f: Form) => string[], blanksOf: (f: Form) => string[] = () => []): void {
     for (const f of forms) {
       const ids = new Set(idsOf(f));
       const same = this.watches.find(w => w.sig === f.signature && [...ids].some(id => w.ids.has(id)));
       if (same) { ids.forEach(id => same.ids.add(id)); continue; }
       const habit: Habit = { t: Date.now(), outcome: 'pending' };
       (this.book[f.signature] ??= []).unshift(habit); this.book[f.signature].length = Math.min(this.book[f.signature].length, PER);
-      this.watches.push({ sig: f.signature, t0: Date.now(), ids, box: f.box, ends: (f.ends ?? []).map(e => ({ x: e.x, y: e.y })), habit });
+      this.watches.push({ sig: f.signature, t0: Date.now(), ids, blanks: new Set(blanksOf(f)), box: f.box, ends: (f.ends ?? []).map(e => ({ x: e.x, y: e.y })), habit });
     }
     write(this.book);
   }
+
+  /** The AI just wrote into these (the user's blanks). Later changes to them are the user correcting it. */
+  aiWrote(ids: string[]): void { const t = Date.now(); for (const id of ids) this.aiAt.set(id, t); }
 
   /** What became of the AI's offer for these forms. */
   settle(forms: Form[], outcome: Habit['outcome'], fn?: string): void {
@@ -53,19 +57,28 @@ export class Habits {
       const atEnd = (id: string) => { const e: any = this.gfx.getElementById(id); if (!e || !w.ends.length) return false; const b = e.elementBound; return w.ends.some(p => Math.hypot(Math.max(b.x - p.x, 0, p.x - (b.x + b.w)), Math.max(b.y - p.y, 0, p.y - (b.y + b.h))) < 90); };
       const words = (id: string, d?: string) => { if (d) return d.slice(0, 24); const e: any = this.gfx.getElementById(id); const t = e?.text ?? e?.props?.title ?? ''; return String(typeof t === 'string' ? t : t?.toString?.() ?? '').replace(/\s+/g, ' ').trim().slice(0, 24); };
       const mine = (id: string) => authorOf(this.store, id) === 'user' && !aiIds?.has(id);
-      const wrote: string[] = [], bits: string[] = []; let ends = 0, blanks = 0, pasted = 0, lines = 0, erased = 0, moved = 0, edited = 0;
+      const wrote: string[] = [], bits: string[] = [], fixed: string[] = [], filledIn: string[] = []; let shifted = 0; let ends = 0, blanks = 0, pasted = 0, lines = 0, erased = 0, moved = 0, edited = 0;
       for (const a of acts) {
         if (a.kind === 'delete') { if (a.ids.some(id => w.ids.has(id))) erased++; continue; }
+        { const t0 = Math.max(0, ...a.ids.map(id => this.aiAt.get(id) ?? 0)); if (t0) { if (a.t <= t0 + 2500) continue; if (a.kind === 'edit') { fixed.push(words(a.ids[0], a.detail)); continue; } } }
+        // corrections to what the AI put there are the clearest lesson
+        const ai = a.ids.filter(id => !mine(id) && near(id));
+        if (ai.length && a.kind === 'edit') { fixed.push(words(ai[0], a.detail)); continue; }
+        if (ai.length && (a.kind === 'move' || a.kind === 'resize')) { shifted++; continue; }
         const ids = a.ids.filter(id => mine(id) && (w.ids.has(id) || near(id))); if (!ids.length) continue;
         if (a.kind === 'add' && !a.blank && !w.ids.has(ids[0])) { wrote.push(words(ids[0], a.detail)); if (atEnd(ids[0])) ends++; }
         else if (a.kind === 'add' && a.blank) blanks++;
         else if (a.kind === 'edit' && !w.ids.has(ids[0])) { wrote.push(words(ids[0], a.detail)); if (atEnd(ids[0])) ends++; if (blanks) blanks--; }
+        else if (a.kind === 'edit' && w.blanks.has(ids[0])) filledIn.push(words(ids[0], a.detail));
         else if (a.kind === 'edit') edited++;
         else if (a.kind === 'paste') { const w2 = ids.filter(id => words(id).length > 0 && words(id).length <= 24 && atEnd(id)); if (w2.length) { w2.forEach(id => wrote.push(words(id))); ends += w2.length; } pasted += ids.length - w2.length; }
         else if (a.kind === 'connect' || a.kind === 'draw') lines += ids.filter(id => !w.ids.has(id)).length;
         else if (a.kind === 'move' && w.ids.has(ids[0])) moved++;
       }
       if (erased) bits.push('erased it');
+      if (fixed.length) bits.push(`rewrote the AI's text to ${[...new Set(fixed)].filter(Boolean).slice(0, 3).map(t => JSON.stringify(t)).join(', ')}`);
+      if (shifted) bits.push(`moved ${shifted > 1 ? 'the AI\'s cards' : 'an AI card'}`);
+      if (filledIn.length) bits.push(`filled the blank${filledIn.length > 1 ? 's' : ''} themselves: ${[...new Set(filledIn)].filter(Boolean).slice(0, 4).map(t => JSON.stringify(t)).join(', ')}`);
       if (wrote.length) bits.push(`wrote ${wrote.length} note${wrote.length > 1 ? 's' : ''} ${ends >= Math.max(1, wrote.length - 1) ? 'at the free ends' : 'beside it'}: ${wrote.filter(Boolean).slice(0, 4).map(t => JSON.stringify(t)).join(', ')}`);
       if (blanks > 0) bits.push(`added ${blanks} blank note${blanks > 1 ? 's' : ''}`);
       if (pasted) bits.push(`pasted ${pasted} thing${pasted > 1 ? 's' : ''} beside it`);
@@ -87,8 +100,7 @@ export class Habits {
     const line = (h: Habit) => `${h.outcome === 'accepted' ? `accepted "${h.fn}"` : h.outcome === 'dismissed' ? `dismissed "${h.fn}"` : h.outcome === 'chose' ? `chose "${h.fn}" from two` : 'nothing was offered'}${h.next ? `, then ${h.next}` : ''}`;
     const tally = (hs: Habit[]) => { const m = new Map<string, number>(); for (const h of hs) { const k = line(h); m.set(k, (m.get(k) ?? 0) + 1); } return [...m].map(([k, n]) => (n > 1 ? `${k} ×${n}` : k)); };
     for (const f of forms) {
-      const live = new Set(this.watches.filter(w => w.sig === f.signature).map(w => w.habit));
-      const exact = (this.book[f.signature] ?? []).filter(h => !live.has(h) && (h.fn || h.next));
+      const exact = (this.book[f.signature] ?? []).filter(h => h.fn || h.next);
       if (exact.length) L.push(`${f.id} same form before (${f.signature}), newest first: ${tally(exact).join(' | ')}`);
       const kin = Object.entries(this.book).filter(([sig]) => sig !== f.signature && sig.split(' · ')[0] === f.kind).flatMap(([sig, hs]) => hs.filter(h => h.fn && h.outcome !== 'pending').slice(0, 2).map(h => `${sig}: ${line(h)}`)).slice(0, 3);
       if (kin.length) L.push(`${f.id} similar forms (weaker): ${kin.join(' | ')}`);

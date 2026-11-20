@@ -21,6 +21,7 @@ import { markAi } from './provenance';
 import { Trace } from './trace';
 import { mountIntent, type GeneralIntent } from './intent';
 import { mountEvidence } from './evidence';
+import { isBlank as isBlankItem } from './forms';
 
 const STABLE_MS = 1800, POLL_MS = 600, NEAR = 48;
 const DEFAULT_FRAME = /^(frame|section|untitled)(\s*\d+)?$/i;
@@ -116,6 +117,10 @@ export function mountSense(rootEl: any) {
     const r = readBoard(gfx);
     // only what the user made counts as the user saying something: the AI's own answers never set off another
     const touchedItems = r.items.filter(i => touched.has(i.id) && i.author === 'user');
+    const startsInLoop = (st: Item) => {
+      const e: any = gfx.getElementById(st.id); const p0 = e?.points?.[0]; if (!p0) return false; const b = e.elementBound, x = b.x + p0[0], y = b.y + p0[1];
+      return r.items.some(o => o !== st && (o.kind === 'drawing' || o.kind === 'highlight') && (() => { const le: any = gfx.getElementById(o.id); const ps: number[][] = le?.points ?? []; if (ps.length < 6) return false; const lb = le.elementBound; const shut = Math.hypot(ps[0][0] - ps[ps.length - 1][0], ps[0][1] - ps[ps.length - 1][1]) < Math.max(40, Math.hypot(lb.w, lb.h) * 0.28); return shut && lb.w > 50 && x >= lb.x - 14 && x <= lb.x + lb.w + 14 && y >= lb.y - 14 && y <= lb.y + lb.h + 14; })());
+    };
     // 1 · a frame that now has a real name
     for (const i of touchedItems) if (i.kind === 'frame') {
       const f = gfx.getElementById(i.id) as any; const title = str(prop(f, 'title')).trim();
@@ -146,6 +151,8 @@ export function mountSense(rootEl: any) {
         // a loop around things: one thing → more like it; several → name them as a group
         // a loop with a line leaving it is part of a bigger statement: the general path reads the whole
         if (closed && b.w > 60 && b.h > 40 && r.items.some(c => c.kind === 'connector' && (c.arrow?.from === i.ref || c.arrow?.to === i.ref))) continue;
+        // a loop on one part of a bigger thing marks that part: not "more like this", and never a group
+        if (closed && things.some(o => Math.max(0, Math.min(i.box.x + i.box.w, o.box.x + o.box.w) - Math.max(i.box.x, o.box.x)) * Math.max(0, Math.min(i.box.y + i.box.h, o.box.y + o.box.h) - Math.max(i.box.y, o.box.y)) >= i.box.w * i.box.h * 0.8 && i.box.w * i.box.h < o.box.w * o.box.h * 0.7)) continue;
         if (closed && b.w > 60 && b.h > 40) {
           const inside = things.filter(o => { const cx = o.box.x + o.box.w / 2, cy = o.box.y + o.box.h / 2; let c = false; for (let k = 0, j = P.length - 1; k < P.length; j = k++) { const [xi, yi] = P[k], [xj, yj] = P[j]; if ((yi > cy) !== (yj > cy) && cx < (xj - xi) * (cy - yi) / (yj - yi) + xi) c = !c; } return c; });
           const key = `loop:${i.id}`; if (handled.has(key) && !retry(key)) continue;
@@ -175,6 +182,8 @@ export function mountSense(rootEl: any) {
           else { const pts: number[][] = el.points ?? [], b = el.elementBound, tip = img === to ? pts[pts.length - 1] : pts[0]; if (tip) spot = [Math.min(1, Math.max(0, (b.x + tip[0] - img.box.x) / img.box.w)), Math.min(1, Math.max(0, (b.y + tip[1] - img.box.y) / img.box.h))]; }
           return { type: 'point', key, label: lab, image: img, line: i, spot };
         } }
+      // a line into a blank note, or one that leaves a circled part of something, says more than "these two relate"
+      if (drawn && (isBlankItem(from) || isBlankItem(to) || startsInLoop(i))) continue;
       if (i.kind === 'connector') continue;                            // lines the user draws with the tool: the general path reads them
       const key = `link:${i.id}`; if (handled.has(key) && !retry(key)) continue;
       return { type: 'link', key, from, to, line: i, drawn, style };

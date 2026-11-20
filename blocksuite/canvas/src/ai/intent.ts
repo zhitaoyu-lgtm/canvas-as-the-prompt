@@ -42,6 +42,8 @@ export function mountIntent(rootEl: any, trace: Trace) {
     forms = forms.filter(f => {
       if (!now(f)) return false;
       if (f.facts.authorAll === 'ai') return false;
+      // nothing left to fill and no line was just drawn: the user is only writing in their own notes
+      if (f.facts.targetState === 'existing' && f.lines.length && !f.lines.some(l => { const it = r.byRef.get(l); return !!it && touchedNow.has(it.id); })) return false;
       if (f.lines.length && f.lines.every(l => r.byRef.get(l)?.author === 'ai')) return false;
       // a label pointed at a picture is the fast path's (point)
       if (f.kind === 'link') {
@@ -102,7 +104,7 @@ export function mountIntent(rootEl: any, trace: Trace) {
     const a0 = coerce(raw);
     const entry: any = { at: new Date().toLocaleTimeString(), forms: serialiseForms(forms, r), user, raw, ms: Date.now() - t0 };
     dev.log.unshift(entry); dev.log.length = Math.min(dev.log.length, 20); dev.last = entry;
-    habits.open(forms, idsOf(r));
+    habits.open(forms, idsOf(r), f => f.targets.map(t => r.byRef.get(t)).filter(t => isBlank(t)).map(t => t!.id));
     if (!a0) { entry.result = 'unusable answer'; habits.settle(forms, 'not offered'); return null; }
     const { answer, edits } = validate(a0, r, forms);
     entry.edits = edits; entry.answer = answer;
@@ -125,6 +127,7 @@ export function mountIntent(rootEl: any, trace: Trace) {
       },
       done,
     });
+    habits.aiWrote([...(answer.cards ?? []), ...(answer.fork ?? []).flatMap((k: any) => k.cards ?? [])].map((c: any) => (c.slot ? r.byRef.get(c.slot)?.id : undefined)).filter(Boolean) as string[]);
     entry.result = answer.strength;
     return set;
   }

@@ -73,11 +73,14 @@ export function validate(a: V5, r: Reading, forms: Form[]): { answer: V5; edits:
   };
   const evidenceNone = /^(none|no|not needed|ideas need no)/i.test(a.grammar?.evidence ?? '');
   const usedSlots = new Set<string>();
+  const demo = forms.map(f => f.facts.firstFilled).find(Boolean) ?? '';
 
   const fixCards = (cards: Card[], label: string): Card[] => {
     const out: Card[] = [];
     for (const c0 of cards) {
       const c = { ...c0 };
+      // an answer aimed at a blank the user made belongs IN that blank, not on a card beside it
+      if (!c.slot && c.parent) { const pb = item(c.parent); if (pb && isBlank(pb) && scopeRefs.has(c.parent) && !usedSlots.has(c.parent)) { edits.push(`${label}: card for blank ${c.parent} → written into it`); c.slot = c.parent; c.parent = null; c.role = undefined; if (c.source && /general knowledge|none/i.test(c.source)) c.source = undefined; } }
       // only the user's blanks may be written into, each once, and only those this form is about
       if (c.slot) {
         const s = item(c.slot);
@@ -90,6 +93,8 @@ export function validate(a: V5, r: Reading, forms: Form[]): { answer: V5; edits:
       if (c.quote && !quoted(c.quote, src)) { edits.push(`${label}: quote not word-for-word → dropped`); c.quote = null; if (src && !c.source) c.source = 'none'; }
       if (evidenceNone) { c.source = undefined; c.quote = null; }
       c.text = visible(c.text);
+      // the user showed the format with their own filled note: a bare name gets a bare name back
+      if (c.slot && demo && !/ — |\n/.test(demo) && demo.length <= 24) c.text = c.text.split(/ — |\n/)[0].trim();
       if (!c.text || KINDS_ONLY.test(c.text) || GEOMETRY.test(c.text)) { edits.push(`${label}: card text names geometry → dropped`); continue; }
       if (c.parent && !item(c.parent) && !cards.some(o => o !== c0 && (o as any).id === c.parent)) c.parent = null;
       out.push(c);
