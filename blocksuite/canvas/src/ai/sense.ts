@@ -114,7 +114,8 @@ export function mountSense(rootEl: any) {
   // ── reading the settled board for a category ──
   function detect(touched: Set<string>): Intent | null {
     const r = readBoard(gfx);
-    const touchedItems = r.items.filter(i => touched.has(i.id));
+    // only what the user made counts as the user saying something: the AI's own answers never set off another
+    const touchedItems = r.items.filter(i => touched.has(i.id) && i.author === 'user');
     // 1 · a frame that now has a real name
     for (const i of touchedItems) if (i.kind === 'frame') {
       const f = gfx.getElementById(i.id) as any; const title = str(prop(f, 'title')).trim();
@@ -188,7 +189,7 @@ export function mountSense(rootEl: any) {
     }
     for (const [sig, list] of marks) {
       const hosts = new Set(list.map(l => l.host.id));
-      if (hosts.size < 2 || !list.some(l => touched.has(l.mark.id) || touched.has(l.host.id))) continue;
+      if (hosts.size < 2 || !list.some(l => l.mark.author === 'user' && (touched.has(l.mark.id) || touched.has(l.host.id)))) continue;
       const key = `mark:${sig}`; if (handled.has(key)) continue;
       return { type: 'mark', key, sig, label: markSig(list[0].mark)!.label, marks: list };
     }
@@ -207,7 +208,7 @@ export function mountSense(rootEl: any) {
     for (const a of loose.filter(isLabel)) {
       const comp = chainFrom(a, 9);
       if (comp.length < 2 || comp.length > 9) continue;                    // alone, or part of a pile
-      if (!comp.some(o => touched.has(o.id))) continue;                     // nothing here just changed
+      if (a.author !== 'user' || !comp.some(o => touched.has(o.id) && o.author === 'user')) continue;   // nothing here just changed (by the user)
       if (comp.filter(isLabel).length > 2) continue;                        // several labels together read as a cluster of ideas
       if (!comp.some(o => !isLabel(o))) continue;                           // needs material beside it
       if (!apart(comp)) continue;                                           // it has to stand apart, in open space

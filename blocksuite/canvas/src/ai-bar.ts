@@ -303,10 +303,15 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   };
   const paintSections = () => {
     const tones = new Map<string, string>();
-    for (const f of Array.from(rootEl.querySelectorAll('affine-frame')) as El[]) {
+    const frames = Array.from(rootEl.querySelectorAll('affine-frame')) as El[];
+    for (const f of frames) {
       const c = f.querySelector('.affine-frame-container') as El | null; if (!c) continue;
       const raw = c.style.backgroundColor || c.style.background || '';
-      if (c.dataset.cxRaw !== raw) { c.dataset.cxRaw = raw; const t = sectionTone(raw); c.style.setProperty('--cx-wash', t.wash); c.style.setProperty('--cx-line', t.line); c.dataset.cxMain = t.main; }
+      const fb = (f as any).model?.elementBound, nested = !!fb && frames.some(o => { if (o === f) return false; const ob = (o as any).model?.elementBound; return ob && fb.x >= ob.x && fb.y >= ob.y && fb.x + fb.w <= ob.x + ob.w && fb.y + fb.h <= ob.y + ob.h && ob.w * ob.h > fb.w * fb.h; });
+      const sig = raw + (nested ? '|n' : '');
+      if (c.dataset.cxRaw !== sig) { c.dataset.cxRaw = sig; let t = sectionTone(raw);
+        // a section inside a section is a band, not a box: no outline; white or grey stays neutral
+        if (nested) { const neutral = t.main === '#53b1f3' && !/53b1f3|a8daff|blue/i.test(raw); t = { main: t.main, wash: neutral ? 'rgba(0, 0, 0, .028)' : t.wash, line: 'transparent' }; } c.style.setProperty('--cx-wash', t.wash); c.style.setProperty('--cx-line', t.line); c.dataset.cxMain = t.main; }
       const id = f.getAttribute('data-block-id') ?? (f as any).model?.id; if (id) tones.set(id, c.dataset.cxMain!);
     }
     const walk = (r: Document | ShadowRoot) => { for (const e of Array.from(r.querySelectorAll('*')) as El[]) {

@@ -993,7 +993,24 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const cols = sp.layout === 'column' ? 1 : sp.layout === 'row' ? Math.max(1, cnt) : Math.max(1, Math.min(cnt, sp.cols ?? (cnt <= 4 ? cnt : cnt <= 6 ? 3 : 4)));
     // bare: no box, no padding, a tight stack (a card with the notes stuck under it)
     const S = sp.bare ? { ...SEC, padX: 0, padTop: 0, padBottom: 0 } : SEC;
-    const gap = sp.bare ? (sp.gap ?? 12) : kids.some(k => k.kind === 'section') ? SEC.gap + 16 : SEC.gap;
+    // A column of rows that share their columns (a journey map, a blueprint, swim lanes) is one table: the row
+    // names sit in a narrow column on the left, every row uses the same column widths, rows sit close together.
+    const laneKids = (k: N) => (k.kids ?? []).filter(c => c.kind !== 'full');
+    const lanes = !sp.bare && kids.length >= 2 && kids.every(k => k.kind === 'section' && !k.spec.bare && laneKids(k).length >= 2 && laneKids(k).length <= 6 && laneKids(k).length === (k.kids ?? []).length && !(k.kids ?? []).some(c => c.kind === 'section'))
+      && new Set(kids.map(k => laneKids(k).length)).size <= 2 && sp.layout !== 'row' && (sp.cols ?? 1) === 1 || false;
+    if (lanes) {
+      const LP = 16, n2 = Math.max(...kids.map(k => laneKids(k).length));
+      const cw: number[] = []; for (const k of kids) laneKids(k).forEach((c, i) => (cw[i] = Math.max(cw[i] ?? 0, c.w)));
+      const labelW = Math.min(168, Math.max(96, ...kids.map(k => measure(k.head?.title ?? '', 14, 600, 150).w + 8)));
+      const gw = cw.slice(0, n2).reduce((a2, b2) => a2 + b2, 0) + 16 * (n2 - 1);
+      for (const k of kids) {
+        const hh = Math.max(...laneKids(k).map(c => c.h), measure(k.head?.title ?? '', 14, 600, labelW).h);
+        let x = LP + labelW + 16;
+        laneKids(k).forEach((c, i) => { pos.set(c, { x, y: LP }); x += cw[i] + 16; });
+        k.w = LP + labelW + 16 + gw + LP; k.h = LP + hh + LP; k.spec._lane = { labelW };
+      }
+    }
+    const gap = lanes ? 8 : sp.bare ? (sp.gap ?? 12) : kids.some(k => k.kind === 'section') ? SEC.gap + 16 : SEC.gap;
     // rows: a full-width item is its own row; regular items fill rows of `cols`
     const rows: N[][] = []; let cur: N[] = [];
     for (const k of kids) {
@@ -1042,6 +1059,11 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     }
     if (n.spec.bare) return ids;       // no frame, no heading: its things sit directly in the parent
     const hd = n.head!;
+    if (n.spec._lane && hd.title) {
+      const lw = n.spec._lane.labelW, m = measure(hd.title, 14, 600, lw); const t = new Y.Text(); t.insert(0, hd.title);
+      const tid = addEl({ type: 'text', xywh: xywh({ x: x + 16, y: y + 16, w: lw, h: m.h }), text: t, color: '#3a3a3c', fontSize: 14, fontWeight: '600', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', hasMaxWidth: true });
+      created.push(tid); ids.push(tid);
+    } else
     if (hd.title) {
       const t = new Y.Text(); t.insert(0, hd.title);
       const ts = n.spec.hero ? 48 : depth ? 22 : SEC.title;
@@ -1049,13 +1071,14 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
         text: t, color: '#1e1e1e', fontSize: ts, fontWeight: n.spec.hero ? '600' : '700', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' });
       created.push(tid); ids.push(tid);
     }
-    if (hd.sub) {
+    if (hd.sub && !n.spec._lane) {
       const avail = Math.max(240, n.w - SEC.padX * 2);
       const m = measure(hd.sub, n.spec.hero ? TYPE.title : SEC.sub, 400, avail); const t = new Y.Text(); t.insert(0, hd.sub);
       const sid = addEl({ type: 'text', xywh: xywh({ x: x + SEC.padX, y: y + SEC.padTop + Math.ceil((n.spec.hero ? 48 : SEC.title) * 1.35) + SEC.subGap, w: Math.min(avail, Math.max(m.w, 120)), h: m.h }),
         text: t, color: n.spec.hero ? TEXT.body : '#8a8984', fontSize: n.spec.hero ? TYPE.title : SEC.sub, fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', hasMaxWidth: true });
       created.push(sid); ids.push(sid);
     }
+    if (/purple|violet/i.test(String(n.spec.colour ?? ''))) n.spec.colour = 'gray';
     let tint = TINT[base(n.spec.colour ?? (depth ? 'gray' : 'white'))] ?? (n.spec.colour?.startsWith?.('#') ? n.spec.colour : TINT.white);
     if (tint === parentTint) tint = parentTint === TINT.white ? TINT.gray : TINT.white;
     const fid = store.addBlock('affine:frame', { xywh: xywh({ x, y, w: snap(n.w), h: snap(n.h) }), title: new Text(''), background: tint,
@@ -1079,7 +1102,10 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const allPics = urls.length > 0 && urls.every(u => links.get(u)?.image);
     if (!allPics) for (const u of urls) links.set(u, { ...links.get(u), image: null });
     const root = await buildSection(a, links);
-    await frame2(); await frame2();
+    // notes take a few frames to reach their real height (lists, tags, long words): wait until they stop changing
+    { const noteIds: string[] = []; const walkN = (n: N) => { if (n.id) noteIds.push(n.id); n.parts?.forEach(pt => noteIds.push(pt.id)); n.kids?.forEach(walkN); }; walkN(root);
+      let last = '', same = 0;
+      for (let k = 0; k < 60 && same < 4; k++) { await frame2(); const sig = noteIds.map(id => Math.round((gfx.getElementById(id) as any)?.elementBound?.h ?? 0)).join(','); same = sig === last ? same + 1 : 0; last = sig; } }
     layoutSection(root);
     // into an existing frame: grow it to hold the new section
     const inFrame = a.place?.in && item(a.place.in);
