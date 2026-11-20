@@ -42,6 +42,7 @@ export type Item = {
   children?: string[];    // frames, groups, containers
   style?: string;         // exact look and geometry, compact (fill, stroke, dash, path, rotation …)
   order?: number;         // reading order (1-based)
+  asset?: string;         // pictures and stickers: which file it shows (the same file twice = the same picture)
 };
 
 export type Layout = 'row' | 'column' | 'grid' | 'cluster' | 'stack';
@@ -204,7 +205,7 @@ function kindOf(e: any): Kind {
       const kids = e.children ?? [];
       return kids.length === 1 && kids[0].flavour === 'affine:table' ? 'table' : 'doc';
     }
-    case 'affine:image': { const b = boxOf(e); return Math.max(b.w, b.h) <= 110 ? 'sticker' : 'image'; }
+    case 'affine:image': { const b = boxOf(e); return Math.max(b.w, b.h) <= 132 ? 'sticker' : 'image'; }
     case 'affine:frame': return 'frame';
     case 'group': return 'group';
     case 'connector': return 'connector';
@@ -257,7 +258,7 @@ export function readBoard(gfx: any, opts: { selection?: string[] } = {}): Readin
         it.hex = paint(p.background); if (!it.text.trim()) it.empty = true;
         break;
       }
-      case 'image': case 'sticker': it.text = str(p.caption).trim(); break;
+      case 'image': case 'sticker': it.text = str(p.caption).trim(); it.asset = typeof p.sourceId === 'string' ? p.sourceId : undefined; break;
       case 'frame': it.text = str(p.title).trim(); it.hex = paint(p.background); break;
       case 'connector': {
         const front = e.frontEndpointStyle ?? 'None', rear = e.rearEndpointStyle ?? 'Arrow';
@@ -710,6 +711,7 @@ export function toPrompt(r: Reading, opts: { maxItems?: number; textLimit?: numb
   }
   L.push(...structuresPrompt(r.structures));
   if (r.relations.lines.length) { L.push('', 'MARKS AND LABELS (attached tags, votes, badges, titles, legends, timelines)'); L.push(...r.relations.lines); }
+  L.push(...overlayPrompt(r));
   const cs = r.colours.filter(c => c.refs.length);
   if (cs.length) {
     L.push('');
@@ -717,4 +719,37 @@ export function toPrompt(r: Reading, opts: { maxItems?: number; textLimit?: numb
     for (const c of cs) L.push(`${c.colour}${c.hex ? ' (' + c.hex.join(', ') + ')' : ' (text highlight)'}: ${c.refs.join(' ')}`);
   }
   return L.join('\n');
+}
+
+
+/** What lies on top of what, and which pictures are the same picture. Position and identity only: a sticker on
+ *  a part of a photo points at that part; the same sticker in two places is one sign used twice. What the sign
+ *  means is never said here. */
+export function overlayPrompt(r: Reading): string[] {
+  const L: string[] = [];
+  const area = (b: Box) => b.w * b.h;
+  const hosts = r.items.filter(i => i.kind === 'image' || ((i.kind === 'doc' || i.kind === 'table') && area(i.box) > 60000));
+  const small = r.items.filter(i => ['sticker', 'drawing', 'highlight', 'shape', 'text', 'sticky', 'tag', 'image'].includes(i.kind));
+  const on: string[] = [];
+  for (const h of hosts) {
+    const over = small.filter(o => o !== h && area(o.box) < area(h.box) * 0.3 && o.box.x + o.box.w / 2 >= h.box.x && o.box.x + o.box.w / 2 <= h.box.x + h.box.w && o.box.y + o.box.h / 2 >= h.box.y && o.box.y + o.box.h / 2 <= h.box.y + h.box.h && (h.kind === 'image' || ['sticker', 'drawing', 'highlight'].includes(o.kind)));
+    if (!over.length) continue;
+    const pc = (o: Item) => `${Math.round(((o.box.x + o.box.w / 2 - h.box.x) / h.box.w) * 100)}% across, ${Math.round(((o.box.y + o.box.h / 2 - h.box.y) / h.box.h) * 100)}% down`;
+    const what = (o: Item) => o.kind === 'drawing' || o.kind === 'highlight' ? `pen mark ${Math.round(o.box.w)}×${Math.round(o.box.h)}` : o.kind + (o.text.trim() ? ` "${o.text.trim().slice(0, 30)}"` : '');
+    on.push(`on ${h.ref} (${h.kind}): ` + over.sort((a, b) => a.box.y - b.box.y || a.box.x - b.box.x).slice(0, 16).map(o => `${o.ref} ${what(o)} at ${pc(o)}`).join(' · '));
+  }
+  const byAsset = new Map<string, Item[]>();
+  for (const i of r.items) if (i.asset) (byAsset.get(i.asset) ?? byAsset.set(i.asset, []).get(i.asset)!).push(i);
+  const same: string[] = [];
+  for (const [asset, items] of byAsset) {
+    if (items.length < 2) continue;
+    const name = /^stamp-/.test(asset) ? ` (the "${asset.replace(/^stamp-/, '').replace(/-/g, ' ')}" sticker)` : '';
+    same.push(`${items.map(i => i.ref + (i.parent ? ` (in ${i.parent})` : '')).join(' = ')}: the same picture${name}`);
+  }
+  if (on.length || same.length) {
+    L.push('', 'ON TOP OF PICTURES · SAME SIGN TWICE (where small things sit on a bigger one; which pictures are one and the same file)');
+    L.push(...on, ...same);
+    if (on.length) L.push('Look at the attached pictures to see WHAT is under each of them.');
+  }
+  return L;
 }

@@ -56,6 +56,7 @@ const PAPERISH = /\b(19|20)\d{2}\b[\s\S]*(paper|et al|arxiv|chi|uist|cscw|doi|jo
 export function sourceTypeOf(it?: Item): { type: string; listItems?: number } {
   if (!it) return { type: 'none' };
   if (it.kind === 'image') return { type: 'image' };
+  if (it.kind === 'sticker') return { type: 'sticker' };
   if (it.kind === 'drawing') return { type: 'loop' };
   if (it.kind === 'connector') return { type: 'line' };
   const t = it.text.trim();

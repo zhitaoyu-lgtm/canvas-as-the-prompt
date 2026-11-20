@@ -4,12 +4,15 @@
 // Grow this file scenario by scenario: new structures go in STRUCTURES, new parts in PARTS (and in
 // actions.ts), worked cases in EXAMPLES.
 
+import { LOOK, MEANING } from './look';
+
 export const STRUCTURES = `
-How people write on this board (their spatial grammar). Read meaning from it, and answer in it.
+How people often write on a board (common readings, not rules: what THIS board says always wins, see MEANING).
 
 L1 · marks
 - Kind carries a role: stickies are ideas or data points; docs hold longer source text (interviews, notes);
-  tables are structured records; frames are named areas; small stickers and drawings are reactions or emphasis.
+  tables are structured records; frames are named areas; small stickers and drawings are signs whose meaning
+  this board sets (what they sit on, what the user said they stand for).
 - Colour carries category. Same colour = same kind of thing. When the user already uses colours with a
   meaning (a legend, a label, or a consistent pattern), keep that meaning; never repaint their system.
 - Size carries weight: larger = more important / a heading; small marks annotate.
@@ -204,6 +207,8 @@ How to answer:
   a grid, fill its cells; a table, fill the table; a coded doc, code more of the doc.
 - Match their marks: use "like" with a neighbour so size, colour and type match. Use their colours with their
   meaning. Introduce a new colour only for a genuinely new category, and then add or extend a legend.
+- A question ("what is this", "what do the other two stand for") gets its answer where the board leaves room for
+  it: at the free end of the arrow, in the blank, beside the sign asked about. One short answer per sign.
 - Be a collaborator, not a filler: you may add relevant cases, examples, counterpoints, missing steps, a cluster
   name, a short note on a tension you notice — whatever helps their thinking. Prefer a few strong additions to
   many weak ones (usually 1–6 actions).
@@ -263,8 +268,9 @@ User (selected L1's lines): "put the user journey into this chart"
 `;
 
 export const RESPONSE = `
-Reply with one JSON object only, no prose around it:
+Reply with the LOOK section, then one JSON object:
 {"read":"one sentence: how you read their structure (what it is, what its colours/positions mean)",
+ "remember":[{"sign":"the star sticker","means":"the nucleus"}],   meanings the user stated or confirmed in this turn, in their words; [] when none
  "say":"optional, one short sentence shown next to the result",
  "actions":[ … ]}
 `;
@@ -273,11 +279,11 @@ export function systemPrompt(): string {
   return [
     'You are the AI collaborator inside a whiteboard. The canvas is the prompt: the user writes with things,',
     'colours, positions and arrows, and you answer by changing the board in the same language.',
-    STRUCTURES, PARTS, LINKS, FORMATS, PRINCIPLES, EXAMPLES, EXAMPLES_2, EXAMPLES_3, RESPONSE,
+    MEANING, STRUCTURES, PARTS, LINKS, FORMATS, PRINCIPLES, EXAMPLES, EXAMPLES_2, EXAMPLES_3, LOOK, RESPONSE,
   ].join('\n');
 }
 
-export function userPrompt(reading: string, request: string, hasPicture: boolean, online = false): string {
+export function userPrompt(reading: string, request: string, hasPicture: boolean, online = false, context = '', pictureNote = ''): string {
   return [
     online
       ? 'You can search the web. Search when the request needs sources, facts or examples; use the real titles and URLs you found.'
@@ -285,7 +291,8 @@ export function userPrompt(reading: string, request: string, hasPicture: boolean
     '',
     'THE BOARD (read by code; refs are stable for this turn)',
     reading,
-    hasPicture ? '\nA picture of the selected area is attached for what the text cannot show (drawings, images).' : '',
+    context ? '\n' + context : '',
+    hasPicture ? '\n' + (pictureNote || 'A picture of the area is attached.') + ' The text cannot say what a photo shows or what a sticker sits on: the pictures can.' : '',
     '\nREQUEST',
     request,
   ].join('\n');

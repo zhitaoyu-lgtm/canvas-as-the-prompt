@@ -5,7 +5,8 @@ import { systemPrompt, userPrompt } from './grammar';
 import { ask, online, parseAnswer, ModelError } from './model';
 import { toast } from './proposals';
 import { readBoard, toPrompt, type Box } from './reading';
-import { snapshot } from './snapshot';
+import { pictures, lookOf } from './look';
+import { addKey } from './keys';
 
 export function createAssistant(rootEl: any) {
   const gfx = rootEl.gfx, store = rootEl.std.store;
@@ -28,14 +29,18 @@ export function createAssistant(rootEl: any) {
     // always look as well as read: a quiet off-screen picture of what is asked about (or the view)
     const focusBoxes = [...reading.focus.map(r => reading.byRef.get(r)?.box), ...reading.structures.filter(st => reading.focus.includes(st.ref)).map(st => st.box)].filter(Boolean) as Box[];
     const area = focusBoxes.length ? unionBox(focusBoxes) : reading.viewport;
-    const picture: Blob | null = area.w > 0 && area.h > 0 ? await snapshot(rootEl, area) : null;
-    const entry: any = { at: new Date().toISOString(), request, reading: text, picture: !!picture };
+    const seen = await pictures(rootEl, reading, area, reading.focus).catch(() => ({ blobs: [] as Blob[], note: '' }));
+    const picture = seen.blobs.length ? seen.blobs : null;
+    let context = ''; try { context = (window as any).cxIntent?.context?.(reading) ?? ''; } catch { context = ''; }
+    const entry: any = { at: new Date().toISOString(), request, reading: text, context, picture: !!picture, pictures: seen.blobs };
     log.unshift(entry); log.length = Math.min(log.length, 10);
     try {
       const mock = (window as any).cxMockAnswer;   // tests only: a fixed answer instead of the model
-      const raw = mock ? (typeof mock === 'function' ? await mock(text, request) : mock) : await ask(systemPrompt(), userPrompt(text, request, !!picture, online()), picture);
-      entry.raw = raw;
+      const raw = mock ? (typeof mock === 'function' ? await mock(text, request) : mock) : await ask(systemPrompt(), userPrompt(text, request, !!picture, online(), context, seen.note), picture);
+      entry.raw = raw; entry.look = lookOf(raw);
       const answer: Answer = typeof raw === 'string' ? parseAnswer(raw) : raw;
+      // what the user just told us a sign means is kept for the rest of this board
+      for (const k of (Array.isArray((answer as any).remember) ? (answer as any).remember : []).slice(0, 6)) if (k?.sign && k?.means) addKey(store, { scope: { kind: 'board' }, form: String(k.sign).slice(0, 60), means: String(k.means).slice(0, 80), source: 'accepted' });
       store.captureSync();
       const result = await execute(rootEl, reading, answer);
       store.captureSync();

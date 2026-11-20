@@ -30,14 +30,16 @@ export async function available(): Promise<boolean> { return !!apiKey() || (awai
 /** Whether answers can use the web (own API key: yes; the claude.ai preview: no). */
 export const online = () => !!apiKey() || proxyOk === true;
 
-export async function ask(system: string, user: string, image?: Blob | null, signal?: AbortSignal): Promise<string> {
+export async function ask(system: string, user: string, picture?: Blob | (Blob | null)[] | null, signal?: AbortSignal): Promise<string> {
+  const pics = (Array.isArray(picture) ? picture : [picture]).filter(Boolean) as Blob[];
+  const image = pics.length ? pics : null;
   const key = apiKey();
   if (key) return viaApi(key, system, user, image, signal);
   if (await proxyReady) return viaApi(null, system, user, image, signal);
   const sample = await viaArtifact();
   if (sample) {
     let images: Blob[] | undefined;
-    if (image) { try { const lim = await sample.limits?.(); if (lim?.images) images = [image]; } catch { /* text only */ } }
+    if (image) { try { const lim = await sample.limits?.(); if (lim?.images) images = image; } catch { /* text only */ } }
     try {
       const r = await sample(`${system}\n\n${user}`, { modelTier: 'complex', cache: false, images, signal });
       return r.text;
@@ -46,9 +48,9 @@ export async function ask(system: string, user: string, image?: Blob | null, sig
   throw new ModelError('no_model', 'Claude is not connected on this computer');
 }
 
-async function viaApi(key: string | null, system: string, user: string, image?: Blob | null, signal?: AbortSignal): Promise<string> {
+async function viaApi(key: string | null, system: string, user: string, image?: Blob[] | null, signal?: AbortSignal): Promise<string> {
   const content: any[] = [];
-  if (image) content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: await b64(image) } });
+  for (const im of image ?? []) content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: await b64(im) } });
   content.push({ type: 'text', text: user });
   let model = 'claude-sonnet-5-5'; try { model = localStorage.getItem(MODEL) || model; } catch { /* default */ }
   // the board can go online: Claude may search and read pages while answering

@@ -15,7 +15,7 @@ import { addKey, dismissedRecently, serialiseKeys } from './keys';
 import { SYSTEM_V5 } from './prompt-v5';
 import { coerce, validate, type V5 } from './validate';
 import { renderAnswer, type PendingSet } from './render';
-import { needsPicture, snapshot as shot } from './snapshot';
+import { pictures, lookOf, related } from './look';
 import type { Trace } from './trace';
 import { Habits } from './habits';
 
@@ -77,10 +77,12 @@ export function mountIntent(rootEl: any, trace: Trace) {
     return L.join('\n');
   }
 
-  async function call(user: string, picture: Blob | null, signal: AbortSignal): Promise<any> {
+  let lastLook = '';
+  async function call(user: string, picture: Blob[] | null, signal: AbortSignal): Promise<any> {
     const mock = (window as any).cxMockIntent;
     if (mock) return typeof mock === 'function' ? await mock(user) : mock;
     const raw = await ask(SYSTEM_V5 + (online() ? '\nYou may search the web only when the function needs literature; at most 3 searches.' : ''), user, picture, signal);
+    lastLook = lookOf(raw);
     try { return parseAnswer(raw); }
     catch {
       const again = await ask(SYSTEM_V5, user + '\n\nReturn only the JSON object.', null, signal);
@@ -96,13 +98,16 @@ export function mountIntent(rootEl: any, trace: Trace) {
     const forms = intent.forms;
     const user = message(r, forms, intent.request);
     const refs = forms.flatMap(f => [f.hub, ...f.targets, ...(f.context ?? [])].filter(Boolean) as string[]);
-    let picture: Blob | null = null;
-    if (needsPicture(r, refs)) { try { picture = await shot(rootEl, union(forms.map(f => f.box)), 1024, 32); } catch { picture = null; } }
+    // always look as well as read: the area, and a close-up of any photo in it
+    const rel = related(r, refs);
+    const seen = await pictures(rootEl, r, union([...forms.map(f => f.box), ...rel.map(i => i.box)]), [...refs, ...rel.map(i => i.ref)]).catch(() => ({ blobs: [] as Blob[], note: '' }));
+    const picture = seen.blobs.length ? seen.blobs : null;
+    const userFull = user + (seen.note ? `\n\nPICTURES: ${seen.note} The text cannot say what a photo shows or what a sticker sits on: the pictures can.` : '');
     const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 25_000);
     let raw: any;
-    try { raw = await call(user, picture, ctl.signal); } finally { clearTimeout(timer); }
+    try { raw = await call(userFull, picture, ctl.signal); } finally { clearTimeout(timer); }
     const a0 = coerce(raw);
-    const entry: any = { at: new Date().toLocaleTimeString(), forms: serialiseForms(forms, r), user, raw, ms: Date.now() - t0 };
+    const entry: any = { at: new Date().toLocaleTimeString(), forms: serialiseForms(forms, r), user: userFull, raw, look: lastLook, pictures: seen.blobs, ms: Date.now() - t0 };
     dev.log.unshift(entry); dev.log.length = Math.min(dev.log.length, 20); dev.last = entry;
     habits.open(forms, idsOf(r), f => f.targets.map(t => r.byRef.get(t)).filter(t => isBlank(t)).map(t => t!.id));
     if (!a0) { entry.result = 'unusable answer'; habits.settle(forms, 'not offered'); return null; }
@@ -136,6 +141,18 @@ export function mountIntent(rootEl: any, trace: Trace) {
   dev.fixture = () => { const r = readBoard(gfx); const forms = detectForms(gfx, r, new Set((gfx.gfxElements as any[]).map(e => e.id)), trace); return { text: message(r, forms), forms }; };
   dev.forms = (ids?: string[]) => { const r = readBoard(gfx); return serialiseForms(detectForms(gfx, r, new Set(ids ?? (gfx.gfxElements as any[]).map(e => e.id)), trace), r).join('\n'); };
   dev.blank = (ref: string) => isBlank(readBoard(gfx).byRef.get(ref));
+  // what a typed request should know as well: the forms around what the user just touched (or selected),
+  // the meanings settled here, this person's habits, and their last acts
+  dev.context = (r: Reading): string => {
+    const recent = trace.touchedBy(120_000); for (const ref of r.selection) { const it = r.byRef.get(ref); if (it) recent.add(it.id); }
+    const forms = recent.size ? detectForms(gfx, r, recent, trace).slice(0, 6) : [];
+    const L: string[] = [];
+    if (forms.length) L.push('FORMS AROUND WHAT THE USER JUST TOUCHED (detected by code; meaning not decided)', ...serialiseForms(forms, r));
+    const ks = serialiseKeys(store, r); if (ks.length) L.push('', 'KEYS (meanings settled on this board)', ...ks);
+    const hs = habits.serialise(forms); if (hs.length) L.push('', 'HABITS (what this person did with the same form before)', ...hs);
+    const acts = trace.serialise(r); if (acts.length) L.push('', 'ACT (what they just did, oldest first)', ...acts.slice(-14));
+    return L.join('\n');
+  };
   return { detect, run, dev, tick: () => habits.tick(trace) };
 }
 

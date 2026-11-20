@@ -52,7 +52,9 @@ export async function snapshot(rootEl: any, box: Box, maxSide = 1024, pad = 32):
     const rr = (x: number, y: number, w: number, h: number, r: number) => { ctx.beginPath(); ctx.roundRect(X(x), Y(y), w * k, h * k, r * k); };
 
     const blocks: any[] = gfx.getElementsByBound(bound, { type: 'block' });
-    const sorted = [...blocks].sort((a, b) => (a.flavour === 'affine:frame' ? -1 : 0) - (b.flavour === 'affine:frame' ? -1 : 0));
+    // frames first, then everything in the board's own stacking order: a sticker on a photo must stay on top of it
+    const zi = (b: any) => String(b.index ?? b.props?.index ?? '');
+    const sorted = [...blocks].sort((a, b) => ((a.flavour === 'affine:frame' ? 0 : 1) - (b.flavour === 'affine:frame' ? 0 : 1)) || (zi(a) < zi(b) ? -1 : zi(a) > zi(b) ? 1 : 0));
     for (const b of sorted) {
       const e = b.elementBound, f = b.flavour, p = b.props ?? {};
       if (f === 'affine:frame') {

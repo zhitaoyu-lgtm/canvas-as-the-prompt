@@ -22,6 +22,7 @@ import { Trace } from './trace';
 import { mountIntent, type GeneralIntent } from './intent';
 import { mountEvidence } from './evidence';
 import { isBlank as isBlankItem } from './forms';
+import { MEANING, pictures } from './look';
 
 const STABLE_MS = 1800, POLL_MS = 600, NEAR = 48;
 const DEFAULT_FRAME = /^(frame|section|untitled)(\s*\d+)?$/i;
@@ -102,9 +103,17 @@ export function mountSense(rootEl: any) {
     finally { stop(); busy = false; rebase(); }
   }, POLL_MS);
 
+  const areaOf = (intent: Intent): Box => intent.type === 'general' ? intent.area : intent.type === 'point' ? intent.label.box : intent.type === 'section' ? box(intent.frame) : intent.type === 'group' ? union([intent.anchor.box, ...intent.members.map(m => m.box)]) : intent.type === 'link' ? intent.line.box : intent.type === 'label' ? union(intent.members.map(m => m.box)) : intent.type === 'more' || intent.type === 'stress' ? intent.item.box : intent.marks[intent.marks.length - 1].host.box;
+  // every quick gesture asks with the same eyes and the same rule as the rest: pictures of the place, and
+  // "meaning comes from this board" ahead of whatever the gesture usually means
+  async function askSeen(sys: string, user: string, intent: Intent): Promise<string> {
+    const r0 = readBoard(gfx); let seen = { blobs: [] as Blob[], note: '' };
+    try { const a = areaOf(intent); seen = await pictures(rootEl, r0, { x: a.x - 160, y: a.y - 160, w: a.w + 320, h: a.h + 320 }); } catch { /* words only */ }
+    return ask(MEANING + '\n\n' + sys, user + (seen.note ? `\n\nPICTURES: ${seen.note}` : ''), seen.blobs);
+  }
   // While Claude thinks: the 2×2 dots breathe at the top-left of the place it is thinking about. Nothing else.
   function thinking(intent: Intent): () => void {
-    const area = intent.type === 'general' ? intent.area : intent.type === 'point' ? intent.label.box : intent.type === 'section' ? box(intent.frame) : intent.type === 'group' ? union([intent.anchor.box, ...intent.members.map(m => m.box)]) : intent.type === 'link' ? intent.line.box : intent.type === 'label' ? union(intent.members.map(m => m.box)) : intent.type === 'more' || intent.type === 'stress' ? intent.item.box : intent.marks[intent.marks.length - 1].host.box;
+    const area = areaOf(intent);
     const d = document.createElement('div'); d.className = 'cx-sense-think'; d.innerHTML = '<i></i><i></i><i></i><i></i>'; document.body.append(d);
     let raf = 0;
     const tick = () => { const rr = rootEl.getBoundingClientRect(); const [x, y] = gfx.viewport.toViewCoord(area.x, area.y); d.style.left = (rr.left + x - 18) + 'px'; d.style.top = (rr.top + y) + 'px'; /* level with the top edge */ raf = requestAnimationFrame(tick); };
@@ -297,7 +306,7 @@ Answer with JSON only:
     const copies = [...byText.values()].filter(v => v.length > 1).map(v => v.join(' = '));
     const user = `BOARD\n${reading}\n` + (copies.length ? `\nCOPIES (the same thing pasted more than once; count each as one, pick at most one of them, and none if one is already in): ${copies.join('; ')}\n` : '') + `\nCATEGORY\n${task}\nAlready in it: ${[...exclude].map(refOf).filter(Boolean).join(', ') || 'nothing'}`;
     const mock = (window as any).cxMockSense;
-    const raw = mock ? (typeof mock === 'function' ? await mock(intent, user) : mock) : await ask(sys, user);
+    const raw = mock ? (typeof mock === 'function' ? await mock(intent, user) : mock) : await askSeen(sys, user, intent);
     const ans = typeof raw === 'string' ? parseAnswer(raw) : raw;
     dev.log.unshift({ intent: intent.key, task, answer: ans }); dev.log.length = Math.min(dev.log.length, 10);
     const used = new Set<string>(exclude);
@@ -426,7 +435,7 @@ Answer with JSON only: {"label":"2–4 words","comment":"","extensions":[{"type"
 - extensions: up to 3 things worth adding because of this link: a bridge between the two, the next step after the second, or a counterpoint. Prefer things already on the board (ref); otherwise ${online() ? 'real sources you verified with search, with url' : 'only well-known real works you are sure of, no url'}.`;
     const user = `BOARD\n${toPrompt(r)}\n\nLINE\n${intent.style} from ${intent.from.ref} (${intent.from.text.slice(0, 160)}) to ${intent.to.ref} (${intent.to.text.slice(0, 160)}).`;
     const mock = (window as any).cxMockSense;
-    const raw = mock ? (typeof mock === 'function' ? await mock(intent, user) : mock) : await ask(sys, user);
+    const raw = mock ? (typeof mock === 'function' ? await mock(intent, user) : mock) : await askSeen(sys, user, intent);
     const ans = typeof raw === 'string' ? parseAnswer(raw) : raw;
     dev.log.unshift({ intent: intent.key, answer: ans }); dev.log.length = Math.min(dev.log.length, 10);
     const label = cleanRefs(String(ans.label ?? ''), r); if (!label) return;
@@ -504,7 +513,7 @@ Answer with JSON only: {"cards":[{"kind":"insight|source|related","title":"…",
 Answer with JSON only: {"comment":"…"}. In English. Never write refs (s3, n12): name things by their words.`;
     const user = `BOARD\n${toPrompt(r)}\n\nUNDERLINED\n${intent.item.ref}: ${intent.item.text.slice(0, 300)}`;
     const mock = (window as any).cxMockSense;
-    const raw = mock ? (typeof mock === 'function' ? await mock(intent, user) : mock) : await ask(sys, user);
+    const raw = mock ? (typeof mock === 'function' ? await mock(intent, user) : mock) : await askSeen(sys, user, intent);
     const ans = typeof raw === 'string' ? parseAnswer(raw) : raw;
     dev.log.unshift({ intent: intent.key, answer: ans });
     const c0 = cleanRefs(String(ans.comment ?? ''), r); if (c0) addComment(store, intent.item.id, c0);
@@ -519,7 +528,7 @@ Answer with JSON only: {"title":"2–4 words","subtitle":"what unites them, at m
 - Specific, not generic ("AI answers away from the board", not "Group 1"). In English. Never write refs (s3, n12).`;
     const user = `BOARD\n${toPrompt(r)}\n\nGROUP\n${intent.members.map(m => `${m.ref}: ${m.text.replace(/\s+/g, ' ').slice(0, 140)}`).join('\n')}`;
     const mock = (window as any).cxMockSense;
-    const raw = mock ? (typeof mock === 'function' ? await mock(intent, user) : mock) : await ask(sys, user);
+    const raw = mock ? (typeof mock === 'function' ? await mock(intent, user) : mock) : await askSeen(sys, user, intent);
     const ans = typeof raw === 'string' ? parseAnswer(raw) : raw;
     dev.log.unshift({ intent: intent.key, answer: ans }); dev.log.length = Math.min(dev.log.length, 10);
     const title = cleanRefs(String(ans.title ?? ''), r), sub = cleanRefs(String(ans.subtitle ?? ''), r);

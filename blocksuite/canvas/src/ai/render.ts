@@ -65,7 +65,10 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, cb
   const layout = String(ans.grammar?.layout ?? '').toLowerCase();
 
   // things nothing may land on
-  const formLines = new Set(form?.lines ?? []);
+  const formLines = new Set(forms.flatMap(f => f.lines));
+  const allEnds = forms.flatMap(f => (f.ends ?? []).map(e => ({ ...e, hubRef: f.hub })));
+  // a small stroke at a free end is that line's arrowhead: part of the line, not something in the way
+  for (const i of r.items) if ((i.kind === 'drawing' || i.kind === 'highlight') && Math.max(i.box.w, i.box.h) <= 70 && allEnds.some(e => Math.hypot(cx(i.box) - e.x, cy(i.box) - e.y) < 46)) formLines.add(i.ref);
   const obstacles: Box[] = r.items.filter(i => !formLines.has(i.ref) && !['frame', 'connector', 'group'].includes(i.kind) && !(i.kind === 'drawing' && i.box.w * i.box.h > 90000) && !(i.children?.length && i.kind !== 'card')).map(i => i.box);
   // the user's lines are obstacles too: sampled along their path
   const lineDots: Box[] = [];
@@ -84,6 +87,15 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, cb
     props.text = t; props.xywh = xywh(at); props.index = nextTop();
     props.fontSize = fit(at.w, at.h, b ? `${a}\n${b}` : a, Number(src?.fontSize) || 16);
     return surf.addElement(props);
+  }
+  // a key of small signs is answered in plain words at the arrow's end, the way one writes a legend
+  const signKey = !template && forms.length > 0 && forms.every(f => { const h = f.hub ? r.byRef.get(f.hub) : undefined; return !!h && (['sticker', 'tag', 'text', 'drawing'].includes(h.kind) || Math.max(h.box.w, h.box.h) <= 132); }) && allEnds.length > 0;
+  function labelLike(text: string, tip: Box, dx: number): string {
+    const [a, b] = split(text); const size = 20, words = b ? `${a} — ${b}` : a;
+    const c = document.createElement('canvas').getContext('2d')!; c.font = `500 ${size}px Inter, sans-serif`;
+    const w = Math.min(420, Math.ceil(c.measureText(words).width) + 8), lines = Math.max(1, Math.ceil(c.measureText(words).width / 420)), h = lines * Math.round(size * 1.4);
+    const t = new Y.Text(); t.insert(0, words);
+    return surf.addElement({ type: 'text', xywh: xywh({ x: dx >= 0 ? tip.x : tip.x + tip.w - w, y: tip.y + tip.h / 2 - h / 2, w, h }), text: t, fontSize: size, fontWeight: '500', color: TEXT.ink, fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', index: nextTop() });
   }
   function noteCard(c: Card, at: Box, meta?: string): string {
     const id = store.addBlock('affine:note', { xywh: xywh({ ...at, h: 80 }), background: '#ffffff', index: nextTop(), edgeless: { style: CARD_STYLE } } as any, store.root.id);
@@ -142,10 +154,11 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, cb
     along.last = b; return b;
   }
   // free ends of the user's lines: an answer lands where the line points, its near edge on the tip
-  const ends = [...(form?.ends ?? [])].map(e => {
+  const ends = allEnds.map(e => {
     // which way an end points: away from the thing its line leaves (a curve's last stretch can mislead)
-    if (!hub) return { ...e, edge: null as number | null };
-    const vx = e.x - cx(hub.box), vy = e.y - cy(hub.box);
+    const hb = e.hubRef ? r.byRef.get(e.hubRef)?.box : undefined;
+    if (!hb) return { ...e, edge: null as number | null };
+    const vx = e.x - cx(hb), vy = e.y - cy(hb);
     return Math.abs(vx) >= Math.abs(vy) * 0.6 ? { ...e, dx: Math.sign(vx) || 1, dy: 0, edge: null as number | null } : { ...e, dx: 0, dy: Math.sign(vy) || 1, edge: null as number | null };
   }).sort((a, b) => (Math.abs(a.dy) > Math.abs(a.dx) ? a.x - b.x : a.y - b.y));
   // several ends on one side line up on one edge, like a column the user would have made
@@ -159,10 +172,15 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, cb
     let d = 1e9; for (let i = 0; i < ends.length; i++) for (let j = i + 1; j < ends.length; j++) d = Math.min(d, Math.max(Math.abs(ends[i].x - ends[j].x), Math.abs(ends[i].y - ends[j].y)));
     return Math.max(112, snap(d - 24));
   })();
-  let endK = 0;
-  function atEnd(w: number, h: number): Box | null {
-    while (endK < ends.length) {
-      const e = ends[endK++], G = 16;
+  const usedEnds = new Set<number>();
+  function atEnd(w: number, h: number, hubRef?: string | null): Box | null {
+    for (;;) {
+      // the end of the line that leaves the thing this card answers, else the next free one
+      let k = hubRef ? ends.findIndex((e, i) => !usedEnds.has(i) && e.hubRef === hubRef) : -1;
+      if (k < 0 && !hubRef) k = ends.findIndex((_e, i) => !usedEnds.has(i));
+      if (k < 0) return null;
+      usedEnds.add(k);
+      const e = ends[k], G = 16;
       const horiz = Math.abs(e.dx) >= Math.abs(e.dy);
       const ex = horiz && e.edge != null ? e.edge : e.x, ey = !horiz && e.edge != null ? e.edge : e.y;
       const b = horiz ? { x: e.dx >= 0 ? ex + G : ex - G - w, y: e.y - h / 2, w, h } : { x: e.x - w / 2, y: e.dy >= 0 ? ey + G : ey - G - h, w, h };
@@ -257,14 +275,20 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, cb
       const c = rest[k];
       const parentItem = c.parent ? r.byRef.get(c.parent) : undefined;
       const slotParent = c.parent ? cards.find(o => o.slot === c.parent) : undefined;
-      const isRef = !!parentItem || /reference|source|paper|evidence|quote/i.test(c.role ?? '') || (!!c.source && !/general knowledge|none/i.test(c.source) && !!c.parent);
+      // an answer for a thing whose line ends in empty space goes to that end
+      const ownEnd = c.parent ? ends.findIndex((e, i) => !usedEnds.has(i) && e.hubRef === c.parent) : -1;
+      if (signKey && (ownEnd >= 0 || !c.parent)) {
+        const tip = atEnd(8, 28, ownEnd >= 0 ? c.parent : null);
+        if (tip) { const e = ends[[...usedEnds].pop()!]; const id = labelLike(c.text, tip, e.dx); placed.push(box(id) ?? tip); created.push(id); focus.push(id); const ev1 = { source: sourceName(c.source), quote: c.quote ?? '' }; if (ev1.quote) setEvidence(store, id, ev1); continue; }
+      }
+      const isRef = ownEnd < 0 && (!!parentItem || /reference|source|paper|evidence|quote/i.test(c.role ?? '') || (!!c.source && !/general knowledge|none/i.test(c.source) && !!c.parent));
       if (isRef || slotParent) {
         const meta = sourceName(c.source);
         const id = noteCard({ ...c, text: c.text }, { ...stage, w: 220, h: 80 }, meta && meta !== c.text ? meta : undefined);
         notes.push({ id, card: c, parent: parentItem?.box });
         created.push(id); continue;
       }
-      let at: Box | null = atEnd(sticky.w, sticky.h); const landed = !!at;
+      let at: Box | null = atEnd(sticky.w, sticky.h, ownEnd >= 0 ? c.parent : null); const landed = !!at;
       if (at) { /* on a free end */ }
       else if (/radial|loose|ring/.test(layout)) at = onRing(sticky.w, sticky.h) ?? nextAlong(sticky.w, sticky.h);
       else if (/line|bridge|midpoint/.test(layout) || form?.kind === 'bridge' || form?.kind === 'pair' || form?.kind === 'link') at = nearLine(sticky.w, sticky.h, k, rest.length);
