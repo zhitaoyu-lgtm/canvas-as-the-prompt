@@ -365,7 +365,8 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, cb
         set.show(p, extra, ans.strength === 'ghost');
       }
       // the one insight: a comment on the thing the form grew from (or the first answer)
-      const on = hub?.id ?? set.firstId();
+      const slotId = (ans.cards ?? []).map(c => (c.slot ? r.byRef.get(c.slot)?.id : undefined)).find(Boolean);
+      const on = hub?.id ?? set.firstId() ?? slotId;
       if (ans.insight && on) addComment(store, on, ans.insight), set.commentOn(on);
       if (set.empty()) set.drop(true);
     } catch (e) { console.warn('[intent] render', e); set.drop(true); }
@@ -451,7 +452,15 @@ export class PendingSet {
     const u = this.screen(union(area), 12);
     const bw = this.bar.offsetWidth || 240;
     // the bar stays reachable even when the answer runs off the screen
-    Object.assign(this.bar.style, { left: Math.min(innerWidth - bw - 12, Math.max(8, u.L + u.W - bw)) + 'px', top: Math.min(innerHeight - 110, Math.max(12, u.T + u.H + 10)) + 'px' });
+    // … and never sits on top of something on the board: under the answer, else beside it, else above it
+    const bh = this.bar.offsetHeight || 40;
+    const fit = (x: number, y: number) => ({ x: Math.min(innerWidth - bw - 12, Math.max(8, x)), y: Math.min(innerHeight - 110, Math.max(12, y)) });
+    const cands = [fit(u.L + u.W - bw, u.T + u.H + 10), fit(u.L + u.W + 10, u.T + 4), fit(u.L + u.W - bw, u.T - bh - 10), fit(u.L - bw - 10, u.T + 4), fit(u.L + u.W + 10, u.T + u.H - bh)];
+    const others: { L: number; T: number; W: number; H: number }[] = [];
+    for (const e of this.rootEl.gfx.gfxElements as any[]) { if (e.flavour === 'affine:surface' || e.flavour === 'affine:frame' || e.type === 'connector' || e.type === 'group') continue; const s0 = this.screen(e.elementBound, 0); if (s0.L < innerWidth && s0.L + s0.W > 0 && s0.T < innerHeight && s0.T + s0.H > 0) others.push(s0); }
+    const clear = (c: { x: number; y: number }) => !others.some(o => c.x < o.L + o.W + 4 && c.x + bw > o.L - 4 && c.y < o.T + o.H + 4 && c.y + bh > o.T - 4);
+    const at = cands.find(clear) ?? cands[0];
+    Object.assign(this.bar.style, { left: at.x + 'px', top: at.y + 'px' });
   }
   private close() { this.closed = true; cancelAnimationFrame(this.raf); this.veils.forEach(v => v.remove()); this.bar.remove(); removeEventListener('pointermove', this.onMouse, true); }
   keep() {

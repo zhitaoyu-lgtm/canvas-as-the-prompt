@@ -219,6 +219,8 @@ export function mountSense(rootEl: any) {
     for (const a of loose.filter(isLabel)) {
       const comp = chainFrom(a, 9);
       if (comp.length < 2 || comp.length > 9) continue;                    // alone, or part of a pile
+      if (comp.filter(o => !isLabel(o)).every(o => o.kind === 'image')) continue;   // short notes beside a picture label the picture: nothing to gather
+      if (comp.some(o => isBlankItem(o))) continue;                         // a blank among them is a question, not a topic to gather for
       if (a.author !== 'user' || !comp.some(o => touched.has(o.id) && o.author === 'user')) continue;   // nothing here just changed (by the user)
       if (comp.filter(isLabel).length > 2) continue;                        // several labels together read as a cluster of ideas
       if (!comp.some(o => !isLabel(o))) continue;                           // needs material beside it

@@ -15,6 +15,7 @@ export type Form = {
   targets: string[];            // refs
   lines: string[];              // connector refs
   box: Box;                     // everything in the form
+  context?: string[];           // refs that belong to the statement without being its targets: siblings in a run, the thing it stands beside
   ends?: { line: string; x: number; y: number; dx: number; dy: number }[];   // free ends of its lines: where an answer can land
   facts: {
     targetState: 'blank' | 'open-ended' | 'existing' | 'mixed';
@@ -277,6 +278,42 @@ export function detectForms(gfx: any, r: Reading, touched: Set<string>, trace?: 
     if (marker) { make('bridge', from, [to], [c], { marker: marker.kind === 'drawing' ? `small drawn circle ${marker.ref} on the middle of the line` : `blank ${marker.ref} on the middle of the line` }); continue; }
     make('link', from, [to], [c]);
   }
+  // a blank left in a run of filled notes (a column or row of like-sized notes, whatever their colours): an open
+  // slot. What the run stands beside (a picture, a table, a paper) is part of the statement.
+  {
+    const gapOf = (a: Box, b: Box) => Math.max(0, Math.max(a.x - (b.x + b.w), b.x - (a.x + a.w)), Math.max(a.y - (b.y + b.h), b.y - (a.y + a.h)));
+    const noteLike = (i: Item) => ['sticky', 'shape', 'doc', 'card'].includes(i.kind) && !i.children?.length;
+    const lined = new Set<string>(); for (const c of conns) { if (c.arrow!.from) lined.add(c.arrow!.from); if (c.arrow!.to) lined.add(c.arrow!.to); }
+    const pool = r.items.filter(i => noteLike(i) && !used.has(i.ref) && !lined.has(i.ref));
+    for (const b0 of pool.filter(i => isBlank(i) && i.author === 'user')) {
+      if (used.has(b0.ref)) continue;
+      const like = (o: Item) => o.kind === b0.kind && o.parent === b0.parent && Math.abs(o.box.w - b0.box.w) <= b0.box.w * 0.2 && Math.abs(o.box.h - b0.box.h) <= b0.box.h * 0.2;
+      const grow = (col: boolean) => {
+        const run = [b0], queue = [b0];
+        while (queue.length) { const c = queue.shift()!; for (const o of pool) if (!run.includes(o) && like(o) && Math.abs(col ? o.box.x - c.box.x : o.box.y - c.box.y) <= 14 && gapOf(o.box, c.box) <= Math.max(60, (col ? c.box.h : c.box.w) * 0.5)) { run.push(o); queue.push(o); } }
+        return run.sort((a, b) => (col ? a.box.y - b.box.y : a.box.x - b.box.x));
+      };
+      const colRun = grow(true), rowRun = grow(false), col = colRun.length >= rowRun.length, run = col ? colRun : rowRun;
+      const filled = run.filter(o => !isBlank(o) && o.text.trim()), blanks = run.filter(o => isBlank(o));
+      if (filled.length < 2 || run.length > 9 || !run.some(isTouched)) continue;
+      const u = union(run.map(o => o.box));
+      const beside = r.items.filter(o => !run.includes(o) && !['frame', 'connector', 'drawing', 'highlight', 'group'].includes(o.kind) && o.parent === b0.parent && gapOf(o.box, u) <= 200 && area(o.box) >= area(b0.box) * 1.5
+        && (col ? Math.min(o.box.y + o.box.h, u.y + u.h) - Math.max(o.box.y, u.y) : Math.min(o.box.x + o.box.w, u.x + u.w) - Math.max(o.box.x, u.x)) >= Math.min(col ? o.box.h : o.box.w, col ? u.h : u.w) * 0.5).sort((a, b) => gapOf(a.box, u) - gapOf(b.box, u))[0];
+      const side = beside ? (col ? (cx(beside.box) < cx(u) ? 'to its left' : 'to its right') : (cy(beside.box) < cy(u) ? 'above it' : 'below it')) : '';
+      const hues = new Set(run.map(o => o.colour ?? ''));
+      const f = make('slot', undefined, blanks, [], { arrangement: `${col ? 'column' : 'row'} of ${run.length} notes`, neighbourhood: '' });
+      f.facts.upstream = [
+        `the run, ${col ? 'top to bottom' : 'left to right'}: ${run.map(o => `${o.ref} ${isBlank(o) ? 'BLANK' : q(o.text.trim(), 30)}${o.colour ? ` [${o.colour}]` : ''}`).join(' · ')}` + (hues.size === run.length && run.length > 1 ? ' — every note a different colour' : hues.size === 1 ? ' — all one colour' : ''),
+        ...(beside ? [`the run stands beside ${beside.ref} (${beside.kind}${beside.text.trim() ? ' ' + q(beside.text.trim(), 40) : ''}), ${side}, ${Math.round(gapOf(beside.box, u))} px away${beside.kind === 'image' ? ' — look at the attached picture' : ''}`] : []),
+      ];
+      f.context = [...run.filter(o => !blanks.includes(o)).map(o => o.ref), ...(beside ? [beside.ref] : [])];
+      f.box = union([u, ...(beside ? [beside.box] : [])]);
+      run.forEach(o => used.add(o.ref));
+      const shortAll = filled.every(o => o.text.trim().length <= 24 && !/\n/.test(o.text.trim()));
+      if (shortAll) f.facts.firstFilled = filled[0].text.trim();
+      f.signature = ['slot', beside ? beside.kind : 'none', 'blank', hues.size === run.length ? 'colour-coded' : 'plain'].join(' · ');
+    }
+  }
   // a blank set into a line, row or grid of filled things: an open slot
   for (const it of r.items.filter(i => isTouched(i) && isBlank(i) && !used.has(i.ref))) {
     const g = r.groups.find(g => g.members.includes(it.ref));
@@ -372,10 +409,11 @@ export function serialiseForms(forms: Form[], r: Reading): string[] {
       L.push(s);
     }
     if (x.precedents?.length) L.push(`   precedent${x.precedents.length > 1 ? 's' : ''} (the same form, already completed): ${x.precedents.map(p0 => `${p0.from} → ${p0.to} ${q(p0.text, 50)} [written by ${p0.by}]`).join('; ')}`);
+    else if (x.firstFilled && f.kind === 'slot') L.push(`   the filled notes show the format: short bare labels like ${q(x.firstFilled)}`);
     else if (x.firstFilled) L.push(`   one target already typed by the user: ${q(x.firstFilled)}; the others are blank`);
     if (x.marker) L.push(`   ${x.marker}`);
     if (x.labels.length) L.push(`   labels: ${x.labels.map(l => `${l.line} ${q(l.text)} [by ${l.by}]`).join('; ')}`);
-    if (x.upstream.length) L.push(`   upstream: ${x.upstream.join('; ')}`);
+    if (x.upstream.length) L.push(...(f.kind === 'slot' ? x.upstream.map(u0 => `   ${u0}`) : [`   upstream: ${x.upstream.join('; ')}`]));
     L.push(`   container: ${x.container ? `${x.container.ref} ${q(x.container.title)}` : 'none'} · neighbourhood: ${x.neighbourhood}`);
     L.push(`   ${x.authorAll === 'user' ? 'all by user' : x.authorAll === 'ai' ? 'all by ai' : 'by user and ai'} · settled ${x.ageSec >= 9999 ? 'just now' : x.ageSec + ' s ago'}`);
   }

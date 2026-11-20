@@ -38,7 +38,7 @@ export function mountIntent(rootEl: any, trace: Trace) {
     if (!dev.enabled) return null;
     const recent = trace.touchedBy(30_000); for (const id of touchedNow) recent.add(id);
     let forms = detectForms(gfx, r, recent, trace);
-    const now = (f: Form) => [f.hub, ...f.targets, ...f.lines].some(ref => { const it = ref ? r.byRef.get(ref) : undefined; return !!it && touchedNow.has(it.id); });
+    const now = (f: Form) => [f.hub, ...f.targets, ...f.lines, ...(f.kind === 'slot' ? f.context ?? [] : []).filter(ref => r.byRef.get(ref)?.kind !== 'image')].some(ref => { const it = ref ? r.byRef.get(ref) : undefined; return !!it && touchedNow.has(it.id); });
     forms = forms.filter(f => {
       if (!now(f)) return false;
       if (f.facts.authorAll === 'ai') return false;
@@ -95,7 +95,7 @@ export function mountIntent(rootEl: any, trace: Trace) {
     const r = intent.reading ?? readBoard(gfx);
     const forms = intent.forms;
     const user = message(r, forms, intent.request);
-    const refs = forms.flatMap(f => [f.hub, ...f.targets].filter(Boolean) as string[]);
+    const refs = forms.flatMap(f => [f.hub, ...f.targets, ...(f.context ?? [])].filter(Boolean) as string[]);
     let picture: Blob | null = null;
     if (needsPicture(r, refs)) { try { picture = await shot(rootEl, union(forms.map(f => f.box)), 1024, 32); } catch { picture = null; } }
     const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 25_000);
