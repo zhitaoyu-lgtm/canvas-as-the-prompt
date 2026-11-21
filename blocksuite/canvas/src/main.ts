@@ -7,7 +7,8 @@ import { AffineSchemas } from '@blocksuite/affine/schemas';
 import { CommunityCanvasTextFonts, DocModeProvider, EditorSettingExtension, FontConfigExtension, ParseDocUrlExtension } from '@blocksuite/affine/shared/services';
 import { nanoid, Schema, Text } from '@blocksuite/affine/store';
 import { TestWorkspace } from '@blocksuite/affine/store/test';
-import { BroadcastChannelAwarenessSource, IndexedDBBlobSource, IndexedDBDocSource } from '@blocksuite/affine/sync';
+import { BroadcastChannelAwarenessSource, IndexedDBBlobSource } from '@blocksuite/affine/sync';
+import { QuietDocSource } from './persist';
 import { effects as itEffects } from '@blocksuite/integration-test/effects';
 import { getTestStoreManager } from '@blocksuite/integration-test/store';
 import { getTestViewManager } from '@blocksuite/integration-test/view';
@@ -72,7 +73,7 @@ async function main() {
   // One workspace, one board, kept in the app's own local storage (IndexedDB), so it is still there next time.
   const collection = new TestWorkspace({
     id: 'canvas', idGenerator: nanoid,
-    docSources: { main: new IndexedDBDocSource('canvas-as-the-prompt') },
+    docSources: { main: new QuietDocSource('canvas-as-the-prompt') as any },
     blobSources: { main: new IndexedDBBlobSource('canvas-as-the-prompt'), shadows: [] },
     awarenessSources: [new BroadcastChannelAwarenessSource('canvas')],
   });

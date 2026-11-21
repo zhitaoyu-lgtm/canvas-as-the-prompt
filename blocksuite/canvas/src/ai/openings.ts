@@ -102,7 +102,12 @@ export function findOpenings(r: Reading, forms: Form[], touchedNow: Set<string>)
   // (a key whose first sign has its meaning written beside it; column heads where one column has notes; a table
   //  drawn with notes where one row is done). The filled one is the exemplar; the others are open in the same place.
   {
-    const pool = r.items.filter(i => THING(i) && i.author === 'user');
+    // only around what was just touched: a row far away is not what the user is speaking with now (and a big
+    // board must not be combed end to end at every pause)
+    const tb = r.items.filter(i => touchedNow.has(i.id)).map(i => i.box);
+    const nearTouched = (b: Box) => tb.some(t => gap(t, b) <= 1400);
+    const pool = r.items.filter(i => THING(i) && i.author === 'user' && nearTouched(i.box));
+    const around = r.items.filter(i => THING(i) && nearTouched(i.box));
     const seen = new Set<string>();
     // the thing a whole structure hangs from (the source of its lines, the head of a set) is nobody's neighbour
     const heads = new Set(forms.map(f => f.hub).filter(Boolean) as string[]);
@@ -119,7 +124,7 @@ export function findOpenings(r: Reading, forms: Form[], touchedNow: Set<string>)
         { const steps = run.slice(1).map((m, k) => (col ? m.box.y - run[k].box.y : m.box.x - run[k].box.x)); if (Math.max(...steps) > Math.min(...steps) * 1.4 + 8) continue; }
         // the neighbour of a member on the cross side: the nearest thing level with it, not itself in the run
         for (const side of [1, -1]) {
-          const cp = (m: Item) => r.items.filter(o => THING(o) && !run.includes(o) && !heads.has(o.ref) && o.parent === m.parent && area(o.box) <= Math.max(area(m.box) * 40, 90000)
+          const cp = (m: Item) => around.filter(o => !run.includes(o) && !heads.has(o.ref) && o.parent === m.parent && area(o.box) <= Math.max(area(m.box) * 40, 90000)
             && (col ? (side > 0 ? o.box.x >= m.box.x + m.box.w - 4 : o.box.x + o.box.w <= m.box.x + 4) : (side > 0 ? o.box.y >= m.box.y + m.box.h - 4 : o.box.y + o.box.h <= m.box.y + 4))
             && gap(o.box, m.box) <= Math.max(220, (col ? m.box.w : m.box.h) * 2)
             && (col ? Math.min(o.box.y + o.box.h, m.box.y + m.box.h) - Math.max(o.box.y, m.box.y) >= Math.min(o.box.h, m.box.h) * 0.5 : Math.min(o.box.x + o.box.w, m.box.x + m.box.w) - Math.max(o.box.x, m.box.x) >= Math.min(o.box.w, m.box.w) * 0.5))

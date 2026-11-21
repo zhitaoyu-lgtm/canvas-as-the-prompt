@@ -283,8 +283,12 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   const SEL_CSS = '.handle > *, .rotate, [class*="rotate-handle"] { opacity: 0 !important; } .affine-edgeless-selected-rect { border-width: 1.5px !important; border-color: #0c8ce9 !important; border-radius: var(--cx-r, 0px) !important; }';
   const FT_CSS = ':host { background-color: var(--cx-ft, #53b1f3) !important; color: #14212b !important; border: 0 !important; border-radius: 6px !important; padding: 0 8px !important; font-weight: 600 !important; font-size: 13px !important; } :host(:hover) { filter: brightness(.95); }';
   const TB_CSS = ':host(:not([data-cx-tb])) editor-toolbar { opacity: 0 !important; pointer-events: none !important; }';
-  const inject = (tag: string, css: string) => { const host = deepFind(document, e => e.tagName === tag) as El | null; const sr = host?.shadowRoot; if (!sr || sr.querySelector('style[data-cx]')) return host; const st = document.createElement('style'); st.dataset.cx = '1'; st.textContent = css; sr.append(st); return host; };
-  const toolbarHost = () => deepFind(document, e => e.tagName === 'AFFINE-TOOLBAR-WIDGET') as El | null;
+  // both widgets live in the light tree: found by a native lookup and remembered. (This used to walk the whole
+  // page, shadow roots included, several times a second; on a board full of cards that was a stall each time.)
+  const hosts = new Map<string, El | null>();
+  const widget = (tag: string): El | null => { const c = hosts.get(tag); if (c?.isConnected) return c; const el = document.querySelector(tag.toLowerCase()) as El | null; hosts.set(tag, el); return el; };
+  const inject = (tag: string, css: string) => { const host = widget(tag); const sr = host?.shadowRoot; if (!sr || sr.querySelector('style[data-cx]')) return host; const st = document.createElement('style'); st.dataset.cx = '1'; st.textContent = css; sr.append(st); return host; };
+  const toolbarHost = () => widget('AFFINE-TOOLBAR-WIDGET');
   const setTb = (on: boolean) => { tbOn = on; const hst = toolbarHost(); if (hst) on ? hst.setAttribute('data-cx-tb', '') : hst.removeAttribute('data-cx-tb'); };
   const injectAll = (tag: string, css: string) => { const walk = (r: Document | ShadowRoot) => { for (const e of Array.from(r.querySelectorAll('*')) as El[]) { if (e.tagName === tag && e.shadowRoot && !e.shadowRoot.querySelector('style[data-cx]')) { const st = document.createElement('style'); st.dataset.cx = '1'; st.textContent = css; e.shadowRoot.append(st); } if (e.shadowRoot && /FRAME-TITLE|EDGELESS-ROOT|EDITOR/.test(e.tagName)) walk(e.shadowRoot); } }; walk(document); };
   setInterval(() => { if (document.body.classList.contains('cx-dragging')) return; inject('EDGELESS-SELECTED-RECT', SEL_CSS); inject('AFFINE-TOOLBAR-WIDGET', TB_CSS); }, 400);
@@ -301,6 +305,7 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     const H = hue.toFixed(0);
     return { main: `hsl(${H} 86% 64%)`, wash: `hsl(${H} 86% 64% / .09)`, line: `hsl(${H} 82% 70%)` };
   };
+  let lastTones = '', tonesAt = 0;
   const paintSections = () => {
     if (document.body.classList.contains('cx-dragging')) return;   // never while the hand is drawing or dragging
     const tones = new Map<string, string>();
@@ -315,6 +320,10 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
         if (nested) { const neutral = t.main === '#53b1f3' && !/53b1f3|a8daff|blue/i.test(raw); t = { main: t.main, wash: neutral ? 'rgba(0, 0, 0, .028)' : t.wash, line: 'transparent' }; } c.style.setProperty('--cx-wash', t.wash); c.style.setProperty('--cx-line', t.line); c.dataset.cxMain = t.main; }
       const id = f.getAttribute('data-block-id') ?? (f as any).model?.id; if (id) tones.set(id, c.dataset.cxMain!);
     }
+    const sig = [...tones].map(([id, t]) => id + t).join('|');
+    if (sig === lastTones && Date.now() - tonesAt < 4000) return;
+    lastTones = sig; tonesAt = Date.now();
+    if (!tones.size) return;
     const walk = (r: Document | ShadowRoot) => { for (const e of Array.from(r.querySelectorAll('*')) as El[]) {
       if (e.tagName === 'AFFINE-FRAME-TITLE') { const t = tones.get(e.dataset.id ?? ''); if (t) e.style.setProperty('--cx-ft', t);
         if (e.shadowRoot && !e.shadowRoot.querySelector('style[data-cx]')) { const st = document.createElement('style'); st.dataset.cx = '1'; st.textContent = FT_CSS; e.shadowRoot.append(st); } }
@@ -331,7 +340,7 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     dot.classList.toggle('on', show);
     if (b && show) { dot.style.left = `${b.R + 8}px`; dot.style.top = `${b.T + 4}px`; }
     // the outline follows the element's own corners
-    if (!selHost || !selHost.isConnected) selHost = deepFind(document, e => e.tagName === 'EDGELESS-SELECTED-RECT') as El | null;
+    if (!selHost || !selHost.isConnected) selHost = widget('EDGELESS-SELECTED-RECT');
     if (els.length && selHost) selHost.style.setProperty('--cx-r', `${radiusOf(els)}px`);
     // the quiet look is in place before the outline's first paint (no flash of handles)
     if (selHost?.shadowRoot && !selHost.shadowRoot.querySelector('style[data-cx]')) { const st = document.createElement('style'); st.dataset.cx = '1'; st.textContent = SEL_CSS; selHost.shadowRoot.append(st); }
@@ -340,12 +349,16 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   }
   // Hover: a fainter, thinner grey outline around block elements (stickies, cards, sections)
   const hov = h('div', 'cx-hover'); layer.append(hov);
-  let hx = -1, hy = -1, overBoard = false;
+  let hx = -1, hy = -1, overBoard = false, hovKey = '';
   window.addEventListener('pointermove', e => { hx = e.clientX; hy = e.clientY; const p = e.composedPath(); overBoard = p.includes(rootEl) && !p.some(n => (n as El).classList?.contains?.('cx-ai-layer')); }, { passive: true });
   document.addEventListener('pointerleave', () => { overBoard = false; });
   function placeHover() {
+    const vkey = `${hx},${hy},${gfx.viewport.zoom},${gfx.viewport.centerX},${gfx.viewport.centerY},${overBoard},${open},${gfx.selection.selectedElements.length}`;
+    const dragging = document.body.classList.contains('cx-dragging');
+    if (vkey === hovKey && !dragging) return;      // nothing moved: the outline is already right
+    hovKey = vkey;
     let hit: any = null;
-    if (overBoard && !open && !document.body.classList.contains('cx-dragging') && !gfx.selection.editing) {
+    if (overBoard && !open && !dragging && !gfx.selection.editing) {
       try { const [mx, my] = gfx.viewport.toModelCoordFromClientCoord([hx, hy]); hit = gfx.getElementByPoint(mx, my); } catch { hit = null; }
     }
     const selIds = new Set((gfx.selection.selectedElements as any[]).map(m => m.id));

@@ -9,14 +9,17 @@ export function mountPerf(rootEl: any) {
   const log: any[] = []; W.cxPerf = { log, last: null as any };
   const session = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
   let down = false, t0 = 0, last = 0, frames: number[] = [], raf = 0, moves = 0, before: any = null, saveAt = 0;
+  // how late each pointer move reaches the page, and any stall of the main thread while the pointer is down
+  let delays: number[] = [], stalls: number[] = [];
+  try { new PerformanceObserver(l => { if (down) for (const e of l.getEntries()) stalls.push(Math.round(e.duration)); }).observe({ entryTypes: ['longtask'] }); } catch { /* not supported */ }
   const renderer = () => (document.querySelector('affine-surface') as any)?.renderer ?? rootEl.surface?.renderer;
   const counts = () => { const r = renderer(); const m = r?.getDebugMetrics?.(); return { renders: m?.renderCount ?? 0, ms: m?.totalRenderDurationMs ?? 0, partial: r?.partialRenders ?? 0, full: r?.fullRenders ?? 0 }; };
   const tick = (t: number) => { if (!down) return; frames.push(t - last); last = t; raf = requestAnimationFrame(tick); };
   addEventListener('pointerdown', e => {
     if (e.button !== 0 || !e.composedPath().includes(rootEl)) return;
-    down = true; t0 = performance.now(); last = t0; frames = []; moves = 0; before = counts(); raf = requestAnimationFrame(tick);
+    down = true; t0 = performance.now(); last = t0; frames = []; moves = 0; delays = []; stalls = []; before = counts(); raf = requestAnimationFrame(tick);
   }, true);
-  addEventListener('pointermove', () => { if (down) moves++; }, { capture: true, passive: true });
+  addEventListener('pointermove', e => { if (down) { moves++; delays.push(performance.now() - e.timeStamp); } }, { capture: true, passive: true });
   const end = () => {
     if (!down) return; down = false; cancelAnimationFrame(raf);
     const dur = performance.now() - t0; if (dur < 350 || frames.length < 8) return;
@@ -28,6 +31,8 @@ export function mountPerf(rootEl: any) {
       frames: n, fps: Math.round((n / dur) * 1000), frameMedian: +f[n >> 1].toFixed(1), frameP95: +f[Math.floor(n * 0.95)].toFixed(1), frameMax: +f[n - 1].toFixed(1), over33: f.filter(x => x > 33).length, over100: f.filter(x => x > 100).length,
       renders, renderMsEach: renders ? +((after.ms - before.ms) / renders).toFixed(2) : 0, partial: after.partial - before.partial, full: after.full - before.full,
       drawnLast: m?.lastRenderMetrics?.renderedElementCount ?? null, canvasMP: m ? +(m.canvasPixelCount / 1e6).toFixed(1) : null, canvasMB: m?.canvasMemoryMegabytes ? +m.canvasMemoryMegabytes.toFixed(0) : null, layers: m?.totalLayerCount ?? null, stacking: m?.stackingCanvasCount ?? null,
+      inputDelayMedian: delays.length ? +delays.slice().sort((x, y) => x - y)[delays.length >> 1].toFixed(1) : null, inputDelayMax: delays.length ? +Math.max(...delays).toFixed(1) : null, stalls: stalls.slice(0, 12),
+      save: W.cxSave?.stats ? { ...W.cxSave.stats } : null,
       zoom: +gfx.viewport.zoom.toFixed(2), dpr: devicePixelRatio, view: `${innerWidth}×${innerHeight}`, things: els.length, kinds,
     };
     log.unshift(rec); log.length = Math.min(log.length, 20); W.cxPerf.last = rec;

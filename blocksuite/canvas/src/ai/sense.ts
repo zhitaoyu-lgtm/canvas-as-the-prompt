@@ -71,7 +71,10 @@ export function mountSense(rootEl: any) {
     return `${Math.round(b.x)},${Math.round(b.y)},${Math.round(b.w)},${Math.round(b.h)}|${str(prop(e, 'title') ?? e.text).slice(0, 80)}|${e.fillColor ?? prop(e, 'background') ?? ''}`;
   };
   const snapshot = () => { const m = new Map<string, string>(); for (const e of gfx.gfxElements as any[]) if (e.flavour !== 'affine:surface') m.set(e.id, sigOf(e)); return m; };
-  const rebase = () => { base = snapshot(); last = base; recent.clear(); };
+  const rebase = () => { base = snapshot(); last = base; recent.clear(); dirtySnap = false; };
+  // one cheap signal for "something on the board changed": every edit goes through the document
+  let dirtyTrace = true, dirtySnap = true;
+  try { store.spaceDoc.on('update', () => { dirtyTrace = true; dirtySnap = true; }); } catch { /* no document events: look every time */ setInterval(() => { dirtyTrace = true; dirtySnap = true; }, 500); }
   rebase();
 
   const editing = () => {
@@ -82,20 +85,26 @@ export function mountSense(rootEl: any) {
 
   setInterval(async () => {
     // a board open in two tabs must not answer twice: only the tab the user is looking at reads and responds
-    if (document.hidden || (window as any).cxCheckOpen) { if (!busy && !pending) rebase(); return; }
+    if (document.hidden || (window as any).cxCheckOpen) { if (!busy && !pending && dirtySnap) rebase(); return; }
     if (pointerDown) return;                       // mid-stroke or mid-drag: nothing to read yet, and the hand comes first
     // another open copy of this board is running checks: what appears now is not the user speaking
     try { const t = store.spaceDoc.getMap('cx:flags').get('checking') as number | undefined; if (t && Date.now() - t < 120_000 && !(window as any).cxCheckRunning) { rebase(); return; } } catch { /* no flags */ }
-    trace.poll(); general.tick();
+    // the board is only looked over when something in it changed since the last look (it used to be read end to
+    // end at every tick, changed or not: a stall every 600 ms that grew with the board)
+    if (dirtyTrace) { dirtyTrace = false; trace.poll(); }
+    general.tick();
     if (!dev.enabled || busy || pending) return;
-    const now = snapshot();
     let changed = false;
-    for (const [id, s] of now) if (last.get(id) !== s) { changed = true; if (base.get(id) !== s) recent.add(id); }
-    if (now.size !== last.size) changed = true;
-    last = now;
+    if (dirtySnap) {
+      dirtySnap = false;
+      const now = snapshot();
+      for (const [id, s] of now) if (last.get(id) !== s) { changed = true; if (base.get(id) !== s) recent.add(id); }
+      if (now.size !== last.size) changed = true;
+      last = now;
+    }
     if (changed) { quietSince = Date.now(); return; }
     if (!recent.size || pointerDown || editing() || Date.now() - quietSince < STABLE_MS) return;
-    const touched = new Set(recent); base = now; recent.clear();
+    const touched = new Set(recent); base = last; recent.clear();
     const intent = detect(touched);
     if (!intent) return;
     busy = true;

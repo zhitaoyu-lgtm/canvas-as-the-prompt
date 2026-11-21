@@ -256,6 +256,13 @@ export class EdgelessRootBlockComponent extends BlockComponent<
     };
 
     this.handleEvent('pointerMove', e => {
+      // [canvas] a cursor is published for other people on the board. Alone, publishing it only costs: every
+      // pointer move rewrote the selection and woke everything that listens to it, mid-stroke included.
+      try {
+        if (this.std.store.awarenessStore.getStates().size < 2) return;
+      } catch {
+        // no awareness: publish as before
+      }
       const pointerEvent = e.get('pointerState');
       setRemoteCursor(pointerEvent);
     });
