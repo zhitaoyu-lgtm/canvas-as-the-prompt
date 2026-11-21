@@ -40,7 +40,7 @@ export function createAssistant(rootEl: any) {
       entry.raw = raw; entry.look = lookOf(raw);
       const answer: Answer = typeof raw === 'string' ? parseAnswer(raw) : raw;
       // what the user just told us a sign means is kept for the rest of this board
-      for (const k of (Array.isArray((answer as any).remember) ? (answer as any).remember : []).slice(0, 6)) if (k?.sign && k?.means) addKey(store, { scope: { kind: 'board' }, form: String(k.sign).slice(0, 60), means: String(k.means).slice(0, 80), source: 'accepted' });
+      if (!(window as any).cxIntent?.dry) for (const k of (Array.isArray((answer as any).remember) ? (answer as any).remember : []).slice(0, 6)) if (k?.sign && k?.means) addKey(store, { scope: { kind: 'board' }, form: String(k.sign).slice(0, 60), means: String(k.means).slice(0, 80), source: 'accepted' });
       store.captureSync();
       const result = await execute(rootEl, reading, answer);
       store.captureSync();

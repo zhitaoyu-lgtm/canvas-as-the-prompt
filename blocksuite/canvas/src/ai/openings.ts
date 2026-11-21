@@ -19,6 +19,7 @@
 
 import type { Box, Item, Reading } from './reading';
 import { isBlank, sourceTypeOf, type Form } from './forms';
+import type { Trace } from './trace';
 
 export type OpeningKind = 'empty' | 'loose-end' | 'missing' | 'heading' | 'relation' | 'mark' | 'question';
 export type Opening = {
@@ -201,4 +202,51 @@ export function situationOf(os: Opening[], r: Reading): string {
   const what = [...kinds].map(([k, n]) => `${n} ${(NAMES[k] ?? [k, k + 's'])[n > 1 ? 1 : 0]}`).join(', ');
   const shown = os.find(o => o.like)?.like;
   return `${subject || 'a structure'} with ${what}${shown ? `, one already filled with ${q(shown.text, 24)}` : ''}`.slice(0, 180);
+}
+
+
+// ── Arranging is speaking too ──
+// Not every statement leaves a place empty. Dragging a note next to two others says "this belongs with those";
+// lining five things up says "these are one sequence"; giving three notes one colour says "these are one kind".
+// Code reports the change in relations (what a thing was beside, what it is beside now). What the change means,
+// and whether it wants anything, is the model's call.
+export type Arranged = { line: string; refs: string[]; joined: boolean; strong: boolean };
+
+export function findArranged(r: Reading, trace: Trace, withinMs = 45_000): Arranged[] {
+  const out: Arranged[] = [];
+  const cut = Date.now() - withinMs;
+  const things = r.items.filter(THING);
+  const near = (b: Box, skip: Item) => things.filter(o => o !== skip && o.parent === skip.parent && gap(o.box, b) <= 48 && area(o.box) <= Math.max(area(b) * 6, 60000));
+  const moved: { it: Item; from: Box }[] = [];
+  for (const a of trace.acts) {
+    if (a.t < cut || a.kind !== 'move' || !a.from) continue;
+    const it = r.byId.get(a.ids[0]); if (!it || !THING(it) || it.author !== 'user') continue;
+    if (Math.hypot(it.box.x - a.from.x, it.box.y - a.from.y) < 40) continue;                 // a nudge
+    const i = moved.findIndex(m => m.it === it); if (i >= 0) moved[i].from = moved[i].from; else moved.push({ it, from: a.from });
+  }
+  const movedSet = new Set(moved.map(m => m.it));
+  for (const m of moved) {
+    const was = near(m.from, m.it).filter(o => !movedSet.has(o)), now = near(m.it.box, m.it);
+    const wasR = was.map(o => o.ref).sort().join(' '), nowR = now.map(o => o.ref).sort().join(' ');
+    if (wasR === nowR) continue;
+    const say = (xs: Item[]) => xs.slice(0, 4).map(name).join(', ') + (xs.length > 4 ? ` and ${xs.length - 4} more` : '');
+    const colours = now.length >= 2 && new Set(now.map(o => o.colour ?? '')).size === 1 && m.it.colour && now[0].colour !== m.it.colour ? ` (they are all ${now[0].colour}; it is ${m.it.colour})` : '';
+    out.push({ refs: [m.it.ref, ...now.map(o => o.ref)], joined: now.length >= 2, strong: now.length >= 2 && !now.every(o => movedSet.has(o)),
+      line: `${name(m.it)} was moved${was.length ? ` away from ${say(was)}` : ' from open space'} ${now.length ? `to sit with ${say(now)}${colours}` : 'to stand alone'}` });
+  }
+  // several things put into one line
+  if (moved.length >= 3) {
+    const its = moved.map(m => m.it);
+    const row = its.every(i => Math.abs(cy(i.box) - cy(its[0].box)) <= 16), col = its.every(i => Math.abs(cx(i.box) - cx(its[0].box)) <= 16);
+    if (row || col) { const ord = its.slice().sort((a, b) => (row ? a.box.x - b.box.x : a.box.y - b.box.y)); out.push({ refs: ord.map(i => i.ref), joined: true, strong: true, line: `${ord.length} things were put into one ${row ? 'row, left to right' : 'column, top to bottom'}: ${ord.map(name).join(' → ')}` }); }
+  }
+  // one colour given to several things
+  const tinted = new Map<string, Item[]>();
+  for (const a of trace.acts) { if (a.t < cut || a.kind !== 'recolour') continue; const it = r.byId.get(a.ids[0]); if (it && it.author === 'user' && it.colour) (tinted.get(it.colour) ?? tinted.set(it.colour, []).get(it.colour)!).push(it); }
+  for (const [colour, its0] of tinted) {
+    const its = [...new Set(its0)]; const others = things.filter(o => !its.includes(o) && o.colour === colour && o.kind === its[0].kind);
+    if (its.length < 2 && !others.length) continue;
+    out.push({ refs: its.map(i => i.ref), joined: false, strong: false, line: `${its.map(name).join(', ')} ${its.length > 1 ? 'were' : 'was'} made ${colour}${others.length ? `, the colour of ${others.slice(0, 4).map(name).join(', ')}` : ''}` });
+  }
+  return out;
 }

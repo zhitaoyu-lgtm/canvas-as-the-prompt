@@ -12,6 +12,7 @@ import { Text } from '@blocksuite/affine/store';
 import { generateKeyBetween } from '@blocksuite/affine/std/gfx';
 import { CARD_STYLE, FILL, TEXT, snap } from '../design';
 import type { Opening } from './openings';
+import { execute } from './actions';
 import { addComment, removeCommentsOn } from './comments';
 import { setEvidence, clearEvidence } from './evidence';
 import { isBlank, type Form } from './forms';
@@ -409,11 +410,28 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, op
     };
   }
 
+  // anything beyond cards and links, drawn by the same code a typed request uses (one repertoire for both):
+  // a figure beside the material, a tag, a loop, a comment. It lands near what it is about, and stays pending.
+  async function applyParts(): Promise<Preview | null> {
+    const acts = (ans.actions ?? []).map(a0 => ({ ...a0 }));
+    if (!acts.length) return null;
+    const about = openings.map(o => o.about ?? o.ref).find(Boolean) ?? hub?.ref ?? targets[0]?.ref;
+    for (const a0 of acts) if (!a0.place && about && ['diagram', 'journey', 'matrix', 'bars', 'funnel', 'section', 'legend'].includes(a0.do)) a0.place = { near: about };
+    store.captureSync();
+    const res = await execute(rootEl, r, { read: ans.read, actions: acts } as any);
+    store.captureSync();
+    if (res.errors.length) console.warn('[intent] parts', res.errors);
+    const ids = res.created;
+    const whole = (): Box[] => { const bs = ids.map(box).filter(Boolean) as Box[]; return bs.length ? [union(bs)] : []; };
+    return { ids, focus: whole, undo: () => { store.captureSync(); for (const id of ids) { const el: any = gfx.getElementById(id); if (!el) continue; try { if (el.flavour) store.deleteBlock(store.getBlock(id)!.model); else surf.deleteElement(id); } catch { /* gone */ } } removeCommentsOn(store, ids); store.captureSync(); } };
+  }
+  const merge = (a: Preview, b: Preview | null): Preview => (b ? { ids: [...a.ids, ...b.ids], focus: () => [...a.focus(), ...b.focus()], anchor: () => [...(a.anchor?.() ?? []), ...b.focus()], undo: () => { a.undo(); b.undo(); } } : a);
+
   const set = new PendingSet(rootEl, ans, cb);
   void (async () => {
     try {
       if (ans.strength === 'ask') { set.showAsk(form?.box ?? null); return; }
-      const extra = applyLinks();
+      const extra = merge(applyLinks(), await applyParts());
       if (ans.strength === 'fork') {
         const previews = ans.fork.map(f => f.cards);
         let cur = await apply(previews[0], false);

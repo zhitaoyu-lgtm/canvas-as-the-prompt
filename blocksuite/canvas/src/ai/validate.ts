@@ -29,6 +29,10 @@ export type V5 = {
   excluded: { item: string; kind?: string; why?: string }[];
   insight: string | null;
   keep: string | null;
+  /** which kind of response this is, in the model's own judgement (for the log and for learning) */
+  move?: string;
+  /** anything beyond cards and links, in the board's full part grammar (a figure, a tag, a loop, a comment) */
+  actions?: any[];
 };
 
 const norm = (s: string) => s.toLowerCase().replace(/[\s ]+/g, ' ').replace(/[“”"]/g, '"').replace(/[‘’']/g, "'").trim();
@@ -57,6 +61,8 @@ export function coerce(raw: any): V5 | null {
     excluded: arr(raw.excluded).filter((e: any) => e && typeof e.item === 'string'),
     insight: typeof raw.insight === 'string' && raw.insight.trim() ? raw.insight.trim() : null,
     keep: typeof raw.keep === 'string' ? raw.keep : null,
+    move: typeof raw.move === 'string' ? raw.move : undefined,
+    actions: arr(raw.actions).filter((x: any) => x && typeof x.do === 'string'),
   };
 }
 
@@ -129,7 +135,7 @@ export function validate(a: V5, r: Reading, forms: Form[], openings: Opening[] =
   };
 
   a = { ...a };
-  if (a.strength === 'silent') return { answer: { ...a, cards: [], links: [], arrow_labels: [], fork: [], ask: null, insight: null }, edits };
+  if (a.strength === 'silent') return { answer: { ...a, cards: [], links: [], arrow_labels: [], fork: [], ask: null, insight: null, actions: [] }, edits };
   a.cards = fixCards(a.cards, 'card').slice(0, 12);
   if (a.fork.length) {
     a.fork = a.fork.slice(0, 2).map((f, i) => { usedSlots.clear(); return { ...f, read: visible(f.read).slice(0, 40), cards: fixCards(f.cards, `fork ${i + 1}`).slice(0, 3) }; }).filter(f => f.cards.length);
@@ -161,7 +167,11 @@ export function validate(a: V5, r: Reading, forms: Form[], openings: Opening[] =
   a.insight = a.insight ? visible(a.insight) : null;
   if (a.ask) a.ask = { question: visible(a.ask.question), options: [visible(a.ask.options[0]), visible(a.ask.options[1])] };
   a.excluded = a.excluded.filter(e => item(e.item)).slice(0, 8);
-  const nothing = !a.cards.length && !a.links.length && !a.arrow_labels.length && !a.fork.length && !a.ask && !(a.excluded.length);
+  // unasked, the board may only gain things: parts that add (a figure, a tag, a loop, a comment, a line).
+  // Moving, recolouring or rewriting what the user made waits for a typed request.
+  const ADDS = new Set(['add', 'connect', 'ref', 'pair', 'note', 'tag', 'circle', 'frame', 'legend', 'number', 'diagram', 'journey', 'matrix', 'bars', 'funnel', 'section', 'branch', 'milestone']);
+  a.actions = (a.actions ?? []).filter(x => { if (ADDS.has(String(x.do))) return true; edits.push(`action "${x.do}" changes the user's things → dropped (needs a typed request)`); return false; }).slice(0, 6);
+  const nothing = !a.actions.length && !a.cards.length && !a.links.length && !a.arrow_labels.length && !a.fork.length && !a.ask && !(a.excluded.length);
   if (nothing && a.strength !== 'silent') { edits.push('nothing left to show → silent'); a.strength = 'silent'; }
   return { answer: a, edits };
 }

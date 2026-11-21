@@ -141,7 +141,8 @@ export function mountSense(rootEl: any) {
     }
     // 2 · a line between two things: an arrow, or a pen stroke that starts on one thing and ends on another
     // several lines sharing an end are one form (a fan), not separate links: the general path reads them together
-    { const g = general.detect(r, touched); if (g && g.forms.some(f => f.kind === 'fan-in' || f.kind === 'fan-out') && (!handled.has(g.key) || retry(g.key))) return g; }
+    const g0 = general.detect(r, touched);                    // read once; used here and again below
+    if (g0 && g0.forms.some(f => f.kind === 'fan-in' || f.kind === 'fan-out') && (!handled.has(g0.key) || retry(g0.key))) return g0;
     for (const i of touchedItems) {
       const el: any = gfx.getElementById(i.id); if (!el) continue;
       let from: Item | undefined, to: Item | undefined, drawn = false, style = 'line';
@@ -200,7 +201,7 @@ export function mountSense(rootEl: any) {
     }
     // 2b · any other form the user just settled (arrows into blanks, out of a list, into one thing, a line
     //      between two things, a tension, an open slot, a question …): the model decides what it means
-    { const g = general.detect(r, touched); if (g && (!handled.has(g.key) || retry(g.key))) return g; }
+    if (g0 && (!handled.has(g0.key) || retry(g0.key))) return g0;
     // 3 · the same mark beside two or more things
     const marks = new Map<string, { mark: Item; host: Item }[]>();
     for (const [mRef, hRef] of r.relations.attached) {

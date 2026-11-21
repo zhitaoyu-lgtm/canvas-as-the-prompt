@@ -605,3 +605,18 @@ affine-edgeless-note {
 .cx-evidence .src { font-weight: 600; color: #6e6e73; font-size: 11px; letter-spacing: .02em; }
 .cx-evidence .q { margin-top: 4px; color: #3a3a3c; }
 .cx-evidence .src + .q { padding-top: 4px; border-top: 1px solid #f0f0f0; }
+
+/* the check panel: a small card, bottom left; plain like the rest */
+.cx-check { position: fixed; left: 16px; bottom: 16px; z-index: 60; width: 320px; padding: 14px 16px 12px; background: #fff; border-radius: 14px; box-shadow: 0 8px 28px rgba(0,0,0,.14), 0 0 0 .5px rgba(0,0,0,.08); font: 13px/1.45 Inter, system-ui, sans-serif; color: #1d1d1f; }
+.cx-check[hidden] { display: none; }
+.cx-check-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.cx-check-h b { font-weight: 600; }
+.cx-check-h button { border: 0; background: none; font-size: 18px; line-height: 1; color: #86868b; cursor: pointer; padding: 0 2px; }
+.cx-check-p { margin: 0 0 10px; color: #6e6e73; min-height: 36px; }
+.cx-check-bar { height: 4px; border-radius: 2px; background: #ececee; overflow: hidden; }
+.cx-check-bar i { display: block; height: 100%; width: 0; background: #1d1d1f; transition: width .3s ease; }
+.cx-check-n { margin: 8px 0 10px; color: #86868b; font-size: 12px; min-height: 16px; }
+.cx-check-a { display: flex; gap: 8px; }
+.cx-check-a button { border: 0; border-radius: 8px; padding: 7px 14px; font: inherit; font-weight: 500; background: #f2f2f4; color: #1d1d1f; cursor: pointer; }
+.cx-check-a button.go { background: #1d1d1f; color: #fff; }
+.cx-check-a button:disabled { opacity: .4; cursor: default; }

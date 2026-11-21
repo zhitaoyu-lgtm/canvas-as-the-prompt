@@ -337,6 +337,9 @@ export class CanvasRenderer {
   // [canvas] Only the part of the main canvas that changed is redrawn when single elements change (a pen
   // stroke growing, a note dragged): the dirty area is the element's last drawn bound united with its new one.
   // Anything else (viewport, overlays, adds, removes) still redraws everything.
+  /** [canvas] how often the main canvas was redrawn in part / in full (read by the app's speed probe) */
+  partialRenders = 0;
+  fullRenders = 0;
   private _dirtyMainBound: Bound | null = null;
   private _mainPartialOk = false;
   private readonly _lastMainBounds = new WeakMap<object, IBound>();
@@ -1137,6 +1140,8 @@ export class CanvasRenderer {
         }
       }
 
+      if (clip) this.partialRenders++;
+      else this.fullRenders++;
       if (clip && ctx) {
         ctx.save();
         ctx.setTransform(1, 0, 0, 1, 0, 0);

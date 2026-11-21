@@ -10,7 +10,7 @@ import { authorOf } from './provenance';
 import type { Reading } from './reading';
 
 export type ActKind = 'add' | 'paste' | 'delete' | 'move' | 'resize' | 'recolour' | 'edit' | 'connect' | 'draw' | 'label' | 'accept' | 'dismiss';
-export type Act = { t: number; kind: ActKind; ids: string[]; detail?: string; blank?: boolean };
+export type Act = { t: number; kind: ActKind; ids: string[]; detail?: string; blank?: boolean; from?: { x: number; y: number; w: number; h: number } };
 
 type State = { kind: string; x: number; y: number; w: number; h: number; text: string; fill: string; src?: string; tgt?: string };
 
@@ -64,7 +64,7 @@ export class Trace {
       if (o.text !== s.text) this.push({ t, kind: 'edit', ids: [id], detail: s.text.slice(0, 60) });
       else if (o.fill !== s.fill) this.push({ t, kind: 'recolour', ids: [id], detail: s.fill });
       else if (o.w !== s.w || o.h !== s.h) this.push({ t, kind: 'resize', ids: [id] });
-      else this.push({ t, kind: 'move', ids: [id] });
+      else this.push({ t, kind: 'move', ids: [id], from: { x: o.x, y: o.y, w: o.w, h: o.h } });   // one drag keeps where it started
     }
     for (const id of before.keys()) if (!now.has(id)) { changed = true; this.push({ t, kind: 'delete', ids: [id] }); }
     if (added.length) {

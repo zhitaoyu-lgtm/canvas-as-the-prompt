@@ -1,3 +1,5 @@
+import { mountCheck } from './ai/check';
+import { mountPerf } from './ai/perf';
 import '@toeverything/theme/style.css';
 import '@toeverything/theme/fonts.css';
 
@@ -121,6 +123,8 @@ async function main() {
   mountComments(rootEl);
   mountBridge(rootEl);
   mountPanel(rootEl);
+  mountPerf(rootEl);
+  mountCheck(rootEl, (req, ids) => assistant(req, ids));
   (window as any).editor = editor; (window as any).collection = collection; (window as any).cxDev = { Text, Y: Y.Text, rootEl };
 }
 

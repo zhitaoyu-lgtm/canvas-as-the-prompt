@@ -18,9 +18,9 @@ import { renderAnswer, type PendingSet } from './render';
 import { pictures, lookOf, related } from './look';
 import type { Trace } from './trace';
 import { Habits } from './habits';
-import { findOpenings, serialiseOpenings, featuresOf, situationOf, type Opening } from './openings';
+import { findOpenings, findArranged, serialiseOpenings, featuresOf, situationOf, type Opening, type Arranged } from './openings';
 
-export type GeneralIntent = { type: 'general'; key: string; forms: Form[]; openings: Opening[]; area: Box; request?: string; reading?: Reading };
+export type GeneralIntent = { type: 'general'; key: string; forms: Form[]; openings: Opening[]; arranged?: Arranged[]; area: Box; request?: string; reading?: Reading };
 
 const union = (bs: Box[]): Box => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const b of bs) { x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h); } return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }; };
 
@@ -34,6 +34,7 @@ export function mountIntent(rootEl: any, trace: Trace) {
   dev.forget = () => { trace.acts = []; trace.poll(); trace.acts = []; };
   const say = (...a: any[]) => { if (dev.debug) console.log('[intent]', ...a); };
 
+  let lastArranged = 0;
   /** The gate. It never asks what a structure means, only: did the user just leave something open?
    *  Forms are descriptions (they give openings their context); the openings decide whether to speak. */
   function detect(r: Reading, touchedNow: Set<string>): GeneralIntent | null {
@@ -63,27 +64,37 @@ export function mountIntent(rootEl: any, trace: Trace) {
       // no line was just drawn: the user is only writing in their own notes
       return f.lines.some(l => { const it = r.byRef.get(l); return !!it && touchedNow.has(it.id); });
     });
-    if (!openings.length) return null;
+    // … or what they just rearranged: a thing dragged in with others, several things lined up
+    const arranged = findArranged(r, trace).filter(a => a.refs.some(ref => { const it = r.byRef.get(ref); return !!it && touchedNow.has(it.id); }));
+    const spoke = arranged.filter(a => a.strong);
+    if (!openings.length) {
+      if (!spoke.length || (!dev.dry && Date.now() - lastArranged < 45_000) || trace.phase() === 'collecting') return null;
+      const feats = ['arranged', ...(spoke.some(a => /row|column/.test(a.line)) ? ['arranged:line'] : ['arranged:joined'])];
+      if (dismissedRecently(store, feats.join(' '))) return null;
+      const refs = [...new Set(spoke.flatMap(a => a.refs))];
+      return { type: 'general', key: `general:arranged:${refs.sort().join(',')}`, forms: [], openings: [], arranged, area: union(refs.map(ref => r.byRef.get(ref)!.box)), reading: r };
+    }
     forms = forms.filter(f => openings.some(o => o.form === f.id));
     const features = featuresOf(openings, forms, r);
-    if (dismissedRecently(store, features.join(' '))) { say('backing off', features.join(' ')); return null; }
+    if (!dev.dry && dismissedRecently(store, features.join(' '))) { say('backing off', features.join(' ')); return null; }
     // weak openings (nothing literally empty) wait while the user is still gathering material
     if (!openings.some(o => o.strong) && trace.phase() === 'collecting') { say('collecting, quiet'); return null; }
     const ids = openings.flatMap(o => o.refs).sort().join(',');
     const key = `general:${features.join(' ')}:${ids}:${openings.map(o => o.kind).join(',')}`;
     const boxes = [...forms.map(f => f.box), ...openings.flatMap(o => o.refs.map(ref => r.byRef.get(ref)?.box).filter(Boolean) as Box[])];
-    return { type: 'general', key, forms, openings, area: union(boxes), reading: r };
+    return { type: 'general', key, forms, openings, arranged, area: union(boxes), reading: r };
   }
 
-  function message(r: Reading, forms: Form[], openings: Opening[], request?: string): string {
+  function message(r: Reading, forms: Form[], openings: Opening[], request?: string, arranged: Arranged[] = []): string {
     const L: string[] = [];
     L.push('TASK: unknown');
     L.push('BOARD', toPrompt(r));
     L.push('', 'OPENINGS (what the user left open; address your answer to these)', ...(openings.length ? serialiseOpenings(openings, r) : ['none found by code']));
+    L.push('', 'ARRANGED (what they just moved or recoloured, and what it now sits with)', ...(arranged.length ? arranged.map(a => '- ' + a.line) : ['nothing']));
     L.push('', 'STRUCTURE AROUND THEM (described by code; meaning not decided)', ...(forms.length ? serialiseForms(forms, r) : ['see BOARD']));
     const qs = serialiseQuestions(r); L.push('', 'QUESTIONS', ...(qs.length ? qs : ['none']));
-    const ks = serialiseKeys(store, r); L.push('', 'KEYS', ...(ks.length ? ks : ['none']));
-    const hs = habits.serialise(featuresOf(openings, forms, r)); L.push('', 'CASES (moments like this one, with this person, on any board)', ...(hs.length ? hs : ['none']));
+    const ks = dev.dry ? [] : serialiseKeys(store, r); L.push('', 'KEYS', ...(ks.length ? ks : ['none']));
+    const hs = dev.dry ? [] : habits.serialise(featuresOf(openings, forms, r)); L.push('', 'CASES (moments like this one, with this person, on any board)', ...(hs.length ? hs : ['none']));
     const acts = trace.serialise(r); L.push('', 'ACT', ...(acts.length ? acts : ['none']));
     L.push('', `PHASE: ${trace.phase()}`, `SELECTED: ${r.selection.length ? r.selection.join(' ') : 'no'}`, `REQUEST: ${request ?? 'none'}`);
     return L.join('\n');
@@ -108,8 +119,9 @@ export function mountIntent(rootEl: any, trace: Trace) {
     // refs belong to the reading the forms were found on
     const r = intent.reading ?? readBoard(gfx);
     const forms = intent.forms, openings = intent.openings ?? [];
-    const features = featuresOf(openings, forms, r);
-    const user = message(r, forms, openings, intent.request);
+    if (!openings.length) lastArranged = Date.now();          // an arrangement was read: do not ask about every further nudge
+    const features = openings.length ? featuresOf(openings, forms, r) : ['arranged', ...((intent.arranged ?? []).some(a => /row|column/.test(a.line)) ? ['arranged:line'] : ['arranged:joined'])];
+    const user = message(r, forms, openings, intent.request, intent.arranged ?? []);
     const refs = [...new Set([...forms.flatMap(f => [f.hub, ...f.targets, ...(f.context ?? [])]), ...openings.flatMap(o => [o.ref, o.about, o.like?.ref, ...o.refs])].filter(Boolean) as string[])];
     // always look as well as read: the area, and a close-up of any photo in it
     const rel = related(r, refs);
@@ -120,10 +132,11 @@ export function mountIntent(rootEl: any, trace: Trace) {
     let raw: any;
     try { raw = await call(userFull, picture, ctl.signal); } finally { clearTimeout(timer); }
     const a0 = coerce(raw);
-    const entry: any = { at: new Date().toLocaleTimeString(), openings: serialiseOpenings(openings, r), features, forms: serialiseForms(forms, r), user: userFull, raw, look: lastLook, pictures: seen.blobs, ms: Date.now() - t0 };
+    const entry: any = { at: new Date().toLocaleTimeString(), openings: serialiseOpenings(openings, r), arranged: (intent.arranged ?? []).map(a => a.line), features, forms: serialiseForms(forms, r), user: userFull, raw, look: lastLook, pictures: seen.blobs, ms: Date.now() - t0 };
     dev.log.unshift(entry); dev.log.length = Math.min(dev.log.length, 20); dev.last = entry;
     const idOf = (ref?: string) => (ref ? r.byRef.get(ref)?.id : undefined);
-    habits.open({ features, situation: situationOf(openings, r), ids: [...new Set([...forms.flatMap(idsOf(r)), ...openings.flatMap(o => o.refs.map(idOf))].filter(Boolean) as string[])], blanks: openings.map(o => idOf(o.into)).filter(Boolean) as string[], box: intent.area, ends: openings.filter(o => o.tip).map(o => ({ x: o.tip!.x, y: o.tip!.y })) });
+    const situation = openings.length ? situationOf(openings, r) : (intent.arranged ?? []).filter(a => a.strong).map(a => a.line).join('; ').slice(0, 180);
+    if (!dev.dry) habits.open({ features, situation, ids: [...new Set([...forms.flatMap(idsOf(r)), ...openings.flatMap(o => o.refs.map(idOf))].filter(Boolean) as string[])], blanks: openings.map(o => idOf(o.into)).filter(Boolean) as string[], box: intent.area, ends: openings.filter(o => o.tip).map(o => ({ x: o.tip!.x, y: o.tip!.y })) });
     if (!a0) { entry.result = 'unusable answer'; habits.settle(features, 'not offered'); return null; }
     const { answer, edits } = validate(a0, r, forms, openings);
     entry.edits = edits; entry.answer = answer;
@@ -131,15 +144,17 @@ export function mountIntent(rootEl: any, trace: Trace) {
     if (answer.strength === 'silent' || (intent.request && answer.strength === 'ask')) { entry.result = 'silent'; habits.settle(features, 'not offered'); return null; }
     const f0 = forms[0], a0b = intent.area;
     const scope = (): any => f0?.facts.container ? { kind: 'section', id: f0.facts.container.id, title: f0.facts.container.title } : { kind: 'region', box: { x: a0b.x - a0b.w / 2, y: a0b.y - a0b.h / 2, w: a0b.w * 2, h: a0b.h * 2 } };
-    const sig = features.join(' '), sit = situationOf(openings, r);
+    const sig = features.join(' '), sit = situation;
     const set = renderAnswer(rootEl, r, forms, answer, openings, {
       onKeep: (fn, other) => {
+        if (dev.dry) return;
         if (fn) addKey(store, { scope: scope(), form: sit, sig, means: fn, source: other ? 'chosen' : 'accepted' });
         if (other) addKey(store, { scope: scope(), form: sit, sig, means: other, source: 'not-chosen' });
         trace.note('accept', [], fn); habits.settle(features, other ? 'chose' : 'accepted', fn);
       },
-      onDrop: fn => { addKey(store, { scope: scope(), form: sit, sig, means: fn || 'this reading', source: 'dismissed' }); trace.note('dismiss', [], fn); habits.settle(features, 'dismissed', fn || answer.function || 'this reading'); },
+      onDrop: fn => { if (dev.dry) return; addKey(store, { scope: scope(), form: sit, sig, means: fn || 'this reading', source: 'dismissed' }); trace.note('dismiss', [], fn); habits.settle(features, 'dismissed', fn || answer.function || 'this reading'); },
       onAsk: option => {
+        if (dev.dry) return;
         addKey(store, { scope: scope(), form: sit, sig, means: option, source: 'chosen' });
         habits.settle(features, 'chose', option);
         (dev.followUp as ((i: GeneralIntent) => void) | undefined)?.({ ...intent, key: intent.key + ':ask', request: option });
@@ -163,6 +178,7 @@ export function mountIntent(rootEl: any, trace: Trace) {
     const forms = recent.size ? detectForms(gfx, r, recent, trace).slice(0, 6) : [];
     const os = recent.size ? findOpenings(r, forms, recent).filter(o => o.touched).slice(0, 12) : [];
     const L: string[] = [];
+    const arr = findArranged(r, trace, 120_000); if (arr.length) L.push('ARRANGED (what they just moved or recoloured, and what it now sits with)', ...arr.map(a => '- ' + a.line), '');
     if (os.length) L.push('OPENINGS AROUND WHAT THE USER JUST TOUCHED (what they left open; put answers there)', ...serialiseOpenings(os, r));
     if (forms.length) L.push('', 'STRUCTURE AROUND THEM (described by code; meaning not decided)', ...serialiseForms(forms, r));
     const ks = serialiseKeys(store, r); if (ks.length) L.push('', 'KEYS (meanings settled on this board)', ...ks);
@@ -170,6 +186,8 @@ export function mountIntent(rootEl: any, trace: Trace) {
     const acts = trace.serialise(r); if (acts.length) L.push('', 'ACT (what they just did, oldest first)', ...acts.slice(-14));
     return L.join('\n');
   };
+  dev.dry = false;          // the check runner sets this: read nothing from memory, teach nothing
+  dev.detect = detect; dev.run = run;
   return { detect, run, dev, tick: () => habits.tick(trace) };
 }
 
