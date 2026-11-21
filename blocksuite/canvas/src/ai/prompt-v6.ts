@@ -24,7 +24,10 @@ STRUCTURE AROUND THEM: the lines, runs and sets the openings belong to, with fac
 QUESTIONS: containers whose title is a question. KEYS: meanings settled on this board, with their scope. CASES: moments like this one with this person before — what was offered, whether they kept it, what they then did by hand. ACT: their last acts, oldest first, then the pause. PHASE; SELECTED; REQUEST (words they typed, if any).
 
 METHOD
-1. WHAT ARE THEY DOING, AND WHAT DID THEY JUST SAY. One sentence: what they built or changed, and where they stopped. Also name the kind of work they are in (gathering, sorting, connecting, explaining, comparing, deciding, presenting): the answer must serve that work, not the stage after it. If they are still gathering or typing, the structure is complete and labelled, or it is half-drawn, the answer is silent.
+1. WHAT ARE THEY DOING, AND WHAT DID THEY JUST SAY. One sentence: what they built or changed, and where they stopped. Also name the kind of work they are in (gathering, sorting, connecting, explaining, comparing, deciding, presenting): the answer must serve that work, not the stage after it. You are only called when they pause, so "they made it a second ago" is never by itself a reason to wait. Whether the pause hands you the turn depends on what they made:
+   - a scaffold: a shaped structure whose parts are still bare (names with nothing under them, one thing set off against a row of others, places left empty). It was built to hang something on; the pause says "go on". Give the first light step, or two to choose from;
+   - a record: something whole as it stands (their own to-dos, a finished list, a diagram with every part named). It asks for nothing;
+   - a pile: material still coming in with no arrangement, or a structure half-drawn. It is still theirs. Silent.
 2. WHAT DOES THE BOARD LACK FOR THAT. Name it in a few words. It is usually one of:
    - a place they left for something (an opening);
    - a relation that is there but not visible: two notes that say the same thing, a quote that supports a claim, a contradiction, a note sitting with the wrong group, an order;
@@ -50,9 +53,9 @@ METHOD
 4. HOW SURE, BY THE COST OF BEING WRONG. A heavy move costs the user more attention than a light one, so it needs more evidence.
    - full: one reading clearly wins;
    - ghost: it leads, but the content is your judgement;
-   - fork: two readings are close, or strong cues conflict, and both are cheap to preview — two small previews (≤ 3 cards each, addressed to the same openings) for the user to pick. Also for a bare structure with nothing to go on (one concept, arrows into empty space, no neighbours, no cases): offer the two likeliest readings instead of guessing or staying silent, so the choice teaches you;
+   - fork: two readings are close, or strong cues conflict, and both are cheap to preview — two small previews (each answers the same openings, all of them when there are six or fewer) for the user to pick. Also for a bare structure with nothing to go on (one concept, arrows into empty space, no neighbours, no cases): offer the two likeliest readings instead of guessing or staying silent, so the choice teaches you;
    - ask: close but expensive to draw (a figure, many cards) — one question, two options worded as outcomes;
-   - silent: nothing is being asked yet, or nothing true and useful to add.
+   - silent: a record or a pile (step 1), or nothing true and useful to add. Not knowing WHICH of two things a scaffold is for is not a reason for silence: that is what fork is for.
 5. MAKE IT IN THEIR VISUAL LANGUAGE.
    - Completions: one card per opening, each naming its opening in "at". Code places the card in the opening and gives it the look of the filled example, so you write only the words — in the language, length and kind of words of the example (a bare name → a bare name; a full sentence → a full sentence). Leave an opening unanswered when you have nothing true for it.
    - Everything else copies what is on the board: the kind, colour and size of the things around ("like": a ref), their colour key if they have one, their way of linking.

@@ -401,7 +401,17 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, op
   function applyLinks(): Preview {
     const ids: string[] = [], labelled: string[] = [];
     for (const l of ans.links) { const f = r.byRef.get(l.from)!, t = r.byRef.get(l.to)!; ids.push(lineLike(f.id, t.id, l.label || undefined, ans.strength === 'ghost')); }
-    for (const l of ans.arrow_labels) { const c = r.byRef.get(l.line)!; surf.updateElement(c.id, labelProps(l.label)); labelled.push(c.id); }
+    for (const l of ans.arrow_labels) {
+      const c = r.byRef.get(l.line)!;
+      if (c.kind === 'connector') { surf.updateElement(c.id, labelProps(l.label)); labelled.push(c.id); continue; }
+      // a line drawn by hand cannot carry a label of its own: the word is set at the middle of the stroke, the way one writes along a sketch
+      const el: any = gfx.getElementById(c.id); const pts: number[][] = el?.points ?? []; if (pts.length < 2) continue;
+      let len = 0; const seg = pts.slice(1).map((p0, k) => { const d = Math.hypot(p0[0] - pts[k][0], p0[1] - pts[k][1]); len += d; return d; });
+      let acc = 0, mid = pts[0]; for (let k = 0; k < seg.length; k++) { if (acc + seg[k] >= len / 2) { const t0 = seg[k] ? (len / 2 - acc) / seg[k] : 0; mid = [pts[k][0] + (pts[k + 1][0] - pts[k][0]) * t0, pts[k][1] + (pts[k + 1][1] - pts[k][1]) * t0]; break; } acc += seg[k]; }
+      const m2 = document.createElement('canvas').getContext('2d')!; m2.font = '500 14px Inter, sans-serif';
+      const w = Math.ceil(m2.measureText(l.label).width) + 8, h = 20, yt = new Y.Text(); yt.insert(0, l.label);
+      ids.push(surf.addElement({ type: 'text', xywh: xywh({ x: c.box.x + mid[0] - w / 2, y: c.box.y + mid[1] - h - 6, w, h }), text: yt, fontSize: 14, fontWeight: '500', color: TEXT.body, fontFamily: 'blocksuite:surface:Inter', textAlign: 'center', index: nextTop() }));
+    }
     markAi(store, ids);
     const lbox = (id: string): Box | null => { const e: any = gfx.getElementById(id); const l = e?.labelXYWH; return l && e.labelDisplay ? { x: l[0], y: l[1], w: l[2], h: l[3] } : box(id); };
     return {

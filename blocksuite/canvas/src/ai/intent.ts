@@ -181,7 +181,7 @@ export function mountIntent(rootEl: any, trace: Trace) {
     const arr = findArranged(r, trace, 120_000); if (arr.length) L.push('ARRANGED (what they just moved or recoloured, and what it now sits with)', ...arr.map(a => '- ' + a.line), '');
     if (os.length) L.push('OPENINGS AROUND WHAT THE USER JUST TOUCHED (what they left open; put answers there)', ...serialiseOpenings(os, r));
     if (forms.length) L.push('', 'STRUCTURE AROUND THEM (described by code; meaning not decided)', ...serialiseForms(forms, r));
-    const ks = serialiseKeys(store, r); if (ks.length) L.push('', 'KEYS (meanings settled on this board)', ...ks);
+    const ks = dev.dry ? [] : serialiseKeys(store, r); if (ks.length) L.push('', 'KEYS (meanings settled on this board)', ...ks);
     const hs = habits.serialise(featuresOf(os, forms, r)); if (hs.length) L.push('', 'CASES (moments like this one, with this person)', ...hs);
     const acts = trace.serialise(r); if (acts.length) L.push('', 'ACT (what they just did, oldest first)', ...acts.slice(-14));
     return L.join('\n');

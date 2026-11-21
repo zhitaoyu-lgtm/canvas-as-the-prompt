@@ -700,16 +700,22 @@ export function toPrompt(r: Reading, opts: { maxItems?: number; textLimit?: numb
       L.push(`${c.ref} ${a.from ?? '(free end)'} ${a.directed ? '→' : '—'} ${a.to ?? '(free end)'}${ends}${a.label ? ' ' + q(a.label) : ''}${c.author === 'ai' ? ' by ai' : ''} [${c.style}]`);
     }
   }
-  if (r.chains.length) {
+  // everything below follows the same scope as THINGS: a structure is told when part of it is in the neighbourhood
+  const scoped = shown.length < r.items.length;
+  const inScope = (refs: string[]) => !scoped || refs.some(x => shownSet.has(x));
+  const boxIn = (b: Box) => !scoped || shown.some(i => i.box.x < b.x + b.w && i.box.x + i.box.w > b.x && i.box.y < b.y + b.h && i.box.y + i.box.h > b.y);
+  const mentions = (line: string) => !scoped || (line.match(/\b[A-Za-z]{1,3}\d+\b/g) ?? []).some(x => shownSet.has(x));
+  const chains = r.chains.filter(ch => inScope(ch.refs));
+  if (chains.length) {
     L.push('');
     L.push('CHAINS (following the arrows)');
-    for (const ch of r.chains) {
+    for (const ch of chains) {
       let s = ch.refs.join(' → ') + (ch.cycle ? ' → (back to start)' : '');
       if (ch.branches) s += '  branches: ' + Object.entries(ch.branches).map(([k, v]) => `${k}→{${v.join(',')}}`).join(' ');
       L.push(s);
     }
   }
-  const gs = r.groups.filter(g => g.members.length > 1 || g.in);
+  const gs = r.groups.filter(g => (g.members.length > 1 || g.in) && inScope(g.members));
   if (gs.length) {
     L.push('');
     L.push('GROUPS (what sits together, in reading order)');
@@ -724,10 +730,11 @@ export function toPrompt(r: Reading, opts: { maxItems?: number; textLimit?: numb
       for (const s of g.slots ?? []) L.push(`    open slot ${s.where} @${s.box.x},${s.box.y} ${s.box.w}×${s.box.h} (${s.why})`);
     }
   }
-  L.push(...structuresPrompt(r.structures));
-  if (r.relations.lines.length) { L.push('', 'MARKS AND LABELS (attached tags, votes, badges, titles, legends, timelines)'); L.push(...r.relations.lines); }
-  L.push(...overlayPrompt(r));
-  const cs = r.colours.filter(c => c.refs.length);
+  L.push(...structuresPrompt(r.structures.filter(st => boxIn(st.box))));
+  const rl = r.relations.lines.filter(mentions);
+  if (rl.length) { L.push('', 'MARKS AND LABELS (attached tags, votes, badges, titles, legends, timelines)'); L.push(...rl); }
+  L.push(...overlayPrompt(r, scoped ? shownSet : undefined));
+  const cs = r.colours.map(c => ({ ...c, refs: scoped ? c.refs.filter(x => shownSet.has(x)) : c.refs })).filter(c => c.refs.length);
   if (cs.length) {
     L.push('');
     L.push('COLOURS IN USE');
@@ -740,10 +747,10 @@ export function toPrompt(r: Reading, opts: { maxItems?: number; textLimit?: numb
 /** What lies on top of what, and which pictures are the same picture. Position and identity only: a sticker on
  *  a part of a photo points at that part; the same sticker in two places is one sign used twice. What the sign
  *  means is never said here. */
-export function overlayPrompt(r: Reading): string[] {
+export function overlayPrompt(r: Reading, within?: Set<string>): string[] {
   const L: string[] = [];
   const area = (b: Box) => b.w * b.h;
-  const hosts = r.items.filter(i => i.kind === 'image' || ((i.kind === 'doc' || i.kind === 'table') && area(i.box) > 60000));
+  const hosts = r.items.filter(i => !within || within.has(i.ref)).filter(i => i.kind === 'image' || ((i.kind === 'doc' || i.kind === 'table') && area(i.box) > 60000));
   const small = r.items.filter(i => ['sticker', 'drawing', 'highlight', 'shape', 'text', 'sticky', 'tag', 'image'].includes(i.kind));
   const on: string[] = [];
   for (const h of hosts) {
@@ -757,7 +764,7 @@ export function overlayPrompt(r: Reading): string[] {
   for (const i of r.items) if (i.asset) (byAsset.get(i.asset) ?? byAsset.set(i.asset, []).get(i.asset)!).push(i);
   const same: string[] = [];
   for (const [asset, items] of byAsset) {
-    if (items.length < 2) continue;
+    if (items.length < 2 || (within && !items.some(i => within.has(i.ref)))) continue;
     const name = /^stamp-/.test(asset) ? ` (the "${asset.replace(/^stamp-/, '').replace(/-/g, ' ')}" sticker)` : '';
     same.push(`${items.map(i => i.ref + (i.parent ? ` (in ${i.parent})` : '')).join(' = ')}: the same picture${name}`);
   }

@@ -21,6 +21,13 @@ type Box = { x: number; y: number; w: number; h: number };
 // @ts-ignore vite's glob import (same as stickers.ts)
 const cellUrl = Object.values(import.meta.glob('../assets/check/*.jpg', { eager: true, query: '?url', import: 'default' }) as Record<string, string>)[0];
 const sleep = wait;
+// inlined pictures are data: addresses, and a page inside the artifact may not fetch those; decode them by hand
+async function blobOf(url: string): Promise<Blob> {
+  if (!url.startsWith('data:')) return (await fetch(url)).blob();
+  const [head, b64] = url.split(','), type = /data:([^;]+)/.exec(head)?.[1] ?? 'image/webp';
+  const bin = atob(b64), buf = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return new Blob([buf], { type });
+}
 const frames = frames2;
 const FILL: Record<string, string> = { yellow: '#ffe299', orange: '#ffd3a8', pink: '#ffa8db', blue: '#a8daff', green: '#b3efbd', red: '#ffafa3', white: '#ffffff', teal: '#b3f4ef', gray: '#e6e6e6', purple: '#d1b8ff' };
 
@@ -59,7 +66,7 @@ export function mountCheck(rootEl: any, assistant: (req: string, ids: string[]) 
       else if (e.kind === 'image') {
         const url = e.asset === 'cell' ? cellUrl : STAMPS.find(s => s.name.toLowerCase() === String(e.asset).toLowerCase())?.url;
         if (!url) continue;
-        const blob = await (await fetch(url)).blob(); const sourceId = await store.blobSync.set(blob);
+        const blob = await blobOf(url); const sourceId = await store.blobSync.set(blob);
         id = store.addBlock('affine:image', { sourceId, xywh: `[${X},${Yy},${e.w},${e.h}]`, width: e.w, height: e.h, size: blob.size } as any, surfId());
       }
       else if (e.kind === 'stroke') { const xs = e.pts.map((p: number[]) => p[0] + o.x), ys = e.pts.map((p: number[]) => p[1] + o.y); const x0 = Math.min(...xs), y0 = Math.min(...ys);
@@ -183,7 +190,7 @@ export function mountCheck(rootEl: any, assistant: (req: string, ids: string[]) 
 
   // ── a small panel ──
   const panel = document.createElement('div'); panel.className = 'cx-check'; panel.hidden = true;
-  panel.innerHTML = `<div class="cx-check-h"><b>Checks with the real model</b><button data-x aria-label="Close">×</button></div><p class="cx-check-p"></p><div class="cx-check-bar"><i></i></div><p class="cx-check-n"></p><div class="cx-check-a"><button data-go class="go">Run all</button><button data-stop>Stop</button></div>`;
+  panel.innerHTML = `<div class="cx-check-h"><b>Checks with the real model</b><button data-x aria-label="Close">×</button></div><p class="cx-check-p"></p><div class="cx-check-bar"><i></i></div><p class="cx-check-n"></p><input class="cx-check-i" data-only placeholder="All boards, or only these: K01 S01 …" spellcheck="false"><div class="cx-check-a"><button data-go class="go">Run</button><button data-stop>Stop</button></div>`;
   document.body.append(panel);
   const $ = (s: string) => panel.querySelector(s) as HTMLElement;
   function paint() {
@@ -194,7 +201,8 @@ export function mountCheck(rootEl: any, assistant: (req: string, ids: string[]) 
     ($('[data-go]') as HTMLButtonElement).disabled = running; ($('[data-stop]') as HTMLButtonElement).disabled = !running;
   }
   $('[data-x]').onclick = () => { panel.hidden = true; };
-  $('[data-go]').onclick = () => { void runAll(); };
+  $('[data-go]').onclick = () => { const only = ($('[data-only]') as HTMLInputElement).value.toUpperCase().split(/[^A-Z0-9]+/).filter(x => SCENES.some(sc => sc.id === x)); void runAll(only.length ? only : undefined); };
+  $('[data-only]').addEventListener('keydown', e => { e.stopPropagation(); if ((e as KeyboardEvent).key === 'Enter') $('[data-go]').click(); });
   $('[data-stop]').onclick = () => { stop = true; state.now = 'Stopping after this board…'; paint(); };
   addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'k') { e.preventDefault(); panel.hidden = !panel.hidden; paint(); } }, true);
   // a tab used for checks does not also react to the user's own board

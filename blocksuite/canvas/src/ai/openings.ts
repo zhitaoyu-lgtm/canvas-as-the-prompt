@@ -70,12 +70,19 @@ export function findOpenings(r: Reading, forms: Form[], touchedNow: Set<string>)
     for (const t of targets.filter(isBlank)) {
       taken.add(t.ref); n++;
       add({ kind: 'empty', ref: t.ref, into: t.ref, about: hub?.ref, like, form: f.id, refs: all, strong: true,
-        line: `${t.ref} is an empty ${t.kind}${t.colour ? ` [${t.colour}]` : ''}${hub ? `, at the end of a line from ${name(hub)}` : f.kind === 'slot' ? ', left blank in a run of filled notes' : ''}` });
+        line: `${t.ref} is an empty ${t.kind}${t.colour ? ` [${t.colour}]` : ''}${hub ? `, at the end of a line from ${name(hub)}` : f.kind === 'slot' ? ', left blank in a run of filled notes' : f.kind === 'pair' && f.facts.marker ? `: ${f.facts.marker}` : ''}` });
     }
-    for (const e of f.ends ?? []) {
+    // (a line that ends on the middle of another line is aimed at that line, not into empty space)
+    for (const e of f.kind === 'pair' ? [] : f.ends ?? []) {
       n++;
       add({ kind: 'loose-end', ref: e.line, tip: { x: e.x, y: e.y, dx: e.dx, dy: e.dy }, about: hub?.ref, like, form: f.id, refs: all, strong: true,
         line: `line ${e.line}${hub ? ` leaves ${name(hub)} and` : ''} ends in empty space` });
+    }
+    // the blank a line starts FROM (a third note aimed at the middle of a line between two others) is the place left
+    if (hub && isBlank(hub) && hub.author === 'user' && !taken.has(hub.ref)) {
+      n++;
+      add({ kind: 'empty', ref: hub.ref, into: hub.ref, about: targets[0]?.ref, like, form: f.id, refs: all, strong: true,
+        line: `${hub.ref} is an empty ${hub.kind}${hub.colour ? ` [${hub.colour}]` : ''}${f.facts.marker ? `: ${f.facts.marker}` : ' that a line starts from'}${targets.length >= 2 ? `, the line between ${targets.slice(0, 2).map(name).join(' and ')}` : ''}` });
     }
     if (hub) taken.add(hub.ref);
     if (n) continue;
@@ -83,7 +90,7 @@ export function findOpenings(r: Reading, forms: Form[], touchedNow: Set<string>)
     if (f.kind === 'question') { add({ kind: 'question', ref: f.hub, beside: f.hub, form: f.id, refs: all, strong: true, line: `${hub ? name(hub) : f.id} asks a question in words` }); continue; }
     if (f.kind === 'set') {
       // a set is a deliberate arrangement (one thing set off an aligned run): shaped, not just gathered
-      for (const t of targets) add({ kind: 'heading', ref: t.ref, about: t.ref, beside: t.ref, form: f.id, refs: all, strong: true, line: `${name(t)} is a label in a set with nothing under or beside it yet` });
+      for (const t of targets) add({ kind: 'heading', ref: t.ref, about: t.ref, beside: t.ref, form: f.id, refs: all, strong: true, line: `${name(t)} stands in a set (one thing set off against an aligned run of others) with nothing under or beside it` });
       continue;
     }
     const unlabelled = f.lines.filter(l => !f.facts.labels.some(x => x.line === l));

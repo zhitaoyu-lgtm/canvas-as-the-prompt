@@ -616,6 +616,8 @@ affine-edgeless-note {
 .cx-check-bar { height: 4px; border-radius: 2px; background: #ececee; overflow: hidden; }
 .cx-check-bar i { display: block; height: 100%; width: 0; background: #1d1d1f; transition: width .3s ease; }
 .cx-check-n { margin: 8px 0 10px; color: #86868b; font-size: 12px; min-height: 16px; }
+.cx-check-i { width: 100%; box-sizing: border-box; margin: 0 0 10px; padding: 7px 10px; border: 0; border-radius: 8px; background: #f2f2f4; font: inherit; color: #1d1d1f; outline: none; }
+.cx-check-i::placeholder { color: #a1a1a6; }
 .cx-check-a { display: flex; gap: 8px; }
 .cx-check-a button { border: 0; border-radius: 8px; padding: 7px 14px; font: inherit; font-weight: 500; background: #f2f2f4; color: #1d1d1f; cursor: pointer; }
 .cx-check-a button.go { background: #1d1d1f; color: #fff; }

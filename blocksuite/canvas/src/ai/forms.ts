@@ -270,7 +270,8 @@ export function detectForms(gfx: any, r: Reading, touched: Set<string>, trace?: 
       continue;
     }
     if (both) {
-      const third = conns.find(o => o !== c && !used.has(o.ref) && (!o.arrow?.to || !o.arrow?.from));
+      // (only a line that actually ends near the middle of this one: any other loose line on the board is its own matter)
+      const third = conns.find(o => { if (o === c || used.has(o.ref) || (o.arrow?.to && o.arrow?.from) || !mid) return false; const g: any = (gfx.getElementById(o.id) as any)?.elementBound; return !!g && Math.hypot(Math.max(0, Math.abs(cx(g) - mid.x) - g.w / 2), Math.max(0, Math.abs(cy(g) - mid.y) - g.h / 2)) < 60; });
       const tip = third ? r.byRef.get((third.arrow!.from ?? third.arrow!.to)!) : undefined;
       const f = make('pair', undefined, [from, to], [c, ...(third ? [third] : [])], tip ? { marker: `${tip.ref}${isBlank(tip) ? ' (blank)' : ''} points at the middle of the two-way line` } : {});
       if (tip) { f.targets.push(tip.ref); used.add(tip.ref); if (isBlank(tip)) f.facts.targetState = 'blank'; f.signature = f.signature.replace('existing', 'blank').replace('mixed', 'blank'); }

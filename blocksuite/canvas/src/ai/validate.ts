@@ -135,10 +135,17 @@ export function validate(a: V5, r: Reading, forms: Form[], openings: Opening[] =
   };
 
   a = { ...a };
+  // "write into this empty note" said as a part is the same thing as a card in that place: one way to say it, one way to show it
+  for (const x of a.actions ?? []) {
+    if (x?.do !== 'write' || typeof x.text !== 'string' || !x.text.trim()) continue;
+    const t = item(x.ref), o = openings.find(q0 => q0.into === x.ref);
+    if (t && isBlank(t) && t.author === 'user' && (o || scopeRefs.has(t.ref))) { a.cards = [...a.cards, { at: o?.id ?? null, slot: o ? null : t.ref, text: x.text.trim() }]; x.do = '(moved to a card)'; edits.push(`write into ${x.ref} → a card in that blank`); }
+  }
+  a.actions = (a.actions ?? []).filter(x => x.do !== '(moved to a card)');
   if (a.strength === 'silent') return { answer: { ...a, cards: [], links: [], arrow_labels: [], fork: [], ask: null, insight: null, actions: [] }, edits };
   a.cards = fixCards(a.cards, 'card').slice(0, 12); usedAt.clear();
   if (a.fork.length) {
-    a.fork = a.fork.slice(0, 2).map((f, i) => { usedSlots.clear(); usedAt.clear(); return { ...f, read: visible(f.read).slice(0, 40), cards: fixCards(f.cards, `fork ${i + 1}`).slice(0, 3) }; }).filter(f => f.cards.length);
+    a.fork = a.fork.slice(0, 2).map((f, i) => { usedSlots.clear(); usedAt.clear(); return { ...f, read: visible(f.read).slice(0, 40), cards: fixCards(f.cards, `fork ${i + 1}`).slice(0, Math.max(3, Math.min(6, openings.length))) }; }).filter(f => f.cards.length);
     usedSlots.clear();
   }
   if (a.strength === 'fork' && a.fork.length < 2) { edits.push('fork without two previews → ghost'); a.strength = 'ghost'; if (!a.cards.length && a.fork[0]) a.cards = a.fork[0].cards; a.fork = []; }
@@ -152,7 +159,7 @@ export function validate(a: V5, r: Reading, forms: Form[], openings: Opening[] =
   }).map(l => ({ ...l, label: l.label ? visible(l.label) : '' })).slice(0, 12);
   // arrow labels: only on the lines of this form, never geometry
   a.arrow_labels = a.arrow_labels.filter(l => {
-    if (!scopeRefs.has(l.line) || item(l.line)?.kind !== 'connector') { edits.push(`label on ${l.line} out of scope`); return false; }
+    if (!scopeRefs.has(l.line) || !['connector', 'drawing', 'highlight'].includes(item(l.line)?.kind ?? '')) { edits.push(`label on ${l.line} out of scope`); return false; }
     if (item(l.line)?.arrow?.label) { edits.push(`label on ${l.line}: the user already labelled it`); return false; }
     const t = visible(l.label);
     if (!t || GEOMETRY.test(t) || KINDS_ONLY.test(t)) { edits.push(`label "${l.label}" names geometry → dropped`); return false; }
@@ -164,6 +171,8 @@ export function validate(a: V5, r: Reading, forms: Form[], openings: Opening[] =
     edits.push('one-to-one with uneven counts → ghost'); a.strength = 'ghost';
   }
   a.read = visible(a.read).replace(/[.。]$/, '').slice(0, 64);
+  // the bar always says what is being offered
+  if (!a.read) a.read = visible(a.function ?? '').replace(/[.。]$/, '').slice(0, 64) || ({ point: 'One thing worth a look', reveal: 'A connection between these', complete: 'Filled in where you left room', extend: 'A next step for this', compose: 'Drawn from your notes' } as Record<string, string>)[a.move ?? ''] || '';
   a.insight = a.insight ? visible(a.insight) : null;
   if (a.ask) a.ask = { question: visible(a.ask.question), options: [visible(a.ask.options[0]), visible(a.ask.options[1])] };
   a.excluded = a.excluded.filter(e => item(e.item)).slice(0, 8);
