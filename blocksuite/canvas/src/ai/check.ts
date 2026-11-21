@@ -15,13 +15,13 @@ import { STAMPS } from '../stickers';
 import { SCENES } from './check-scenes';
 import { readBoard } from './reading';
 import { snapshot } from './snapshot';
+import { frames2, wait } from './timer';
 
 type Box = { x: number; y: number; w: number; h: number };
 // @ts-ignore vite's glob import (same as stickers.ts)
 const cellUrl = Object.values(import.meta.glob('../assets/check/*.jpg', { eager: true, query: '?url', import: 'default' }) as Record<string, string>)[0];
-const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
-// two frames, or 150 ms when the tab is hidden and frames do not come
-const frames = () => new Promise<void>(res => { let done = false; const go = () => { if (!done) { done = true; res(); } }; requestAnimationFrame(() => requestAnimationFrame(go)); setTimeout(go, 150); });
+const sleep = wait;
+const frames = frames2;
 const FILL: Record<string, string> = { yellow: '#ffe299', orange: '#ffd3a8', pink: '#ffa8db', blue: '#a8daff', green: '#b3efbd', red: '#ffafa3', white: '#ffffff', teal: '#b3f4ef', gray: '#e6e6e6', purple: '#d1b8ff' };
 
 export function mountCheck(rootEl: any, assistant: (req: string, ids: string[]) => Promise<any>) {
@@ -197,6 +197,8 @@ export function mountCheck(rootEl: any, assistant: (req: string, ids: string[]) 
   $('[data-go]').onclick = () => { void runAll(); };
   $('[data-stop]').onclick = () => { stop = true; state.now = 'Stopping after this board…'; paint(); };
   addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'k') { e.preventDefault(); panel.hidden = !panel.hidden; paint(); } }, true);
+  // a tab used for checks does not also react to the user's own board
+  new MutationObserver(() => { if (!panel.hidden) W.cxCheckOpen = true; }).observe(panel, { attributes: true, attributeFilter: ['hidden'] });
   W.cxCheck = { open: () => { panel.hidden = false; paint(); }, run: (only?: string[]) => runAll(only), stop: () => { stop = true; }, state, scenes: SCENES.map(s => s.id) };
   paint();
 }

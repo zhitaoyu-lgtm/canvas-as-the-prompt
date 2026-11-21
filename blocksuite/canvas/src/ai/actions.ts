@@ -2,6 +2,7 @@
 // The model says what and roughly where ("after s4", "in f1", "like s2"); this file decides exact
 // positions, sizes and colours from the user's own layout, so additions sit in their structure.
 
+import { frames2 as framesBg } from './timer';
 import { TableDataManager } from '@blocksuite/affine/blocks/table';
 import { Text } from '@blocksuite/affine/store';
 import { addComment } from './comments';
@@ -881,8 +882,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   const TINT: Record<string, string> = alias(TINTH as any);
   const SEC = { padX: 40, padTop: 40, padBottom: 40, headGap: 24, gap: 32, subGap: 8, title: TYPE.heading, sub: TYPE.small };
   type N = { kind: string; id?: string; parts?: { id: string; dx: number; dy: number }[]; w: number; h: number; spec: any; kids?: N[]; head?: { title?: string; sub?: string; tw: number; th: number } };
-  // two frames, or 150 ms when the tab is hidden and frames do not come
-  const frame2 = () => new Promise<void>(res => { let done = false; const go = () => { if (!done) { done = true; res(); } }; requestAnimationFrame(() => requestAnimationFrame(go)); setTimeout(go, 150); });
+  const frame2 = framesBg;
   const domain = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
   // surface text (canvas) renders with the blocksuite font name, DOM notes with Inter: measure each the way it is drawn
   const measure = (text: string, size: number, weight = 400, maxW = 1e9, surface = false) => {

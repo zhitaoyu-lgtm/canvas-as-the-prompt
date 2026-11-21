@@ -72,13 +72,19 @@ export async function snapshot(rootEl: any, box: Box, maxSide = 1024, pad = 32):
         wrapText(ctx, text, X(e.x + 16), Y(e.y + 14), (e.w - 32) * k, 20 * k, Y(e.y + e.h - 10));
       } else if (f === 'affine:image' && p.sourceId) {
         const blob = await store.blobSync.get(p.sourceId); if (!blob) continue;
-        const img = await new Promise<HTMLImageElement | null>(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = URL.createObjectURL(blob); });
+        const img = await new Promise<HTMLImageElement | null>(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); setTimeout(() => res(null), 4000); i.src = URL.createObjectURL(blob); });
         if (img) ctx.drawImage(img, X(e.x), Y(e.y), e.w * k, e.h * k);
       }
     }
     const elements = gfx.getElementsByBound(bound, { type: 'canvas' });
     const surf = gfx.surfaceComponent?.renderer?.getCanvasByBound?.(bound, elements);
     if (surf && surf.width && surf.height) ctx.drawImage(surf, 0, 0, out.width, out.height);
-    return await new Promise(res => out.toBlob(b => res(b), 'image/png'));
+    // toBlob waits for an idle moment, and a hidden tab may never have one: after a short wait, encode at once
+    return await new Promise<Blob | null>(res => {
+      let done = false; const give = (b: Blob | null) => { if (!done) { done = true; res(b); } };
+      const now = () => { try { const d = out.toDataURL('image/png'), bin = atob(d.slice(d.indexOf(',') + 1)), u = new Uint8Array(bin.length); for (let k = 0; k < bin.length; k++) u[k] = bin.charCodeAt(k); give(new Blob([u], { type: 'image/png' })); } catch { give(null); } };
+      if (document.hidden) { now(); return; }
+      out.toBlob(b => give(b), 'image/png'); setTimeout(now, 1500);
+    });
   } catch (e) { console.warn('snapshot failed', e); return null; }
 }

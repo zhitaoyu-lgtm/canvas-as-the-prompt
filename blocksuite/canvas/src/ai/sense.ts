@@ -8,6 +8,7 @@
 // The user's originals never move. One ✓ keeps the set, one ✕ removes it; unwanted copies are deleted later
 // like anything else. While the user is typing, dragging or a set is pending, nothing happens.
 
+import { frames2 as framesBg } from './timer';
 import * as Y from 'yjs';
 import { Text } from '@blocksuite/affine/store';
 import { generateKeyBetween } from '@blocksuite/affine/std/gfx';
@@ -80,6 +81,8 @@ export function mountSense(rootEl: any) {
   };
 
   setInterval(async () => {
+    // a board open in two tabs must not answer twice: only the tab the user is looking at reads and responds
+    if (document.hidden || (window as any).cxCheckOpen) { if (!busy && !pending) rebase(); return; }
     if (pointerDown) return;                       // mid-stroke or mid-drag: nothing to read yet, and the hand comes first
     // another open copy of this board is running checks: what appears now is not the user speaking
     try { const t = store.spaceDoc.getMap('cx:flags').get('checking') as number | undefined; if (t && Date.now() - t < 120_000 && !(window as any).cxCheckRunning) { rebase(); return; } } catch { /* no flags */ }
@@ -339,8 +342,7 @@ Answer with JSON only:
 
   // ── placing: copies in a grid inside the section, or close beside the group ──
   type Made = { ids: string[]; restore?: () => void; label: string; onKeep?: () => void; focus?: () => Box[]; spread?: boolean; beside?: boolean };
-  // two frames, or 150 ms when the tab is hidden and frames do not come
-  const frames2 = () => new Promise<void>(res => { let done = false; const go = () => { if (!done) { done = true; res(); } }; requestAnimationFrame(() => requestAnimationFrame(go)); setTimeout(go, 150); });
+  const frames2 = framesBg;
   // Make the copies where the user is looking (off-screen notes never get their real height), wait for the
   // words to lay out, then place them by their real sizes.
   async function build(picks: Item[], found: any[]): Promise<{ ids: string[]; sizes: { w: number; h: number }[] }> {
