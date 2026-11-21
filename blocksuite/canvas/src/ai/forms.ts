@@ -352,6 +352,10 @@ export function detectForms(gfx: any, r: Reading, touched: Set<string>, trace?: 
       if (run.length < 2 || rest.length !== 1) continue;
       const head = rest[0];
       run.sort((a, b) => col ? a.box.y - b.box.y : a.box.x - b.box.x);
+      // a head stands against the middle of the run. Level with one end member it is that member's neighbour
+      // instead (a filled example for the others): not a set, and left to the counterpart reading.
+      { const lo = col ? run[0].box.y : run[0].box.x, hi = col ? run[run.length - 1].box.y + run[run.length - 1].box.h : run[run.length - 1].box.x + run[run.length - 1].box.w, c0 = col ? cy(head.box) : cx(head.box);
+        if (c0 < lo + (hi - lo) * 0.25 || c0 > hi - (hi - lo) * 0.25) continue; }
       const sameHue = new Set(run.map(o => o.colour ?? '')).size === 1;
       const facts = [`${head.ref} stands off a ${col ? 'column' : 'row'} of ${run.length}`, `no lines drawn`,
         sameHue && head.colour && head.colour !== run[0].colour ? `${head.ref} is ${head.colour}, the ${run.length} are all ${run[0].colour}` : sameHue ? 'all one colour' : 'mixed colours',

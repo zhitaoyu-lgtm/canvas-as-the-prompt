@@ -183,11 +183,27 @@ export function splitIntoLines(text: string): string[] {
   return normalizeText(text).split('\n');
 }
 
+// [canvas] Measuring and wrapping are pure in (text, font, width), yet the canvas redraws every visible text
+// on each frame of a pen stroke or a drag. Remember the answers; forget them when a font finishes loading
+// (the same string then measures differently).
+const lineWidthCache = new Map<string, number>();
+const wrapCache = new Map<string, string>();
+if (typeof document !== 'undefined' && document.fonts?.addEventListener) {
+  document.fonts.addEventListener('loadingdone', () => {
+    lineWidthCache.clear();
+    wrapCache.clear();
+  });
+}
+
 export function getLineWidth(text: string, font: string): number {
+  const key = font + '\u0000' + text;
+  const hit = lineWidthCache.get(key);
+  if (hit !== undefined) return hit;
   const ctx = getMeasureCtx();
   if (font !== ctx.font) ctx.font = font;
   const width = ctx.measureText(text).width;
-
+  if (lineWidthCache.size > 20000) lineWidthCache.clear();
+  lineWidthCache.set(key, width);
   return width;
 }
 
@@ -434,6 +450,16 @@ export function wrapText(text: string, font: string, maxWidth: number): string {
   if (!Number.isFinite(maxWidth) || maxWidth < 0) {
     return text;
   }
+  const key = font + '\u0000' + maxWidth + '\u0000' + text;
+  const hit = wrapCache.get(key);
+  if (hit !== undefined) return hit;
+  const wrapped = wrapTextUncached(text, font, maxWidth);
+  if (wrapCache.size > 4000) wrapCache.clear();
+  wrapCache.set(key, wrapped);
+  return wrapped;
+}
+
+function wrapTextUncached(text: string, font: string, maxWidth: number): string {
 
   const lines: Array<string> = [];
   const originalLines = text.split('\n');

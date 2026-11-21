@@ -50,8 +50,8 @@ MEANING COMES FROM THIS BOARD (this outranks every general habit of reading belo
 A sign has no fixed meaning. A star, a colour, an arrow, a tick, a loop mean what THIS board makes them mean.
 Work out what a sign means in this order, and stop at the first that answers:
  1. what the user said: the request, words on the board, a legend or key they made ("star = nucleus");
- 2. what the user showed: a completed example of the same thing (PRECEDENTS);
- 3. what was settled here before (KEYS), then what this person usually does (HABITS);
+ 2. what the user showed: the same opening already filled beside this one (a filled example);
+ 3. what was settled here before (KEYS), then what this person did in moments like this (CASES);
  4. what the sign touches. A sticker, loop, stroke or note lying on a part of a picture (or on a line of a text)
     refers to THAT part: look at the pictures and say what is under it. The same sticker or mark in two places is
     one sign used twice: when it also stands in a list, a key or beside an arrow or a gap, that place asks for (or

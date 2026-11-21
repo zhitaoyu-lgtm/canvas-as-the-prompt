@@ -80,6 +80,7 @@ export function mountSense(rootEl: any) {
   };
 
   setInterval(async () => {
+    if (pointerDown) return;                       // mid-stroke or mid-drag: nothing to read yet, and the hand comes first
     trace.poll(); general.tick();
     if (!dev.enabled || busy || pending) return;
     const now = snapshot();

@@ -334,6 +334,20 @@ export class CanvasRenderer {
 
   private _needsFullRender = true;
 
+  // [canvas] Only the part of the main canvas that changed is redrawn when single elements change (a pen
+  // stroke growing, a note dragged): the dirty area is the element's last drawn bound united with its new one.
+  // Anything else (viewport, overlays, adds, removes) still redraws everything.
+  private _dirtyMainBound: Bound | null = null;
+  private _mainPartialOk = false;
+  private readonly _lastMainBounds = new WeakMap<object, IBound>();
+  private readonly _partialRedraw = (() => {
+    try {
+      return globalThis.localStorage?.getItem('cx:fullrender') !== '1';
+    } catch {
+      return true;
+    }
+  })();
+
   private _lastCanvasBudgetZoom = 1;
 
   private _lastLowZoomSurvivalMode = false;
@@ -588,6 +602,8 @@ export class CanvasRenderer {
     if (target.type === 'all') {
       this._needsFullRender = true;
       this._mainCanvasDirty = true;
+      this._mainPartialOk = false;
+      this._dirtyMainBound = null;
       this._dirtyStackingCanvasIndexes.clear();
       return;
     }
@@ -598,6 +614,8 @@ export class CanvasRenderer {
 
     if (target.type === 'main') {
       this._mainCanvasDirty = true;
+      this._mainPartialOk = false;
+      this._dirtyMainBound = null;
       return;
     }
 
@@ -608,6 +626,25 @@ export class CanvasRenderer {
       const layerIndex = this._findLayerIndexByElement(element);
 
       if (layerIndex === null || layerIndex >= this._stackingCanvas.length) {
+        if (!this._mainCanvasDirty) {
+          // the first change since the last draw: a partial redraw is possible
+          this._mainPartialOk = this._partialRedraw;
+          this._dirtyMainBound = null;
+        }
+        if (this._mainPartialOk) {
+          const now = Bound.from(getBoundWithRotation(element));
+          const before = this._lastMainBounds.get(element);
+          if (!before) {
+            // never drawn here: where it was is unknown
+            this._mainPartialOk = false;
+            this._dirtyMainBound = null;
+          } else {
+            const both = now.unite(Bound.from(before));
+            this._dirtyMainBound = this._dirtyMainBound
+              ? this._dirtyMainBound.unite(both)
+              : both;
+          }
+        }
         this._mainCanvasDirty = true;
         continue;
       }
@@ -1074,7 +1111,42 @@ export class CanvasRenderer {
         }
       });
 
-      ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      // [canvas] partial redraw: clip to the changed area (padded for shadows, arrowheads and stroke
+      // width), clear it, and draw only what crosses it
+      let clip: { cull: IBound; px: number[] } | null = null;
+      if (!fullRender && this._mainPartialOk && this._dirtyMainBound && ctx) {
+        const pad = 48 + 8 / zoom;
+        const d = this._dirtyMainBound;
+        const cull = { x: d.x - pad, y: d.y - pad, w: d.w + pad * 2, h: d.h + pad * 2 };
+        const x0 = Math.max(0, Math.floor((cull.x - mainCanvasRenderBound.x) * scale));
+        const y0 = Math.max(0, Math.floor((cull.y - mainCanvasRenderBound.y) * scale));
+        const x1 = Math.min(this.canvas.width, Math.ceil((cull.x + cull.w - mainCanvasRenderBound.x) * scale));
+        const y1 = Math.min(this.canvas.height, Math.ceil((cull.y + cull.h - mainCanvasRenderBound.y) * scale));
+        // worth it only when the area is clearly smaller than the canvas
+        if (x1 > x0 && y1 > y0 && (x1 - x0) * (y1 - y0) < this.canvas.width * this.canvas.height * 0.6) {
+          // the cull bound is what the clip really covers, so nothing half-inside is skipped
+          clip = {
+            cull: {
+              x: mainCanvasRenderBound.x + x0 / scale,
+              y: mainCanvasRenderBound.y + y0 / scale,
+              w: (x1 - x0) / scale,
+              h: (y1 - y0) / scale,
+            },
+            px: [x0, y0, x1 - x0, y1 - y0],
+          };
+        }
+      }
+
+      if (clip && ctx) {
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.beginPath();
+        ctx.rect(clip.px[0], clip.px[1], clip.px[2], clip.px[3]);
+        ctx.clip();
+        ctx.clearRect(clip.px[0], clip.px[1], clip.px[2], clip.px[3]);
+      } else {
+        ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      }
       ctx.save();
       ctx.setTransform(matrix);
 
@@ -1086,8 +1158,9 @@ export class CanvasRenderer {
         fallbackElement,
         true,
         renderStats,
-        mainCanvasCullBound
+        clip ? clip.cull : mainCanvasCullBound
       );
+      if (clip && ctx) ctx.restore();
     }
 
     const canvasMemorySnapshots = this._getCanvasMemorySnapshots();
@@ -1127,6 +1200,8 @@ export class CanvasRenderer {
 
     this._needsFullRender = false;
     this._mainCanvasDirty = false;
+    this._mainPartialOk = false;
+    this._dirtyMainBound = null;
     this._dirtyStackingCanvasIndexes.clear();
   }
 
@@ -1200,6 +1275,9 @@ export class CanvasRenderer {
           const dy = element.y - bound.y;
           renderFn(element, ctx, matrix.translate(dx, dy), this, rc, bound);
           ctx.restore();
+          if (ctx === this.ctx) {
+            this._lastMainBounds.set(element, getBoundWithRotation(element));
+          }
         }
       }
     }

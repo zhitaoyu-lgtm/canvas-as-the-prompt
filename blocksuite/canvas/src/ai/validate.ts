@@ -4,9 +4,16 @@
 
 import { cleanRefs } from './actions';
 import { isBlank, type Form } from './forms';
-import type { Item, Reading } from './reading';
+import type { Box, Item, Reading } from './reading';
+import type { Opening } from './openings';
 
-export type Card = { slot?: string | null; text: string; source?: string; quote?: string | null; parent?: string | null; role?: string };
+export type Card = { slot?: string | null; text: string; source?: string; quote?: string | null; parent?: string | null; role?: string;
+  at?: string | null;        // the opening this card completes (the model's addressing)
+  // resolved by code from the opening:
+  spot?: Box;                // the exact place (the exemplar's place, carried over)
+  likeRef?: string;          // the exemplar to look like
+  endLine?: string;          // the line whose free end it lands on
+};
 export type V5 = {
   noticed?: string; form?: string;
   functions?: { name: string; for?: string[]; against?: string[] }[];
@@ -35,9 +42,9 @@ export function coerce(raw: any): V5 | null {
   if (!raw || typeof raw !== 'object') return null;
   const arr = (v: any) => (Array.isArray(v) ? v : []);
   const strength = ['full', 'ghost', 'fork', 'ask', 'silent'].includes(raw.strength) ? raw.strength : 'silent';
-  const card = (c: any): Card | null => c && typeof c.text === 'string' && c.text.trim() ? { slot: typeof c.slot === 'string' ? c.slot : null, text: c.text.trim(), source: typeof c.source === 'string' ? c.source : undefined, quote: typeof c.quote === 'string' && c.quote.trim() ? c.quote.trim() : null, parent: typeof c.parent === 'string' ? c.parent : null, role: typeof c.role === 'string' ? c.role : undefined } : null;
+  const card = (c: any): Card | null => c && typeof c.text === 'string' && c.text.trim() ? { slot: typeof c.slot === 'string' ? c.slot : null, at: typeof c.at === 'string' ? c.at.trim() : null, text: c.text.trim(), source: typeof c.source === 'string' ? c.source : undefined, quote: typeof c.quote === 'string' && c.quote.trim() ? c.quote.trim() : null, parent: typeof c.parent === 'string' ? c.parent : null, role: typeof c.role === 'string' ? c.role : undefined } : null;
   return {
-    noticed: raw.noticed, form: raw.form, functions: arr(raw.functions),
+    noticed: raw.built ?? raw.noticed, form: raw.form, functions: arr(raw.could_be ?? raw.functions),
     function: typeof raw.function === 'string' ? raw.function : null,
     strength,
     grammar: raw.grammar && typeof raw.grammar === 'object' ? raw.grammar : null,
@@ -54,7 +61,7 @@ export function coerce(raw: any): V5 | null {
 }
 
 /** Apply the invariants. Returns the cleaned answer and what was changed (for the debug log). */
-export function validate(a: V5, r: Reading, forms: Form[]): { answer: V5; edits: string[] } {
+export function validate(a: V5, r: Reading, forms: Form[], openings: Opening[] = []): { answer: V5; edits: string[] } {
   const edits: string[] = [];
   const item = (ref?: string | null) => (ref ? r.byRef.get(ref) : undefined);
   const scopeRefs = new Set<string>();
@@ -63,6 +70,10 @@ export function validate(a: V5, r: Reading, forms: Form[]): { answer: V5; edits:
     // the answer may also use the other blanks of the same container
     if (f.facts.container) for (const i of r.items) if (i.parent === f.facts.container.ref && isBlank(i)) scopeRefs.add(i.ref);
   }
+  const ops = new Map(openings.map(o => [o.id, o]));
+  for (const o of openings) [o.ref, o.into, o.about, o.beside].forEach(x => x && scopeRefs.add(x));
+  const usedAt = new Set<string>();
+  const bare = (t?: string) => !!t && !/ — |\n/.test(t) && t.length <= 24;
   const allText = r.items.map(i => ({ ref: i.ref, t: norm(i.text) }));
   const quoted = (q: string, src?: Item) => { const n = norm(q).replace(/^["']|["']$/g, ''); return n.length >= 3 && (src ? norm(src.text).includes(n) : allText.some(x => x.t.includes(n))); };
   const visible = (s: string) => {
@@ -79,6 +90,20 @@ export function validate(a: V5, r: Reading, forms: Form[]): { answer: V5; edits:
     const out: Card[] = [];
     for (const c0 of cards) {
       const c = { ...c0 };
+      // the card names the opening it completes: code knows where that is and what it should look like
+      let shown: string | undefined;
+      if (c.at) {
+        const o = ops.get(c.at);
+        if (!o || usedAt.has(c.at)) { edits.push(`${label}: ${c.at} ${o ? 'answered twice' : 'is not an opening'} → placed by context`); c.at = null; }
+        else {
+          usedAt.add(c.at); shown = o.like?.text; c.likeRef = o.like?.ref;
+          if (o.into) { c.slot = o.into; c.parent = null; }
+          else if (o.tip) { c.parent = o.about ?? null; c.endLine = o.ref; c.slot = null; }
+          else if (o.spot) { c.spot = o.spot; c.parent = null; c.slot = null; }
+          else if (o.beside && !c.parent) c.parent = o.beside;
+          if (c.source && /general knowledge|none/i.test(c.source)) c.source = undefined;
+        }
+      }
       // an answer aimed at a blank the user made belongs IN that blank, not on a card beside it
       if (!c.slot && c.parent) { const pb = item(c.parent); if (pb && isBlank(pb) && scopeRefs.has(c.parent) && !usedSlots.has(c.parent)) { edits.push(`${label}: card for blank ${c.parent} → written into it`); c.slot = c.parent; c.parent = null; c.role = undefined; if (c.source && /general knowledge|none/i.test(c.source)) c.source = undefined; } }
       // only the user's blanks may be written into, each once, and only those this form is about
@@ -94,7 +119,8 @@ export function validate(a: V5, r: Reading, forms: Form[]): { answer: V5; edits:
       if (evidenceNone) { c.source = undefined; c.quote = null; }
       c.text = visible(c.text);
       // the user showed the format with their own filled note: a bare name gets a bare name back
-      if (c.slot && demo && !/ — |\n/.test(demo) && demo.length <= 24) c.text = c.text.split(/ — |\n/)[0].trim();
+      // the filled sibling shows the format: a bare name gets a bare name back
+      if ((c.slot && bare(demo)) || bare(shown)) c.text = c.text.split(/ — |\n/)[0].trim();
       if (!c.text || KINDS_ONLY.test(c.text) || GEOMETRY.test(c.text)) { edits.push(`${label}: card text names geometry → dropped`); continue; }
       if (c.parent && !item(c.parent) && !cards.some(o => o !== c0 && (o as any).id === c.parent)) c.parent = null;
       out.push(c);

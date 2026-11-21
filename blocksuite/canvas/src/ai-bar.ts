@@ -287,7 +287,7 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   const toolbarHost = () => deepFind(document, e => e.tagName === 'AFFINE-TOOLBAR-WIDGET') as El | null;
   const setTb = (on: boolean) => { tbOn = on; const hst = toolbarHost(); if (hst) on ? hst.setAttribute('data-cx-tb', '') : hst.removeAttribute('data-cx-tb'); };
   const injectAll = (tag: string, css: string) => { const walk = (r: Document | ShadowRoot) => { for (const e of Array.from(r.querySelectorAll('*')) as El[]) { if (e.tagName === tag && e.shadowRoot && !e.shadowRoot.querySelector('style[data-cx]')) { const st = document.createElement('style'); st.dataset.cx = '1'; st.textContent = css; e.shadowRoot.append(st); } if (e.shadowRoot && /FRAME-TITLE|EDGELESS-ROOT|EDITOR/.test(e.tagName)) walk(e.shadowRoot); } }; walk(document); };
-  setInterval(() => { inject('EDGELESS-SELECTED-RECT', SEL_CSS); inject('AFFINE-TOOLBAR-WIDGET', TB_CSS); }, 400);
+  setInterval(() => { if (document.body.classList.contains('cx-dragging')) return; inject('EDGELESS-SELECTED-RECT', SEL_CSS); inject('AFFINE-TOOLBAR-WIDGET', TB_CSS); }, 400);
   // Sections take the colour picked for them (blue when none): a pale wash, a clear border, a solid title tab.
   const probe = h('i'); probe.style.display = 'none'; layer.append(probe);
   const sectionTone = (raw: string) => {
@@ -302,6 +302,7 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     return { main: `hsl(${H} 86% 64%)`, wash: `hsl(${H} 86% 64% / .09)`, line: `hsl(${H} 82% 70%)` };
   };
   const paintSections = () => {
+    if (document.body.classList.contains('cx-dragging')) return;   // never while the hand is drawing or dragging
     const tones = new Map<string, string>();
     const frames = Array.from(rootEl.querySelectorAll('affine-frame')) as El[];
     for (const f of frames) {

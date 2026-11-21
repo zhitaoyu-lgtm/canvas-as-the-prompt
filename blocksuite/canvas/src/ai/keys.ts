@@ -10,7 +10,8 @@ import type { Box, Reading } from './reading';
 export type Key = {
   id: string;
   scope: { kind: 'section' | 'region' | 'board'; id?: string; title?: string; box?: Box };
-  form: string;          // the form's signature, in words
+  form: string;          // the situation, in words a person would recognise
+  sig?: string;          // its general features (for backing off after a dismissal)
   means: string;         // the function, in the model's words
   source: 'accepted' | 'dismissed' | 'chosen' | 'not-chosen';
   at: number;
@@ -26,7 +27,7 @@ export function allKeys(store: any): Key[] {
 export function addKey(store: any, k: Omit<Key, 'id' | 'at'>) {
   const m = mapOf(store); if (!m) return;
   // one meaning per form and scope: a newer decision replaces an older one
-  for (const [id, o] of [...m.entries()] as [string, Key][]) if (o.form === k.form && sameScope(o.scope, k.scope) && o.means.toLowerCase() === k.means.toLowerCase()) m.delete(id);
+  for (const [id, o] of [...m.entries()] as [string, Key][]) if ((o.sig ?? o.form) === (k.sig ?? k.form) && sameScope(o.scope, k.scope) && o.means.toLowerCase() === k.means.toLowerCase()) m.delete(id);
   const id = 'k' + Math.random().toString(36).slice(2, 9);
   m.set(id, { ...k, id, at: Date.now() });
 }
@@ -35,7 +36,7 @@ const sameScope = (a: Key['scope'], b: Key['scope']) => a.kind === b.kind && (a.
 
 /** Was this form, in this scope, turned down a moment ago? (the board then stays quiet for a while) */
 export function dismissedRecently(store: any, signature: string, ms = 5 * 60_000): boolean {
-  return allKeys(store).some(k => k.source === 'dismissed' && k.form === signature && Date.now() - k.at < ms);
+  return allKeys(store).some(k => k.source === 'dismissed' && (k.sig ?? k.form) === signature && Date.now() - k.at < ms);
 }
 
 /** The KEYS section, in plain words, with refs from this reading. */

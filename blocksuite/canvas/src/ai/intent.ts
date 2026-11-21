@@ -12,14 +12,15 @@ import { ask, parseAnswer, online } from './model';
 import { readBoard, toPrompt, type Box, type Reading } from './reading';
 import { detectForms, serialiseForms, serialiseQuestions, isBlank, type Form } from './forms';
 import { addKey, dismissedRecently, serialiseKeys } from './keys';
-import { SYSTEM_V5 } from './prompt-v5';
+import { SYSTEM_V6 } from './prompt-v6';
 import { coerce, validate, type V5 } from './validate';
 import { renderAnswer, type PendingSet } from './render';
 import { pictures, lookOf, related } from './look';
 import type { Trace } from './trace';
 import { Habits } from './habits';
+import { findOpenings, serialiseOpenings, featuresOf, situationOf, type Opening } from './openings';
 
-export type GeneralIntent = { type: 'general'; key: string; forms: Form[]; area: Box; request?: string; reading?: Reading };
+export type GeneralIntent = { type: 'general'; key: string; forms: Form[]; openings: Opening[]; area: Box; request?: string; reading?: Reading };
 
 const union = (bs: Box[]): Box => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const b of bs) { x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h); } return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }; };
 
@@ -33,7 +34,8 @@ export function mountIntent(rootEl: any, trace: Trace) {
   dev.forget = () => { trace.acts = []; trace.poll(); trace.acts = []; };
   const say = (...a: any[]) => { if (dev.debug) console.log('[intent]', ...a); };
 
-  /** The gate: forms the user just settled, if any is worth a call. */
+  /** The gate. It never asks what a structure means, only: did the user just leave something open?
+   *  Forms are descriptions (they give openings their context); the openings decide whether to speak. */
   function detect(r: Reading, touchedNow: Set<string>): GeneralIntent | null {
     if (!dev.enabled) return null;
     const recent = trace.touchedBy(30_000); for (const id of touchedNow) recent.add(id);
@@ -42,36 +44,46 @@ export function mountIntent(rootEl: any, trace: Trace) {
     forms = forms.filter(f => {
       if (!now(f)) return false;
       if (f.facts.authorAll === 'ai') return false;
-      // nothing left to fill and no line was just drawn: the user is only writing in their own notes
-      if (f.facts.targetState === 'existing' && f.lines.length && !f.lines.some(l => { const it = r.byRef.get(l); return !!it && touchedNow.has(it.id); })) return false;
       if (f.lines.length && f.lines.every(l => r.byRef.get(l)?.author === 'ai')) return false;
-      // a label pointed at a picture is the fast path's (point)
+      // a short label pointed at a picture, or a line to a section: other gestures own these for now
       if (f.kind === 'link') {
         const a = f.hub ? r.byRef.get(f.hub) : undefined, b = r.byRef.get(f.targets[0]);
         if ([a, b].some(x => x?.kind === 'image') && [a, b].some(x => x && x.kind !== 'image' && x.text.trim().length <= 60)) return false;
-        // the user named the line and both ends have words: they already said it
-        if (f.facts.labels.some(l => l.by === 'user') && f.facts.targetState === 'existing') return false;
         if ([a, b].some(x => x?.kind === 'frame' || x?.kind === 'group')) return false;
       }
-      if (dismissedRecently(store, f.signature)) { say('backing off', f.signature); return false; }
       return true;
     });
-    if (!forms.length) return null;
-    const blankNow = forms.some(f => f.facts.targetState === 'blank' || f.facts.targetState === 'mixed' || f.kind === 'slot' || f.kind === 'set');
-    if (trace.phase() === 'collecting' && !blankNow) { say('collecting, quiet'); return null; }
-    const ids = forms.flatMap(f => [f.hub, ...f.targets, ...f.lines]).filter(Boolean).sort().join(',');
-    const key = `general:${forms.map(f => f.signature).join('|')}:${ids}:${forms.map(f => f.facts.targetState).join(',')}`;
-    return { type: 'general', key, forms, area: union(forms.map(f => f.box)), reading: r };
+    // what is open, among what the user just touched
+    let openings = findOpenings(r, forms, touchedNow).filter(o => o.touched);
+    // nothing empty, every line labelled, every end has words: the user already said it
+    openings = openings.filter(o => {
+      if (o.kind !== 'relation') return true;
+      const f = forms.find(x => x.id === o.form); if (!f) return true;
+      if (f.facts.labels.some(l => l.by === 'user') && f.facts.targetState === 'existing') return false;
+      // no line was just drawn: the user is only writing in their own notes
+      return f.lines.some(l => { const it = r.byRef.get(l); return !!it && touchedNow.has(it.id); });
+    });
+    if (!openings.length) return null;
+    forms = forms.filter(f => openings.some(o => o.form === f.id));
+    const features = featuresOf(openings, forms, r);
+    if (dismissedRecently(store, features.join(' '))) { say('backing off', features.join(' ')); return null; }
+    // weak openings (nothing literally empty) wait while the user is still gathering material
+    if (!openings.some(o => o.strong) && trace.phase() === 'collecting') { say('collecting, quiet'); return null; }
+    const ids = openings.flatMap(o => o.refs).sort().join(',');
+    const key = `general:${features.join(' ')}:${ids}:${openings.map(o => o.kind).join(',')}`;
+    const boxes = [...forms.map(f => f.box), ...openings.flatMap(o => o.refs.map(ref => r.byRef.get(ref)?.box).filter(Boolean) as Box[])];
+    return { type: 'general', key, forms, openings, area: union(boxes), reading: r };
   }
 
-  function message(r: Reading, forms: Form[], request?: string): string {
+  function message(r: Reading, forms: Form[], openings: Opening[], request?: string): string {
     const L: string[] = [];
     L.push('TASK: unknown');
     L.push('BOARD', toPrompt(r));
-    L.push('', 'FORMS (detected by code; meaning not decided)', ...serialiseForms(forms, r));
+    L.push('', 'OPENINGS (what the user left open; address your answer to these)', ...(openings.length ? serialiseOpenings(openings, r) : ['none found by code']));
+    L.push('', 'STRUCTURE AROUND THEM (described by code; meaning not decided)', ...(forms.length ? serialiseForms(forms, r) : ['see BOARD']));
     const qs = serialiseQuestions(r); L.push('', 'QUESTIONS', ...(qs.length ? qs : ['none']));
     const ks = serialiseKeys(store, r); L.push('', 'KEYS', ...(ks.length ? ks : ['none']));
-    const hs = habits.serialise(forms); L.push('', 'HABITS', ...(hs.length ? hs : ['none']));
+    const hs = habits.serialise(featuresOf(openings, forms, r)); L.push('', 'CASES (moments like this one, with this person, on any board)', ...(hs.length ? hs : ['none']));
     const acts = trace.serialise(r); L.push('', 'ACT', ...(acts.length ? acts : ['none']));
     L.push('', `PHASE: ${trace.phase()}`, `SELECTED: ${r.selection.length ? r.selection.join(' ') : 'no'}`, `REQUEST: ${request ?? 'none'}`);
     return L.join('\n');
@@ -81,11 +93,11 @@ export function mountIntent(rootEl: any, trace: Trace) {
   async function call(user: string, picture: Blob[] | null, signal: AbortSignal): Promise<any> {
     const mock = (window as any).cxMockIntent;
     if (mock) return typeof mock === 'function' ? await mock(user) : mock;
-    const raw = await ask(SYSTEM_V5 + (online() ? '\nYou may search the web only when the function needs literature; at most 3 searches.' : ''), user, picture, signal);
+    const raw = await ask(SYSTEM_V6 + (online() ? '\nYou may search the web only when the function needs literature; at most 3 searches.' : ''), user, picture, signal);
     lastLook = lookOf(raw);
     try { return parseAnswer(raw); }
     catch {
-      const again = await ask(SYSTEM_V5, user + '\n\nReturn only the JSON object.', null, signal);
+      const again = await ask(SYSTEM_V6, user + '\n\nReturn only the JSON object.', null, signal);
       return parseAnswer(again);
     }
   }
@@ -95,39 +107,41 @@ export function mountIntent(rootEl: any, trace: Trace) {
     const t0 = Date.now();
     // refs belong to the reading the forms were found on
     const r = intent.reading ?? readBoard(gfx);
-    const forms = intent.forms;
-    const user = message(r, forms, intent.request);
-    const refs = forms.flatMap(f => [f.hub, ...f.targets, ...(f.context ?? [])].filter(Boolean) as string[]);
+    const forms = intent.forms, openings = intent.openings ?? [];
+    const features = featuresOf(openings, forms, r);
+    const user = message(r, forms, openings, intent.request);
+    const refs = [...new Set([...forms.flatMap(f => [f.hub, ...f.targets, ...(f.context ?? [])]), ...openings.flatMap(o => [o.ref, o.about, o.like?.ref, ...o.refs])].filter(Boolean) as string[])];
     // always look as well as read: the area, and a close-up of any photo in it
     const rel = related(r, refs);
-    const seen = await pictures(rootEl, r, union([...forms.map(f => f.box), ...rel.map(i => i.box)]), [...refs, ...rel.map(i => i.ref)]).catch(() => ({ blobs: [] as Blob[], note: '' }));
+    const seen = await pictures(rootEl, r, union([intent.area, ...forms.map(f => f.box), ...rel.map(i => i.box)]), [...refs, ...rel.map(i => i.ref)]).catch(() => ({ blobs: [] as Blob[], note: '' }));
     const picture = seen.blobs.length ? seen.blobs : null;
     const userFull = user + (seen.note ? `\n\nPICTURES: ${seen.note} The text cannot say what a photo shows or what a sticker sits on: the pictures can.` : '');
     const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 25_000);
     let raw: any;
     try { raw = await call(userFull, picture, ctl.signal); } finally { clearTimeout(timer); }
     const a0 = coerce(raw);
-    const entry: any = { at: new Date().toLocaleTimeString(), forms: serialiseForms(forms, r), user: userFull, raw, look: lastLook, pictures: seen.blobs, ms: Date.now() - t0 };
+    const entry: any = { at: new Date().toLocaleTimeString(), openings: serialiseOpenings(openings, r), features, forms: serialiseForms(forms, r), user: userFull, raw, look: lastLook, pictures: seen.blobs, ms: Date.now() - t0 };
     dev.log.unshift(entry); dev.log.length = Math.min(dev.log.length, 20); dev.last = entry;
-    habits.open(forms, idsOf(r), f => f.targets.map(t => r.byRef.get(t)).filter(t => isBlank(t)).map(t => t!.id));
-    if (!a0) { entry.result = 'unusable answer'; habits.settle(forms, 'not offered'); return null; }
-    const { answer, edits } = validate(a0, r, forms);
+    const idOf = (ref?: string) => (ref ? r.byRef.get(ref)?.id : undefined);
+    habits.open({ features, situation: situationOf(openings, r), ids: [...new Set([...forms.flatMap(idsOf(r)), ...openings.flatMap(o => o.refs.map(idOf))].filter(Boolean) as string[])], blanks: openings.map(o => idOf(o.into)).filter(Boolean) as string[], box: intent.area, ends: openings.filter(o => o.tip).map(o => ({ x: o.tip!.x, y: o.tip!.y })) });
+    if (!a0) { entry.result = 'unusable answer'; habits.settle(features, 'not offered'); return null; }
+    const { answer, edits } = validate(a0, r, forms, openings);
     entry.edits = edits; entry.answer = answer;
     say(answer.strength, answer.function, edits);
-    if (answer.strength === 'silent' || (intent.request && answer.strength === 'ask')) { entry.result = 'silent'; habits.settle(forms, 'not offered'); return null; }
-    const f0 = forms[0];
-    const scope = (): any => f0.facts.container ? { kind: 'section', id: f0.facts.container.id, title: f0.facts.container.title } : { kind: 'region', box: { x: f0.box.x - f0.box.w / 2, y: f0.box.y - f0.box.h / 2, w: f0.box.w * 2, h: f0.box.h * 2 } };
-    const sig = f0.signature;
-    const set = renderAnswer(rootEl, r, forms, answer, {
+    if (answer.strength === 'silent' || (intent.request && answer.strength === 'ask')) { entry.result = 'silent'; habits.settle(features, 'not offered'); return null; }
+    const f0 = forms[0], a0b = intent.area;
+    const scope = (): any => f0?.facts.container ? { kind: 'section', id: f0.facts.container.id, title: f0.facts.container.title } : { kind: 'region', box: { x: a0b.x - a0b.w / 2, y: a0b.y - a0b.h / 2, w: a0b.w * 2, h: a0b.h * 2 } };
+    const sig = features.join(' '), sit = situationOf(openings, r);
+    const set = renderAnswer(rootEl, r, forms, answer, openings, {
       onKeep: (fn, other) => {
-        if (fn) addKey(store, { scope: scope(), form: sig, means: fn, source: other ? 'chosen' : 'accepted' });
-        if (other) addKey(store, { scope: scope(), form: sig, means: other, source: 'not-chosen' });
-        trace.note('accept', [], fn); habits.settle(forms, other ? 'chose' : 'accepted', fn);
+        if (fn) addKey(store, { scope: scope(), form: sit, sig, means: fn, source: other ? 'chosen' : 'accepted' });
+        if (other) addKey(store, { scope: scope(), form: sit, sig, means: other, source: 'not-chosen' });
+        trace.note('accept', [], fn); habits.settle(features, other ? 'chose' : 'accepted', fn);
       },
-      onDrop: fn => { addKey(store, { scope: scope(), form: sig, means: fn || 'this reading', source: 'dismissed' }); trace.note('dismiss', [], fn); habits.settle(forms, 'dismissed', fn || answer.function || 'this reading'); },
+      onDrop: fn => { addKey(store, { scope: scope(), form: sit, sig, means: fn || 'this reading', source: 'dismissed' }); trace.note('dismiss', [], fn); habits.settle(features, 'dismissed', fn || answer.function || 'this reading'); },
       onAsk: option => {
-        addKey(store, { scope: scope(), form: sig, means: option, source: 'chosen' });
-        habits.settle(forms, 'chose', option);
+        addKey(store, { scope: scope(), form: sit, sig, means: option, source: 'chosen' });
+        habits.settle(features, 'chose', option);
         (dev.followUp as ((i: GeneralIntent) => void) | undefined)?.({ ...intent, key: intent.key + ':ask', request: option });
       },
       done,
@@ -138,7 +152,8 @@ export function mountIntent(rootEl: any, trace: Trace) {
   }
 
   // dev: the board as a replayable fixture, and the forms the gate would see right now
-  dev.fixture = () => { const r = readBoard(gfx); const forms = detectForms(gfx, r, new Set((gfx.gfxElements as any[]).map(e => e.id)), trace); return { text: message(r, forms), forms }; };
+  dev.fixture = () => { const r = readBoard(gfx); const all = new Set((gfx.gfxElements as any[]).map(e => e.id)); const forms = detectForms(gfx, r, all, trace); const os = findOpenings(r, forms, all); return { text: message(r, forms, os), forms, openings: os }; };
+  dev.openings = (ids?: string[]) => { const r = readBoard(gfx); const all = new Set(ids ?? (gfx.gfxElements as any[]).map(e => e.id)); return serialiseOpenings(findOpenings(r, detectForms(gfx, r, all, trace), all), r).join('\n'); };
   dev.forms = (ids?: string[]) => { const r = readBoard(gfx); return serialiseForms(detectForms(gfx, r, new Set(ids ?? (gfx.gfxElements as any[]).map(e => e.id)), trace), r).join('\n'); };
   dev.blank = (ref: string) => isBlank(readBoard(gfx).byRef.get(ref));
   // what a typed request should know as well: the forms around what the user just touched (or selected),
@@ -146,10 +161,12 @@ export function mountIntent(rootEl: any, trace: Trace) {
   dev.context = (r: Reading): string => {
     const recent = trace.touchedBy(120_000); for (const ref of r.selection) { const it = r.byRef.get(ref); if (it) recent.add(it.id); }
     const forms = recent.size ? detectForms(gfx, r, recent, trace).slice(0, 6) : [];
+    const os = recent.size ? findOpenings(r, forms, recent).filter(o => o.touched).slice(0, 12) : [];
     const L: string[] = [];
-    if (forms.length) L.push('FORMS AROUND WHAT THE USER JUST TOUCHED (detected by code; meaning not decided)', ...serialiseForms(forms, r));
+    if (os.length) L.push('OPENINGS AROUND WHAT THE USER JUST TOUCHED (what they left open; put answers there)', ...serialiseOpenings(os, r));
+    if (forms.length) L.push('', 'STRUCTURE AROUND THEM (described by code; meaning not decided)', ...serialiseForms(forms, r));
     const ks = serialiseKeys(store, r); if (ks.length) L.push('', 'KEYS (meanings settled on this board)', ...ks);
-    const hs = habits.serialise(forms); if (hs.length) L.push('', 'HABITS (what this person did with the same form before)', ...hs);
+    const hs = habits.serialise(featuresOf(os, forms, r)); if (hs.length) L.push('', 'CASES (moments like this one, with this person)', ...hs);
     const acts = trace.serialise(r); if (acts.length) L.push('', 'ACT (what they just did, oldest first)', ...acts.slice(-14));
     return L.join('\n');
   };

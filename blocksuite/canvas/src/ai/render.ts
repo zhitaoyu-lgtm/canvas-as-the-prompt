@@ -11,6 +11,7 @@ import * as Y from 'yjs';
 import { Text } from '@blocksuite/affine/store';
 import { generateKeyBetween } from '@blocksuite/affine/std/gfx';
 import { CARD_STYLE, FILL, TEXT, snap } from '../design';
+import type { Opening } from './openings';
 import { addComment, removeCommentsOn } from './comments';
 import { setEvidence, clearEvidence } from './evidence';
 import { isBlank, type Form } from './forms';
@@ -47,7 +48,7 @@ export type Callbacks = {
 
 type Preview = { ids: string[]; focus: () => Box[]; anchor?: () => Box[]; undo: () => void };
 
-export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, cb: Callbacks): PendingSet | null {
+export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, openings: Opening[], cb: Callbacks): PendingSet | null {
   const gfx = rootEl.gfx, store = rootEl.std.store, surf = gfx.surface;
   const form = forms[0];
   const hub = form?.hub ? r.byRef.get(form.hub) : undefined;
@@ -67,6 +68,7 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, cb
   // things nothing may land on
   const formLines = new Set(forms.flatMap(f => f.lines));
   const allEnds = forms.flatMap(f => (f.ends ?? []).map(e => ({ ...e, hubRef: f.hub })));
+  void openings;
   // a small stroke at a free end is that line's arrowhead: part of the line, not something in the way
   for (const i of r.items) if ((i.kind === 'drawing' || i.kind === 'highlight') && Math.max(i.box.w, i.box.h) <= 70 && allEnds.some(e => Math.hypot(cx(i.box) - e.x, cy(i.box) - e.y) < 46)) formLines.add(i.ref);
   const obstacles: Box[] = r.items.filter(i => !formLines.has(i.ref) && !['frame', 'connector', 'group'].includes(i.kind) && !(i.kind === 'drawing' && i.box.w * i.box.h > 90000) && !(i.children?.length && i.kind !== 'card')).map(i => i.box);
@@ -77,8 +79,8 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, cb
   const free = (b: Box) => !obstacles.some(o => hit(b, o, 14)) && !placed.some(o => hit(b, o, 14));
 
   // ── building blocks ──
-  function stickyLike(text: string, at: Box): string {
-    const src: any = template ? gfx.getElementById(template.id) : null;
+  function stickyLike(text: string, at: Box, like: Item | undefined = template): string {
+    const src: any = like ? gfx.getElementById(like.id) : null;
     const props: any = {};
     if (src?.serialize && !src.flavour) for (const [k, v] of Object.entries(src.serialize())) if (!['id', 'index', 'seed', 'text', 'xywh'].includes(k)) props[k] = v;
     if (!props.shapeType) Object.assign(props, { type: 'shape', shapeType: 'rect', radius: 0.04, filled: true, fillColor: FILL.yellow, strokeColor: 'transparent', strokeWidth: 0, color: TEXT.ink, fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', textHorizontalAlign: 'left', textVerticalAlign: 'top', padding: [16, 16] });
@@ -96,6 +98,23 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, cb
     const w = Math.min(420, Math.ceil(c.measureText(words).width) + 8), lines = Math.max(1, Math.ceil(c.measureText(words).width / 420)), h = lines * Math.round(size * 1.4);
     const t = new Y.Text(); t.insert(0, words);
     return surf.addElement({ type: 'text', xywh: xywh({ x: dx >= 0 ? tip.x : tip.x + tip.w - w, y: tip.y + tip.h / 2 - h / 2, w, h }), text: t, fontSize: size, fontWeight: '500', color: TEXT.ink, fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', index: nextTop() });
+  }
+  // ── the one rule of expression: a completion looks like the thing that already fills the same opening ──
+  // (the user's own note beside a sibling: its kind, size, colour, type size). Returns the new id.
+  function textLike(ex: any | null, text: string, at: Box, dx = 1): string {
+    const [a, b] = split(text); const wordsT = b ? `${a} — ${b}` : a;
+    const size = Number(ex?.fontSize) || 20, weight = String(ex?.fontWeight ?? '500'), family = ex?.fontFamily ?? 'blocksuite:surface:Inter';
+    const c2 = document.createElement('canvas').getContext('2d')!; c2.font = `${weight} ${size}px Inter, sans-serif`;
+    const maxW = Math.max(420, at.w), full = Math.ceil(c2.measureText(wordsT).width) + 8, w = Math.min(maxW, full), lines = Math.max(1, Math.ceil(full / maxW)), h = lines * Math.round(size * 1.4);
+    const t = new Y.Text(); t.insert(0, wordsT);
+    return surf.addElement({ type: 'text', xywh: xywh({ x: dx >= 0 ? at.x : at.x + at.w - w, y: at.y + at.h / 2 - h / 2, w, h }), text: t, fontSize: size, fontWeight: weight, color: ex?.color ?? TEXT.ink, fontFamily: family, textAlign: ex?.textAlign ?? 'left', index: nextTop() });
+  }
+  function cloneLike(ex: Item | undefined, c: Card, at: Box, dx = 1): string {
+    const el: any = ex ? gfx.getElementById(ex.id) : null;
+    if (el && !el.flavour && el.type === 'text') return textLike(el, c.text, at, dx);
+    if (el && !el.flavour && el.type === 'shape') return stickyLike(c.text, at, ex);
+    if (el?.flavour === 'affine:note') { const id = noteCard(c, { ...at, h: 80 }); return id; }
+    return stickyLike(c.text, at);
   }
   function noteCard(c: Card, at: Box, meta?: string): string {
     const id = store.addBlock('affine:note', { xywh: xywh({ ...at, h: 80 }), background: '#ffffff', index: nextTop(), edgeless: { style: CARD_STYLE } } as any, store.root.id);
@@ -173,10 +192,11 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, cb
     return Math.max(112, snap(d - 24));
   })();
   const usedEnds = new Set<number>();
-  function atEnd(w: number, h: number, hubRef?: string | null): Box | null {
+  function atEnd(w: number, h: number, hubRef?: string | null, line?: string): Box | null {
     for (;;) {
-      // the end of the line that leaves the thing this card answers, else the next free one
-      let k = hubRef ? ends.findIndex((e, i) => !usedEnds.has(i) && e.hubRef === hubRef) : -1;
+      // the very line the card names, else the end of a line that leaves the thing it answers, else the next free one
+      let k = line ? ends.findIndex((e, i) => !usedEnds.has(i) && e.line === line) : -1;
+      if (k < 0) k = hubRef ? ends.findIndex((e, i) => !usedEnds.has(i) && e.hubRef === hubRef) : -1;
       if (k < 0 && !hubRef) k = ends.findIndex((_e, i) => !usedEnds.has(i));
       if (k < 0) return null;
       usedEnds.add(k);
@@ -275,10 +295,24 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, cb
       const c = rest[k];
       const parentItem = c.parent ? r.byRef.get(c.parent) : undefined;
       const slotParent = c.parent ? cards.find(o => o.slot === c.parent) : undefined;
+      const ex = c.likeRef ? r.byRef.get(c.likeRef) : undefined;
+      const note = (id: string, b: Box) => { placed.push(box(id) ?? b); created.push(id); focus.push(id); const ev2 = { source: sourceName(c.source), quote: c.quote ?? '' }; if (ev2.quote) setEvidence(store, id, ev2); };
+      // the opening has an exact place: where the filled sibling has its own (same offset, same look)
+      if (c.spot) {
+        let at0: Box = { ...c.spot };
+        for (let n = 0; n < 6 && !free(at0); n++) at0 = { ...at0, y: at0.y + 16 };
+        note(cloneLike(ex, c, at0), at0); continue;
+      }
       // an answer for a thing whose line ends in empty space goes to that end
-      const ownEnd = c.parent ? ends.findIndex((e, i) => !usedEnds.has(i) && e.hubRef === c.parent) : -1;
+      const ownEnd = c.endLine ? ends.findIndex((e, i) => !usedEnds.has(i) && e.line === c.endLine) : c.parent ? ends.findIndex((e, i) => !usedEnds.has(i) && e.hubRef === c.parent) : -1;
+      // … looking like what already sits at a sibling line's end, when the user showed one
+      if (ownEnd >= 0 && ex && !isBlank(ex)) {
+        const exEl: any = gfx.getElementById(ex.id), isText = !!exEl && !exEl.flavour && exEl.type === 'text';
+        const tip = atEnd(isText ? 8 : ex.box.w, isText ? 28 : ex.box.h, c.parent, c.endLine);
+        if (tip) { const e = ends[[...usedEnds].pop()!]; note(cloneLike(ex, c, tip, e.dx), tip); continue; }
+      }
       if (signKey && (ownEnd >= 0 || !c.parent)) {
-        const tip = atEnd(8, 28, ownEnd >= 0 ? c.parent : null);
+        const tip = atEnd(8, 28, ownEnd >= 0 ? c.parent : null, c.endLine);
         if (tip) { const e = ends[[...usedEnds].pop()!]; const id = labelLike(c.text, tip, e.dx); placed.push(box(id) ?? tip); created.push(id); focus.push(id); const ev1 = { source: sourceName(c.source), quote: c.quote ?? '' }; if (ev1.quote) setEvidence(store, id, ev1); continue; }
       }
       const isRef = ownEnd < 0 && (!!parentItem || /reference|source|paper|evidence|quote/i.test(c.role ?? '') || (!!c.source && !/general knowledge|none/i.test(c.source) && !!c.parent));
@@ -288,7 +322,7 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, cb
         notes.push({ id, card: c, parent: parentItem?.box });
         created.push(id); continue;
       }
-      let at: Box | null = atEnd(sticky.w, sticky.h, ownEnd >= 0 ? c.parent : null); const landed = !!at;
+      let at: Box | null = atEnd(sticky.w, sticky.h, ownEnd >= 0 ? c.parent : null, c.endLine); const landed = !!at;
       if (at) { /* on a free end */ }
       else if (/radial|loose|ring/.test(layout)) at = onRing(sticky.w, sticky.h) ?? nextAlong(sticky.w, sticky.h);
       else if (/line|bridge|midpoint/.test(layout) || form?.kind === 'bridge' || form?.kind === 'pair' || form?.kind === 'link') at = nearLine(sticky.w, sticky.h, k, rest.length);
@@ -400,6 +434,7 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, cb
 
 // ── the pending set: veils over each new or filled thing, one bar (✓ ✕, or a fork switch, or an ask) ──
 export class PendingSet {
+  private seen: { t: number; stamp: string; boxes: { L: number; T: number; W: number; H: number }[] } | null = null;
   private veils: HTMLElement[] = [];
   private bar = document.createElement('div');
   private raf = 0;
@@ -480,8 +515,12 @@ export class PendingSet {
     const bh = this.bar.offsetHeight || 40;
     const fit = (x: number, y: number) => ({ x: Math.min(innerWidth - bw - 12, Math.max(8, x)), y: Math.min(innerHeight - 110, Math.max(12, y)) });
     const cands = [fit(u.L + u.W - bw, u.T + u.H + 10), fit(u.L + u.W + 10, u.T + 4), fit(u.L + u.W - bw, u.T - bh - 10), fit(u.L - bw - 10, u.T + 4), fit(u.L + u.W + 10, u.T + u.H - bh)];
-    const others: { L: number; T: number; W: number; H: number }[] = [];
-    for (const e of this.rootEl.gfx.gfxElements as any[]) { if (e.flavour === 'affine:surface' || e.flavour === 'affine:frame' || e.type === 'connector' || e.type === 'group') continue; const s0 = this.screen(e.elementBound, 0); if (s0.L < innerWidth && s0.L + s0.W > 0 && s0.T < innerHeight && s0.T + s0.H > 0) others.push(s0); }
+    // what else is on screen is looked up a few times a second, not every frame
+    const vp = this.rootEl.gfx.viewport, stamp = `${vp.zoom}|${vp.centerX}|${vp.centerY}`;
+    const fresh = this.seen && this.seen.stamp === stamp && Date.now() - this.seen.t < 400;
+    const others: { L: number; T: number; W: number; H: number }[] = fresh ? this.seen!.boxes : [];
+    if (!fresh) this.seen = { t: Date.now(), stamp, boxes: others };
+    if (!fresh) for (const e of this.rootEl.gfx.gfxElements as any[]) { if (e.flavour === 'affine:surface' || e.flavour === 'affine:frame' || e.type === 'connector' || e.type === 'group') continue; const s0 = this.screen(e.elementBound, 0); if (s0.L < innerWidth && s0.L + s0.W > 0 && s0.T < innerHeight && s0.T + s0.H > 0) others.push(s0); }
     const clear = (c: { x: number; y: number }) => !others.some(o => c.x < o.L + o.W + 4 && c.x + bw > o.L - 4 && c.y < o.T + o.H + 4 && c.y + bh > o.T - 4);
     const at = cands.find(clear) ?? cands[0];
     Object.assign(this.bar.style, { left: at.x + 'px', top: at.y + 'px' });
