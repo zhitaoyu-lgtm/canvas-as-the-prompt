@@ -81,6 +81,8 @@ export function mountSense(rootEl: any) {
 
   setInterval(async () => {
     if (pointerDown) return;                       // mid-stroke or mid-drag: nothing to read yet, and the hand comes first
+    // another open copy of this board is running checks: what appears now is not the user speaking
+    try { const t = store.spaceDoc.getMap('cx:flags').get('checking') as number | undefined; if (t && Date.now() - t < 120_000 && !(window as any).cxCheckRunning) { rebase(); return; } } catch { /* no flags */ }
     trace.poll(); general.tick();
     if (!dev.enabled || busy || pending) return;
     const now = snapshot();
@@ -337,7 +339,8 @@ Answer with JSON only:
 
   // ── placing: copies in a grid inside the section, or close beside the group ──
   type Made = { ids: string[]; restore?: () => void; label: string; onKeep?: () => void; focus?: () => Box[]; spread?: boolean; beside?: boolean };
-  const frames2 = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+  // two frames, or 150 ms when the tab is hidden and frames do not come
+  const frames2 = () => new Promise<void>(res => { let done = false; const go = () => { if (!done) { done = true; res(); } }; requestAnimationFrame(() => requestAnimationFrame(go)); setTimeout(go, 150); });
   // Make the copies where the user is looking (off-screen notes never get their real height), wait for the
   // words to lay out, then place them by their real sizes.
   async function build(picks: Item[], found: any[]): Promise<{ ids: string[]; sizes: { w: number; h: number }[] }> {

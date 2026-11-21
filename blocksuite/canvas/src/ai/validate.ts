@@ -136,9 +136,9 @@ export function validate(a: V5, r: Reading, forms: Form[], openings: Opening[] =
 
   a = { ...a };
   if (a.strength === 'silent') return { answer: { ...a, cards: [], links: [], arrow_labels: [], fork: [], ask: null, insight: null, actions: [] }, edits };
-  a.cards = fixCards(a.cards, 'card').slice(0, 12);
+  a.cards = fixCards(a.cards, 'card').slice(0, 12); usedAt.clear();
   if (a.fork.length) {
-    a.fork = a.fork.slice(0, 2).map((f, i) => { usedSlots.clear(); return { ...f, read: visible(f.read).slice(0, 40), cards: fixCards(f.cards, `fork ${i + 1}`).slice(0, 3) }; }).filter(f => f.cards.length);
+    a.fork = a.fork.slice(0, 2).map((f, i) => { usedSlots.clear(); usedAt.clear(); return { ...f, read: visible(f.read).slice(0, 40), cards: fixCards(f.cards, `fork ${i + 1}`).slice(0, 3) }; }).filter(f => f.cards.length);
     usedSlots.clear();
   }
   if (a.strength === 'fork' && a.fork.length < 2) { edits.push('fork without two previews → ghost'); a.strength = 'ghost'; if (!a.cards.length && a.fork[0]) a.cards = a.fork[0].cards; a.fork = []; }

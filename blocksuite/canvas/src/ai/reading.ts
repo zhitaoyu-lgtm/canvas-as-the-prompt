@@ -639,11 +639,26 @@ function sortReading<T>(list: T[], boxOfT: (t: T) => Box) {
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 const q = (s: string) => JSON.stringify(s);
 
-export function toPrompt(r: Reading, opts: { maxItems?: number; textLimit?: number } = {}): string {
+export function toPrompt(r: Reading, opts: { maxItems?: number; textLimit?: number; near?: Box } = {}): string {
   const max = opts.maxItems ?? 160, tl = opts.textLimit ?? 600;
   const focus = new Set(r.focus);
   let shown = r.items;
   let note = '';
+  // attention has a place: when the reading is about one spot, show that neighbourhood in full (with whatever
+  // contains it and whatever a line ties to it) and only name the rest. A whole board in every call is slow,
+  // and it pulls the answer toward things the user was not talking about.
+  if (opts.near && r.items.length > 24) {
+    const b = opts.near, pad = Math.max(900, Math.max(b.w, b.h) * 0.8);
+    const z = { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 };
+    const keep = new Set(r.items.filter(i => focus.has(i.ref) || (i.box.x < z.x + z.w && i.box.x + i.box.w > z.x && i.box.y < z.y + z.h && i.box.y + i.box.h > z.y)).map(i => i.ref));
+    for (const c of r.items) if (c.arrow && [c.arrow.from, c.arrow.to].some(x => x && keep.has(x))) [c.ref, c.arrow.from, c.arrow.to].forEach(x => x && keep.add(x));
+    for (const ref of [...keep]) { let p0 = r.byRef.get(ref)?.parent; while (p0 && !keep.has(p0)) { keep.add(p0); p0 = r.byRef.get(p0)?.parent; } }
+    const near = r.items.filter(i => keep.has(i.ref));
+    if (near.length < r.items.length) {
+      const titles = r.items.filter(i => i.kind === 'frame' && !keep.has(i.ref) && i.text.trim()).map(i => `"${i.text.trim().slice(0, 30)}"`).slice(0, 8);
+      shown = near; note = ` (showing the ${near.length} around what the user just touched; ${r.items.length - near.length} more elsewhere${titles.length ? `, in sections ${titles.join(', ')}` : ''})`;
+    }
+  }
   if (shown.length > max) {
     const vb = r.viewport;
     shown = r.items.filter(i => focus.has(i.ref) || (i.box.x < vb.x + vb.w && i.box.x + i.box.w > vb.x && i.box.y < vb.y + vb.h && i.box.y + i.box.h > vb.y)).slice(0, max);

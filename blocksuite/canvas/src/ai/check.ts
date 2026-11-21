@@ -20,7 +20,8 @@ type Box = { x: number; y: number; w: number; h: number };
 // @ts-ignore vite's glob import (same as stickers.ts)
 const cellUrl = Object.values(import.meta.glob('../assets/check/*.jpg', { eager: true, query: '?url', import: 'default' }) as Record<string, string>)[0];
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
-const frames = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+// two frames, or 150 ms when the tab is hidden and frames do not come
+const frames = () => new Promise<void>(res => { let done = false; const go = () => { if (!done) { done = true; res(); } }; requestAnimationFrame(() => requestAnimationFrame(go)); setTimeout(go, 150); });
 const FILL: Record<string, string> = { yellow: '#ffe299', orange: '#ffd3a8', pink: '#ffa8db', blue: '#a8daff', green: '#b3efbd', red: '#ffafa3', white: '#ffffff', teal: '#b3f4ef', gray: '#e6e6e6', purple: '#d1b8ff' };
 
 export function mountCheck(rootEl: any, assistant: (req: string, ids: string[]) => Promise<any>) {
@@ -138,6 +139,8 @@ export function mountCheck(rootEl: any, assistant: (req: string, ids: string[]) 
     return rec;
   }
 
+  // a mark in the board itself, seen by every open copy: "checks are running, do not react to what appears"
+  const flag = (on: boolean) => { try { const m = store.spaceDoc.getMap('cx:flags'); if (on) m.set('checking', Date.now()); else m.delete('checking'); } catch { /* older doc */ } };
   async function runAll(only?: string[]) {
     if (running) return; running = true; stop = false;
     const S = W.cxSense, I = W.cxIntent;
@@ -153,10 +156,12 @@ export function mountCheck(rootEl: any, assistant: (req: string, ids: string[]) 
     // (the page's own tests may keep their stand-in answers to exercise the runner itself)
     const sense0 = S.enabled, mockI = W.cxMockIntent, mockA = W.cxMockAnswer; S.enabled = false; I.dry = true; if (!W.cxCheckKeepMocks) { W.cxMockIntent = undefined; W.cxMockAnswer = undefined; }
     await put(`runs/${run}`, { run, startedAt: new Date().toISOString(), total: list.length, done: 0, status: 'running', agent: navigator.userAgent.slice(0, 120) });
+    W.cxCheckRunning = true;
     try {
       for (const sc of list) {
         if (stop) break;
         state.now = `${sc.id} · ${sc.title}`; paint();
+        flag(true);                                // other open copies of this board stay out of it
         const rec = await scene(sc, zone);
         const { picture, ...rest } = rec;
         state.results.push(rest); state.done++; paint();
@@ -168,7 +173,7 @@ export function mountCheck(rootEl: any, assistant: (req: string, ids: string[]) 
         await sleep(700);
       }
     } finally {
-      clear(zone.x);
+      clear(zone.x); flag(false); W.cxCheckRunning = false;
       S.enabled = sense0; I.dry = false; W.cxMockIntent = mockI; W.cxMockAnswer = mockA; S.rebase?.(); I.forget();
       try { gfx.viewport.setViewport(zoom0, [cx0, cy0], false); } catch { try { gfx.viewport.setViewportByBound(view0, [0, 0, 0, 0], false); } catch { /* stay */ } }
       await put(`runs/${run}`, { run, total: list.length, done: state.done, status: stop ? 'stopped' : 'finished', finishedAt: new Date().toISOString(), saved: !!db });

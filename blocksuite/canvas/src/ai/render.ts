@@ -28,7 +28,8 @@ const union = (bs: Box[]): Box => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9
 const hit = (a: Box, b: Box, m = 12) => a.x < b.x + b.w + m && a.x + a.w + m > b.x && a.y < b.y + b.h + m && a.y + a.h + m > b.y;
 const cx = (b: Box) => b.x + b.w / 2, cy = (b: Box) => b.y + b.h / 2;
 const median = (v: number[]) => { if (!v.length) return 0; const s = [...v].sort((a, b) => a - b); return s[s.length >> 1]; };
-const frames2 = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+// two frames, or 150 ms when the tab is hidden and frames do not come
+const frames2 = () => new Promise<void>(res => { let done = false; const go = () => { if (!done) { done = true; res(); } }; requestAnimationFrame(() => requestAnimationFrame(go)); setTimeout(go, 150); });
 /** The largest type size (from the user's own, down to 12) at which the words fit the note. */
 function fit(w: number, h: number, text: string, max = 16): number {
   for (let size = Math.min(max, 20); size > 12; size--) {

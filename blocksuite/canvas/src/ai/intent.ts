@@ -85,10 +85,10 @@ export function mountIntent(rootEl: any, trace: Trace) {
     return { type: 'general', key, forms, openings, arranged, area: union(boxes), reading: r };
   }
 
-  function message(r: Reading, forms: Form[], openings: Opening[], request?: string, arranged: Arranged[] = []): string {
+  function message(r: Reading, forms: Form[], openings: Opening[], request?: string, arranged: Arranged[] = [], area?: Box): string {
     const L: string[] = [];
     L.push('TASK: unknown');
-    L.push('BOARD', toPrompt(r));
+    L.push('BOARD', toPrompt(r, { near: area }));
     L.push('', 'OPENINGS (what the user left open; address your answer to these)', ...(openings.length ? serialiseOpenings(openings, r) : ['none found by code']));
     L.push('', 'ARRANGED (what they just moved or recoloured, and what it now sits with)', ...(arranged.length ? arranged.map(a => '- ' + a.line) : ['nothing']));
     L.push('', 'STRUCTURE AROUND THEM (described by code; meaning not decided)', ...(forms.length ? serialiseForms(forms, r) : ['see BOARD']));
@@ -121,7 +121,7 @@ export function mountIntent(rootEl: any, trace: Trace) {
     const forms = intent.forms, openings = intent.openings ?? [];
     if (!openings.length) lastArranged = Date.now();          // an arrangement was read: do not ask about every further nudge
     const features = openings.length ? featuresOf(openings, forms, r) : ['arranged', ...((intent.arranged ?? []).some(a => /row|column/.test(a.line)) ? ['arranged:line'] : ['arranged:joined'])];
-    const user = message(r, forms, openings, intent.request, intent.arranged ?? []);
+    const user = message(r, forms, openings, intent.request, intent.arranged ?? [], intent.area);
     const refs = [...new Set([...forms.flatMap(f => [f.hub, ...f.targets, ...(f.context ?? [])]), ...openings.flatMap(o => [o.ref, o.about, o.like?.ref, ...o.refs])].filter(Boolean) as string[])];
     // always look as well as read: the area, and a close-up of any photo in it
     const rel = related(r, refs);

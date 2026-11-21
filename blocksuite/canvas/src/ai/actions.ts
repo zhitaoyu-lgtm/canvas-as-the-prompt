@@ -881,7 +881,8 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   const TINT: Record<string, string> = alias(TINTH as any);
   const SEC = { padX: 40, padTop: 40, padBottom: 40, headGap: 24, gap: 32, subGap: 8, title: TYPE.heading, sub: TYPE.small };
   type N = { kind: string; id?: string; parts?: { id: string; dx: number; dy: number }[]; w: number; h: number; spec: any; kids?: N[]; head?: { title?: string; sub?: string; tw: number; th: number } };
-  const frame2 = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  // two frames, or 150 ms when the tab is hidden and frames do not come
+  const frame2 = () => new Promise<void>(res => { let done = false; const go = () => { if (!done) { done = true; res(); } }; requestAnimationFrame(() => requestAnimationFrame(go)); setTimeout(go, 150); });
   const domain = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
   // surface text (canvas) renders with the blocksuite font name, DOM notes with Inter: measure each the way it is drawn
   const measure = (text: string, size: number, weight = 400, maxW = 1e9, surface = false) => {
