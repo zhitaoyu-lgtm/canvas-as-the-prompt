@@ -205,6 +205,7 @@ function startOwner(): Promise<boolean> {
       const u = new URL(req.url || '/', URL_);
       if (u.pathname === '/__quit' && req.headers['x-canvas'] === 'quit') { res.writeHead(200).end('bye'); setTimeout(() => process.exit(0), 100); return; }
       if (u.pathname === '/__claude' || u.pathname.startsWith('/__claude/')) { void claude(req, res, u); return; }
+      if (u.pathname === '/__version') { let v = ''; try { v = JSON.parse(fs.readFileSync(path.join(HERE, 'version.json'), 'utf8')).version ?? ''; } catch { /* a copy never updated */ } res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ version: v })); return; }
       if (u.pathname === '/__pictures') { void pictures(req, res, u); return; }
       if (u.pathname === '/__picture') { void picture(req, res, u); return; }
       let f = path.normalize(path.join(APP, decodeURIComponent(u.pathname)));

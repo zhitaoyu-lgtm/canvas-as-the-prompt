@@ -16,6 +16,9 @@ import { GLYPH, ICON } from './icons';
 import { STAMPS } from './stickers';
 import { isDark, setLook } from './theme';
 
+let appVersion = '';
+if (/^(127\.0\.0\.1|localhost)$/.test(location.hostname)) fetch('/__version', { cache: 'no-store' }).then(r => r.json()).then(j => { const v = String(j?.version ?? ''); appVersion = v.length >= 12 ? `${v.slice(4, 6)}/${v.slice(6, 8)} ${v.slice(8, 10)}:${v.slice(10, 12)}` : v; }).catch(() => {});
+
 // Palettes come from the shared design system, so hand-made and AI-made things share one hue set.
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 const STICKY = HUES.map(h => [cap(h), FILL[h]] as const);
@@ -166,6 +169,8 @@ export async function mountToolbar(rootEl: any) {
         rule(),
         icon(isDark() ? 'Light board' : 'Dark board', ICON.look, false, () => { setLook(isDark() ? 'light' : 'dark', rootEl); render(); }),   // a test switch
       );
+      // which version this is (the desktop app says; the preview has none), small, at the foot of the panel
+      if (appVersion) trayEl.append(h('div', { class: 'cx-ver' }, appVersion));
     }
     placeTray();
     if (fresh) {   // opened: bring what is chosen into view

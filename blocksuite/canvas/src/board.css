@@ -689,3 +689,5 @@ affine-edgeless-note {
 /* A text box is as tall as its words. The engine also pins the element to the stored height; in some browsers the
    words then stretched to that height, the stored height followed, and the box grew by itself. Unpinned. */
 affine-edgeless-text { height: auto !important; }
+
+.cx-ver { font: 400 9px/1.2 Inter, system-ui, sans-serif; color: #aeaeb2; text-align: center; padding: 4px 0 2px; letter-spacing: .02em; user-select: text; }
