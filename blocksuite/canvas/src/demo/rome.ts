@@ -206,7 +206,7 @@ export function mountRome(rootEl: any) {
     }
     await wait(380);
     for (const m of made) {
-      ids.push(surf.addElement({ type: 'connector', mode: 0, source: { position: m.from }, target: { position: m.to }, stroke: '#8e8e93', strokeWidth: Math.max(1, Math.round(u)), strokeStyle: 'solid', frontEndpointStyle: 'None', rearEndpointStyle: 'None' }));
+      ids.push(surf.addElement({ type: 'connector', mode: 0, source: { position: m.from }, target: { position: m.to }, stroke: '#8e8e93', strokeWidth: Math.max(0.5, 0.8 * u), strokeStyle: 'solid', frontEndpointStyle: 'None', rearEndpointStyle: 'None' }));
       const t = new Y(); t.insert(0, m.text);
       ids.push(surf.addElement({ type: 'text', xywh: `[${m.tx},${m.ty},${m.w},${m.h}]`, text: t, fontSize: size, fontWeight: '400', color: '#6e6e73', fontFamily: 'blocksuite:surface:Inter', textAlign: m.align }));
     }
@@ -417,6 +417,7 @@ export function mountRome(rootEl: any) {
   }
   /** write with the pen: each stroke is drawn, then left on the board as a real pen stroke in the user's colour and width */
   async function write(text: string, x: number, y: number, h: number, color: any, lw: number) {
+    lw = Math.max(h * 0.035, Math.min(lw, h * 0.085));   // never heavier than the letters can carry: small writing stays legible
     const NS = 'http://www.w3.org/2000/svg'; const svg = document.createElementNS(NS, 'svg'); svg.classList.add('cx-rome-ink'); svg.setAttribute('overflow', 'visible'); world.append(svg);
     let cx = x; const made: { pts: Pt[]; node: SVGPathElement }[] = [];
     for (const ch of text) {
