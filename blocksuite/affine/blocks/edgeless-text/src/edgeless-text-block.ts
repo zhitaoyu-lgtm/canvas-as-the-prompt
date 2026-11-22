@@ -64,8 +64,13 @@ export class EdgelessTextBlockComponent extends GfxBlockComponent<EdgelessTextBl
 
   private _updateH() {
     const bound = Bound.deserialize(this.model.xywh);
-    const rect = this._textContainer.getBoundingClientRect();
-    bound.h = rect.height / this.gfx.viewport.zoom;
+    // canvas-app: the height is read in the block's own layout units, not from the screen. Dividing a screen
+    // rectangle by the zoom is only right when nothing else scales the page; where it is not, the box grew by
+    // itself, a little more on every pass.
+    const scale = this.model.props.scale ?? 1;
+    const h = this._textContainer.offsetHeight * scale;
+    if (!(h > 0) || Math.abs(h - bound.h) < 0.5) return;
+    bound.h = h;
 
     this.store.updateBlock(this.model, {
       xywh: bound.serialize(),
@@ -74,11 +79,10 @@ export class EdgelessTextBlockComponent extends GfxBlockComponent<EdgelessTextBl
 
   private _updateW() {
     const bound = Bound.deserialize(this.model.xywh);
-    const rect = this._textContainer.getBoundingClientRect();
-    bound.w = Math.max(
-      rect.width / this.gfx.viewport.zoom,
-      EDGELESS_TEXT_BLOCK_MIN_WIDTH * this.gfx.viewport.zoom
-    );
+    const scale = this.model.props.scale ?? 1;
+    const w = Math.max(this._textContainer.offsetWidth * scale, EDGELESS_TEXT_BLOCK_MIN_WIDTH * scale);
+    if (Math.abs(w - bound.w) < 0.5) return;
+    bound.w = w;
 
     this.store.updateBlock(this.model, {
       xywh: bound.serialize(),

@@ -83,13 +83,16 @@ export function mountRome(rootEl: any) {
   const world = document.createElement('div'); world.className = 'cx-rome';
   document.body.append(world);
   let key = '';
-  const follow = () => {
+  const sync = () => {
     const rr = rootEl.getBoundingClientRect(), z = gfx.viewport.zoom, [ox, oy] = gfx.viewport.toViewCoord(0, 0);
     const k = `${rr.left + ox},${rr.top + oy},${z}`;
     if (k !== key) { if (key && !gliding) userMoved = Date.now(); key = k; world.style.transform = `translate(${rr.left + ox}px, ${rr.top + oy}px) scale(${z})`; }
-    requestAnimationFrame(follow);
   };
+  const follow = () => { sync(); requestAnimationFrame(follow); };
   requestAnimationFrame(follow);
+  try { gfx.viewport.viewportUpdated.subscribe(() => sync()); } catch { /* the frame loop is enough */ }
+  // the lettering is ready before the first word is set, so nothing re-flows a moment after it appears
+  try { for (const w of ['400', '600']) void (document as any).fonts?.load(`${w} 12px Inter`); } catch { /* falls back */ }
 
   // The view goes to each new answer and puts it in the middle — unless the person is moving the view themselves.
   let userMoved = 0, gliding = false, glide = 0;
@@ -104,7 +107,7 @@ export function mountRome(rootEl: any) {
       if (me !== glide) return;   // they took the view, or a newer answer did
       const t = Math.min(1, (now - t0) / ms), e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
       // zoom changes evenly to the eye (by ratio), the centre moves with it
-      vp.setViewport(z0 * Math.pow(z1 / z0, e), [c0[0] + (c1[0] - c0[0]) * e, c0[1] + (c1[1] - c0[1]) * e], false);
+      vp.setViewport(z0 * Math.pow(z1 / z0, e), [c0[0] + (c1[0] - c0[0]) * e, c0[1] + (c1[1] - c0[1]) * e], false); sync();
       if (t < 1) requestAnimationFrame(step); else setTimeout(() => { if (me === glide) gliding = false; }, 80);
     };
     requestAnimationFrame(step);
@@ -157,8 +160,15 @@ export function mountRome(rootEl: any) {
   };
 
   // ── the state of the film ──
-  const S: { map?: string; aerial?: string; plan?: string; section?: string; detail?: string; u: number; used: Set<string>; busy: boolean; filled: number; fills: { which: keyof typeof VALUE; line?: string; ids: string[] }[] } = { u: 1, used: new Set(), busy: false, filled: 0, fills: [] };
-  const scenePics = () => [S.map, S.aerial, S.plan, S.section, S.detail].filter(Boolean) as string[];
+  // What the film has made so far. Each piece is only "there" while it is still on the board: delete the plan and
+  // the plan can be asked for again; delete everything and the film starts over. Kept across reloads.
+  const P: Record<string, any> = (() => { try { return JSON.parse(localStorage.getItem('cx:rome') || '{}'); } catch { return {}; } })();
+  const keep = () => { try { localStorage.setItem('cx:rome', JSON.stringify(P)); } catch { /* not kept */ } };
+  const S = { used: new Set<string>(), busy: false, filled: 0, fills: [] as { which: keyof typeof VALUE; line?: string; ids: string[] }[] } as { map?: string; aerial?: string; plan?: string; section?: string; detail?: string; u: number; used: Set<string>; busy: boolean; filled: number; fills: { which: keyof typeof VALUE; line?: string; ids: string[] }[] };
+  for (const k of ['map', 'aerial', 'plan', 'section', 'detail']) Object.defineProperty(S, k, { enumerable: true, get: () => { const id = P[k]; if (id && !gfx.getElementById(id)) { P[k] = undefined; keep(); } return P[k]; }, set: v => { P[k] = v; keep(); } });
+  Object.defineProperty(S, 'u', { enumerable: true, get: () => P.u || 1, set: v => { P.u = v; keep(); } });
+  let clearDrop: (() => void) | null = null;
+  const scenePics = () => [S.aerial ? S.map : undefined, S.aerial, S.plan, S.section, S.detail].filter(Boolean) as string[];   // the map is free again once its photos are gone
   /** the newest unused ring: on the given picture, or (with none given) on a picture that is not yet part of the film */
   const latestRing = (onId?: string): Ring | null => { for (const e of [...els()].reverse()) { if (S.used.has(e.id)) continue; const r = ringOf(e); if (r && (onId ? r.host.id === onId : !scenePics().includes(r.host.id))) return r; } return null; };
   /** a straight line that crosses the plan from side to side (the cut) */
@@ -170,6 +180,8 @@ export function mountRome(rootEl: any) {
 
   // ── making things ──
   const blobOf = async (src: string) => { if (!src.startsWith('data:')) return (await fetch(src)).blob(); const [head, b64] = src.split(','); const bin = atob(b64), buf = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i); return new Blob([buf], { type: /data:([^;]+)/.exec(head)?.[1] ?? 'image/png' }); };
+  /** resolves once the real picture is painted (or after a moment, whichever is first) */
+  const shown = async (id?: string) => { const t0 = Date.now(); while (Date.now() - t0 < 3000) { const im = id ? (document.querySelector(`[data-block-id="${id}"] img`) as HTMLImageElement | null) : null; if (im?.complete && im.naturalWidth) break; await wait(50); } await wait(120); };
   async function picture(p: { src: string; name: string }, b: Box): Promise<string | undefined> {
     const blob = await blobOf(p.src), sourceId = await store.blobSync.set(blob);
     const im = new Image(); im.src = p.src; await im.decode().catch(() => {});
@@ -240,7 +252,7 @@ export function mountRome(rootEl: any) {
     world.append(img); void img.offsetWidth; img.classList.add('on');
     await wait(delay + 640);
     const id = await picture(p, b); label(p.label, b.x, b.y - text * 0.45, text);
-    setTimeout(() => img.remove(), 420);
+    void shown(id).then(() => img.remove());
     return id;
   }
 
@@ -318,7 +330,7 @@ export function mountRome(rootEl: any) {
     });
     ctx.clearRect(0, 0, cw, ch); ctx.drawImage(im, 0, 0, cw, ch);
     const id = await picture(p, b);
-    setTimeout(() => cv.remove(), 450);
+    void shown(id).then(() => cv.remove());
     return id;
   }
 
@@ -326,7 +338,7 @@ export function mountRome(rootEl: any) {
   // ── 1 · the ring on the map gathers into a drop; 2 · the drop opens the photos ──
   async function identify(ring: Ring) {
     const { el, host, pts, lw } = ring, sb = boxOf(el), hb = boxOf(host), u = (S.u = hb.h / 410);
-    S.map = host.id; S.used.add(el.id);
+    clearDrop?.(); S.map = host.id; S.used.add(el.id);
     const stop = think([sb.x - 22 * u, sb.y], u); await wait(1700); stop();
     const N = 72, [cx, cy] = mid(sb);
     const ringN: Pt[] = Array.from({ length: N }, (_, i) => { const a = (i / N) * Math.PI * 2; let best = pts[0], bd = 9; for (const p of pts) { const pa = Math.atan2(p[1] - cy, p[0] - cx), d = Math.abs(Math.atan2(Math.sin(pa - a), Math.cos(pa - a))); if (d < bd) { bd = d; best = p; } } return best; });
@@ -377,7 +389,9 @@ export function mountRome(rootEl: any) {
     setTimeout(() => void open(), 650);
     // the drop belongs to its map: it follows it, and leaves with it
     const base = { hx: hb.x, hy: hb.y };
-    const watch = setInterval(() => { const h = byId(host.id); if (!h) { alive = false; clearInterval(watch); svg.remove(); hit.remove(); return; } const b = boxOf(h), dx = b.x - base.hx, dy = b.y - base.hy; for (const n of [svg, hit] as any[]) n.style.translate = dx || dy ? `${dx}px ${dy}px` : ''; }, 120);
+    clearDrop = () => { alive = false; clearInterval(watch); svg.remove(); hit.remove(); clearDrop = null; };
+    let had = false;
+    const watch = setInterval(() => { const h = byId(host.id); if (S.aerial) had = true; if (!h || (had && !S.aerial)) { clearDrop?.(); return; } /* the dot goes with its map, and with its photos */ const b = boxOf(h), dx = b.x - base.hx, dy = b.y - base.hy; for (const n of [svg, hit] as any[]) n.style.translate = dx || dy ? `${dx}px ${dy}px` : ''; }, 120);
   }
 
   /** a free place for a drawing of this size: tried below, then right, of the thing it comes from */
@@ -430,7 +444,7 @@ export function mountRome(rootEl: any) {
 
   // ── 3 · the building on the photo → its plan, set under the photo so the two line up ──
   async function plan(ring: Ring) {
-    const hb = boxOf(ring.host), rb = boxOf(ring.el), u = S.u;
+    const hb = boxOf(ring.host), rb = boxOf(ring.el), u = (S.u = hb.h / 410);
     const scribbles = els().filter(e => isMark(e) && e.id !== ring.el.id && !S.used.has(e.id) && inside(mid(boxOf(e)), rb, 4)).map(e => e.id as string);
     S.used.add(ring.el.id); for (const id of scribbles) S.used.add(id);
     const stop = think([rb.x - 22 * u, rb.y], u); await wait(1500); stop();
@@ -552,7 +566,7 @@ export function mountRome(rootEl: any) {
     const onSection = S.section && !S.detail ? latestRing(S.section) : null; if (onSection) return { run: () => detail(onSection), select: onSection.el.id };
     const onAerial = S.aerial && !S.plan ? latestRing(S.aerial) : null; if (onAerial) return { run: () => plan(onAerial), select: onAerial.el.id };
     const cut = S.plan && !S.section ? cutLine() : null; if (cut) return { run: () => section(cut), select: cut.el.id };
-    const first = !S.map ? latestRing() : null; if (first) return { run: () => identify(first), select: first.el.id };
+    const first = latestRing(); if (first) return { run: () => identify(first), select: first.el.id };
     return null;
   }
   async function run(request = ''): Promise<boolean> {
