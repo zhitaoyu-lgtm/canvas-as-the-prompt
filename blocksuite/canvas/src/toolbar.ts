@@ -75,8 +75,16 @@ export async function mountToolbar(rootEl: any) {
 
   const wrap = h('div', { class: 'cx-dock' });
   const bar = h('div', { class: 'cx-bar', role: 'toolbar', 'aria-label': 'Tools' });
-  const trayEl = h('div', { class: 'cx-tray', hidden: true });
-  wrap.append(trayEl, bar);
+  // the panel beside the bar: a box (surface, shadow, the fades) around a list that scrolls when it is long
+  const trayEl = h('div', { class: 'cx-tray' });
+  const trayBox = h('div', { class: 'cx-traybox', hidden: true }, trayEl);
+  wrap.append(trayBox, bar);
+  // no scrollbar and no position dots: a long list simply fades out where there is more to roll to
+  const fades = () => {
+    trayBox.classList.toggle('more-up', trayEl.scrollTop > 2);
+    trayBox.classList.toggle('more-down', trayEl.scrollTop + trayEl.clientHeight < trayEl.scrollHeight - 2);
+  };
+  trayEl.addEventListener('scroll', fades, { passive: true });
   document.body.append(wrap);
 
   // The bar, top to bottom. '|' is a thin rule. What is not here lives behind "+".
@@ -103,9 +111,10 @@ export async function mountToolbar(rootEl: any) {
 
   // ── trays ────────────────────────────────────────────────────────────
   function openTray(id: string | null) {
+    const keep = id && id === tray ? trayEl.scrollTop : 0;   // picking something must not roll the list back
     tray = id; trayEl.textContent = ''; trayEl.className = 'cx-tray';
-    if (!id) { trayEl.hidden = true; paint(); return; }
-    trayEl.hidden = false;
+    if (!id) { trayBox.hidden = true; paint(); return; }
+    trayBox.hidden = false;
     if (id === 'sticky') {
       trayEl.classList.add('cx-tray-sticky');
       for (const [name, c] of STICKY) trayEl.append(swatch(name, c, c === sticky, () => { sticky = c; armSticky(); render(); }));
@@ -162,6 +171,7 @@ export async function mountToolbar(rootEl: any) {
       );
     }
     placeTray();
+    trayEl.scrollTop = keep; fades();
     paint();
   }
   const render = () => openTray(tray);
@@ -177,13 +187,8 @@ export async function mountToolbar(rootEl: any) {
     const vp = gfx.viewport; const c = vp.center;
     vp.setZoom(Math.max(0.1, Math.min(6, vp.zoom * k)), { x: c.x, y: c.y } as any, false);
   }
-  function placeTray() {
-    const r = wrap.getBoundingClientRect(), a = (slots[tray ?? ''] ?? bar).getBoundingClientRect();
-    const hgt = trayEl.offsetHeight;
-    const top = Math.max(12, Math.min(a.top + a.height / 2 - hgt / 2, innerHeight - 12 - hgt));
-    trayEl.style.left = `${r.width + 8}px`;
-    trayEl.style.top = `${top - r.top}px`;
-  }
+  // The panel is centred on the bar (CSS) and never taller than it: what does not fit is reached by rolling.
+  function placeTray() { trayEl.style.maxHeight = `${Math.min(bar.offsetHeight, innerHeight - 24)}px`; }
 
   // ── tools ────────────────────────────────────────────────────────────
   function armPen() {
@@ -398,7 +403,7 @@ export async function mountToolbar(rootEl: any) {
 
   // Close trays on Escape; keep the bar in sync with keyboard shortcuts (V, H, P, T, F, E…).
   addEventListener('keydown', e => { if (e.key === 'Escape') { openTray(null); closeTemplates(); if (placing) { mode = 'select'; setTool('default'); } placing = null; paint(); } });
-  addEventListener('resize', () => tray && placeTray());
+  addEventListener('resize', () => { if (tray) { placeTray(); fades(); } });
   gfx.tool.currentToolName$.subscribe((name: string) => {
     const map: Record<string, string> = { default: placing === 'doc' ? 'doc' : 'select', pan: 'hand', brush: 'pen', highlighter: 'pen', eraser: 'pen', text: 'text', frame: 'frame', shape: 'shape', connector: 'shape', template: 'templates' };
     if (placing && name === 'default') return;
