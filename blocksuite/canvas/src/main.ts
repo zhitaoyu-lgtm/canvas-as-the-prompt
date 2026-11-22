@@ -34,7 +34,7 @@ import { editorSetting, parseDocUrl, whiteboardOnly } from './services';
 import { mountPanel } from './exit/panel';
 import { initLook } from './theme';
 import { mountRome } from './demo/rome';
-import { watchMode, watchParagraphs, watchText } from './textwatch';
+import { watchMode, watchText } from './textwatch';
 import { mountScaleStrokes } from './scalestroke';
 
 // Light by default; a dark look can be switched on for testing (theme.ts keeps the choice against a host
@@ -116,7 +116,7 @@ async function main() {
   await mountToolbar(rootEl);
   const assistant0 = createAssistant(rootEl);
   // a scripted scene for filming answers its own request ("What's this?" over a pen loop on a picture)
-  const rome = mountRome(rootEl); watchText(rootEl); watchParagraphs(); watchMode(); mountScaleStrokes(rootEl);
+  const rome = mountRome(rootEl); watchText(rootEl); watchMode(); mountScaleStrokes(rootEl);
   const assistant: typeof assistant0 = async (req, ids) => ((await rome(req)) ? (false as any) : assistant0(req, ids));
   mountAiBar(rootEl, assistant);
   (window as any).cxAsk = (req: string) => assistant(req, (rootEl.gfx.selection.selectedElements as any[]).map(e => e.id));   // dev: ask without the bar

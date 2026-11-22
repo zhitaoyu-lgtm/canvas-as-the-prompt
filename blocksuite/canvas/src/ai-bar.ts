@@ -134,11 +134,17 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     const rs = els.map(radiusOne);
     return els.length === 1 || rs.every(r => Math.abs(r - rs[0]) < .5) ? rs[0] : 8;
   };
+  // where the board sits on the page: measured when the window or the board changes size, not on every frame
+  // (asking for it each frame made the page lay itself out again while things were being dragged)
+  let rr0 = rootEl.getBoundingClientRect();
+  const remeasure = () => { rr0 = rootEl.getBoundingClientRect(); };
+  addEventListener('resize', remeasure); try { new ResizeObserver(remeasure).observe(rootEl); } catch { /* resize event only */ }
+  let dragging = false;
   const boundOf = (els: any[]) => {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const e of els) { const b = e.elementBound; if (!b) continue; x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h); }
     if (x0 === Infinity) return null;
-    const rr = rootEl.getBoundingClientRect(); const [ax, ay] = gfx.viewport.toViewCoord(x0, y0); const [bx, by] = gfx.viewport.toViewCoord(x1, y1);
+    const rr = rr0; const [ax, ay] = gfx.viewport.toViewCoord(x0, y0); const [bx, by] = gfx.viewport.toViewCoord(x1, y1);
     return { L: rr.left + ax, T: rr.top + ay, R: rr.left + bx, B: rr.top + by };
   };
   document.body.append(layer);
@@ -291,7 +297,7 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   const toolbarHost = () => widget('AFFINE-TOOLBAR-WIDGET');
   const setTb = (on: boolean) => { tbOn = on; const hst = toolbarHost(); if (hst) on ? hst.setAttribute('data-cx-tb', '') : hst.removeAttribute('data-cx-tb'); };
   const injectAll = (tag: string, css: string) => { const walk = (r: Document | ShadowRoot) => { for (const e of Array.from(r.querySelectorAll('*')) as El[]) { if (e.tagName === tag && e.shadowRoot && !e.shadowRoot.querySelector('style[data-cx]')) { const st = document.createElement('style'); st.dataset.cx = '1'; st.textContent = css; e.shadowRoot.append(st); } if (e.shadowRoot && /FRAME-TITLE|EDGELESS-ROOT|EDITOR/.test(e.tagName)) walk(e.shadowRoot); } }; walk(document); };
-  setInterval(() => { if (document.body.classList.contains('cx-dragging')) return; inject('EDGELESS-SELECTED-RECT', SEL_CSS); inject('AFFINE-TOOLBAR-WIDGET', TB_CSS); }, 400);
+  setInterval(() => { if (dragging) return; inject('EDGELESS-SELECTED-RECT', SEL_CSS); inject('AFFINE-TOOLBAR-WIDGET', TB_CSS); }, 400);
   // Sections take the colour picked for them (blue when none): a pale wash, a clear border, a solid title tab.
   const probe = h('i'); probe.style.display = 'none'; layer.append(probe);
   const sectionTone = (raw: string) => {
@@ -307,7 +313,7 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   };
   let lastTones = '', tonesAt = 0;
   const paintSections = () => {
-    if (document.body.classList.contains('cx-dragging')) return;   // never while the hand is drawing or dragging
+    if (dragging) return;   // never while the hand is drawing or dragging
     const tones = new Map<string, string>();
     const frames = Array.from(rootEl.querySelectorAll('affine-frame')) as El[];
     for (const f of frames) {
@@ -334,14 +340,15 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   const selBound = () => { const els = gfx.selection.selectedElements as any[]; return els.length ? boundOf(els) : null; };
   let selHost: El | null = null, lastZ = 0;
   function placeDot() {
+    if (dragging) { if (dot.classList.contains('on')) dot.classList.remove('on'); if (hov.classList.contains('on')) hov.classList.remove('on'); return; }   // nothing to place while the hand is moving things
     const els = gfx.selection.selectedElements as any[];
     const b = els.length ? boundOf(els) : null;
-    const show = !!b && !open && !busy && !gfx.selection.editing && !document.body.classList.contains('cx-dragging');
+    const show = !!b && !open && !busy && !gfx.selection.editing && !dragging;
     dot.classList.toggle('on', show);
-    if (b && show) { dot.style.left = `${b.R + 8}px`; dot.style.top = `${b.T + 4}px`; }
+    if (b && show) { const l = `${b.R + 8}px`, t = `${b.T + 4}px`; if (dot.style.left !== l) dot.style.left = l; if (dot.style.top !== t) dot.style.top = t; }
     // the outline follows the element's own corners
     if (!selHost || !selHost.isConnected) selHost = widget('EDGELESS-SELECTED-RECT');
-    if (els.length && selHost) selHost.style.setProperty('--cx-r', `${radiusOf(els)}px`);
+    if (els.length && selHost) { const r = `${radiusOf(els)}px`; if (selHost.style.getPropertyValue('--cx-r') !== r) selHost.style.setProperty('--cx-r', r); }
     // the quiet look is in place before the outline's first paint (no flash of handles)
     if (selHost?.shadowRoot && !selHost.shadowRoot.querySelector('style[data-cx]')) { const st = document.createElement('style'); st.dataset.cx = '1'; st.textContent = SEL_CSS; selHost.shadowRoot.append(st); }
     const z = zoom(); if (z !== lastZ) { lastZ = z; rootEl.style.setProperty('--cx-z', String(z)); }
@@ -354,7 +361,6 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   document.addEventListener('pointerleave', () => { overBoard = false; });
   function placeHover() {
     const vkey = `${hx},${hy},${gfx.viewport.zoom},${gfx.viewport.centerX},${gfx.viewport.centerY},${overBoard},${open},${gfx.selection.selectedElements.length}`;
-    const dragging = document.body.classList.contains('cx-dragging');
     if (vkey === hovKey && !dragging) return;      // nothing moved: the outline is already right
     hovKey = vkey;
     let hit: any = null;
@@ -377,9 +383,10 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     if (e.button === 2) { lastSel = (gfx.selection.selectedElements as any[]).map(m => m.id); return; }
     if (e.button !== 0 || inChrome(e)) return;
     if (!e.composedPath().includes(rootEl)) return;
-    document.body.classList.add('cx-dragging'); if (tbOn) setTb(false);
+    dragging = true; if (tbOn) setTb(false);
   }, true);
-  window.addEventListener('pointerup', () => document.body.classList.remove('cx-dragging'), true);
+  // a flag, not a class on the page: changing the page's class restyled every card at the start and end of each drag
+  window.addEventListener('pointerup', () => { dragging = false; }, true);
   let tbIds = '';
   const idsNow = () => (gfx.selection.selectedElements as any[]).map(m => m.id).sort().join(',');
   // the toolbar stays for as long as the same things are selected

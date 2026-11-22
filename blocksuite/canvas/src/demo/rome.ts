@@ -83,8 +83,10 @@ export function mountRome(rootEl: any) {
   const world = document.createElement('div'); world.className = 'cx-rome';
   document.body.append(world);
   let key = '';
+  let rr0 = rootEl.getBoundingClientRect(); const remeasure = () => { rr0 = rootEl.getBoundingClientRect(); };
+  addEventListener('resize', remeasure); try { new ResizeObserver(remeasure).observe(rootEl); } catch { /* resize event only */ }
   const sync = () => {
-    const rr = rootEl.getBoundingClientRect(), z = gfx.viewport.zoom, [ox, oy] = gfx.viewport.toViewCoord(0, 0);
+    const rr = rr0, z = gfx.viewport.zoom, [ox, oy] = gfx.viewport.toViewCoord(0, 0);
     const k = `${rr.left + ox},${rr.top + oy},${z}`;
     if (k !== key) { if (key && !gliding) userMoved = Date.now(); key = k; world.style.transform = `translate(${rr.left + ox}px, ${rr.top + oy}px) scale(${z})`; }
   };
