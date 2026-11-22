@@ -77,7 +77,8 @@ export async function snapshot(rootEl: any, box: Box, maxSide = 1024, pad = 32):
       }
     }
     const elements = gfx.getElementsByBound(bound, { type: 'canvas' });
-    const surf = gfx.surfaceComponent?.renderer?.getCanvasByBound?.(bound, elements);
+    // the picture for the model always shows the stored colours, whatever look the screen has
+    let surf: any; (window as any).__cxToneOff = true; try { surf = gfx.surfaceComponent?.renderer?.getCanvasByBound?.(bound, elements); } finally { (window as any).__cxToneOff = false; }
     if (surf && surf.width && surf.height) ctx.drawImage(surf, 0, 0, out.width, out.height);
     // toBlob waits for an idle moment, and a hidden tab may never have one: after a short wait, encode at once
     return await new Promise<Blob | null>(res => {

@@ -29,6 +29,8 @@ export const ICON = {
   plus: s('<path d="M12 5.5V18.5M5.5 12H18.5" STROKE/>', 1.3),
   // a sticky note as a line icon: a square with one corner folded
   sticky: s('<path d="M4.5 6.5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v7.2l-5.8 5.8H6.5a2 2 0 0 1-2-2v-11Z" STROKE/><path d="M19.5 13.5h-3.8a2 2 0 0 0-2 2v4" STROKE/>'),
+  // the look switch: a half-filled disc
+  look: s('<circle cx="12" cy="12" r="8" STROKE/><path d="M12 4a8 8 0 0 1 0 16V4Z" fill="currentColor"/>'),
   more: s('<circle cx="6" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="18" cy="12" r="1.2" fill="currentColor"/>'),
   image: s('<rect x="3.5" y="4.5" width="17" height="15" rx="2" STROKE/><circle cx="9" cy="9.5" r="1.6" STROKE/><path d="M20.5 15.5L15.5 10.5L6 19.5" STROKE/>'),
   // pen tray

@@ -14,6 +14,7 @@ import { GfxControllerIdentifier } from '@blocksuite/affine/std/gfx';
 
 import { GLYPH, ICON } from './icons';
 import { STAMPS } from './stickers';
+import { isDark, setLook } from './theme';
 
 // Palettes come from the shared design system, so hand-made and AI-made things share one hue set.
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
@@ -162,6 +163,8 @@ export async function mountToolbar(rootEl: any) {
         icon('Table', ICON.table, false, place('table')),
         icon('Mind map', ICON.mindmap, false, () => insertMindmap()),
         icon('Templates', ICON.templates, mode === 'templates', () => { openTray(null); toggleTemplates(); paint(); }),
+        rule(),
+        icon(isDark() ? 'Light board' : 'Dark board', ICON.look, false, () => { setLook(isDark() ? 'light' : 'dark', rootEl); render(); }),   // a test switch
       );
     }
     placeTray();
@@ -185,6 +188,7 @@ export async function mountToolbar(rootEl: any) {
   // of the next, so it is plain there is more; the rest is reached by rolling.
   const CELL = 38;
   function placeTray() {
+    if (tray === 'more') { trayEl.style.maxHeight = ''; return; }   // a short fixed list: all of it shows
     const rows = tray === 'pen' ? 3 : 5, n = trayEl.children.length;
     trayEl.style.maxHeight = n > rows ? `${rows * CELL + 6 + 16}px` : '';
   }

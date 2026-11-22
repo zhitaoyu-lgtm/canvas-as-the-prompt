@@ -28,6 +28,27 @@ import { rect } from './rect.js';
 import { triangle } from './triangle.js';
 import { type Colors, horizontalOffset, verticalOffset } from './utils.js';
 
+// [canvas] say what a colour is for while it is resolved (see theme-service)
+const cxRole = <T>(role: string, f: () => T): T => {
+  const g = globalThis as any, was = g.__cxRole;
+  g.__cxRole = role;
+  try {
+    return f();
+  } finally {
+    g.__cxRole = was;
+  }
+};
+const cxLum = (c: string): number | null => {
+  let m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(c);
+  let r: number, g: number, b: number;
+  if (m) {
+    [r, g, b] = [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
+  } else if ((m = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/.exec(c))) {
+    [r, g, b] = [+m[1], +m[2], +m[3]];
+  } else return null;
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+};
+
 const shapeRenderers: Record<
   ShapeType,
   (
@@ -52,16 +73,19 @@ export const shape: ElementRenderer<ShapeElementModel> = (
   renderer,
   rc
 ) => {
-  const color = renderer.getColorValue(
+  let color = renderer.getColorValue(
     model.color,
     DefaultTheme.shapeTextColor,
     true
   );
-  const fillColor = renderer.getColorValue(
-    model.fillColor,
-    DefaultTheme.shapeFillColor,
-    true
+  const fillColor = cxRole('fill', () =>
+    renderer.getColorValue(model.fillColor, DefaultTheme.shapeFillColor, true)
   );
+  // [canvas] retuned colours must not leave words unreadable on their own surface
+  if ((globalThis as any).__cxToneOn?.() && model.filled) {
+    const a = cxLum(color), b = cxLum(fillColor);
+    if (a !== null && b !== null && Math.abs(a - b) < 0.32) color = b < 0.5 ? '#e4e4e6' : '#1e1e1e';
+  }
   const strokeColor = renderer.getColorValue(
     model.strokeColor,
     DefaultTheme.shapeStrokeColor,

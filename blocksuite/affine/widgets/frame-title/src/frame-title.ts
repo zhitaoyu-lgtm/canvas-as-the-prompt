@@ -23,6 +23,18 @@ import { property, state } from 'lit/decorators.js';
 import { mountFrameTitleEditor } from './mount-frame-title-editor.js';
 import { frameTitleStyle, frameTitleStyleVars } from './styles.js';
 
+
+// [canvas] say what a colour is for while it is resolved (see theme-service)
+const cxRole = <T>(role: string, f: () => T): T => {
+  const g = globalThis as any, was = g.__cxRole;
+  g.__cxRole = role;
+  try {
+    return f();
+  } finally {
+    g.__cxRole = was;
+  }
+};
+
 export const AFFINE_FRAME_TITLE = 'affine-frame-title';
 
 @requiredProperties({
@@ -38,9 +50,11 @@ export class AffineFrameTitle extends SignalWatcher(
   private _cachedWidth = 0;
 
   get colors() {
-    let backgroundColor = this.std
-      .get(ThemeProvider)
-      .getColorValue(this.model.props.background, undefined, true);
+    let backgroundColor = cxRole('raw', () =>
+      this.std
+        .get(ThemeProvider)
+        .getColorValue(this.model.props.background, undefined, true)
+    );
     if (isTransparent(backgroundColor)) {
       backgroundColor = this.std
         .get(ThemeProvider)

@@ -29,6 +29,24 @@ export const ThemeProvider = createIdentifier<ThemeService>(
   'AffineThemeProvider'
 );
 
+// [canvas] One place where a stored colour becomes the colour that is shown. The app may set `__cxTone` to
+// retune colours for a look (a dark board); `__cxRole` says what the colour is for, since the same value
+// must be treated differently as writing ('ink', the default), a surface ('fill'), a section ground
+// ('sheet'), or left alone ('raw': shadows).
+const cxTone = (v: string): string => {
+  const g = globalThis as any;
+  return typeof g.__cxTone === 'function' ? g.__cxTone(g.__cxRole ?? 'ink', v) : v;
+};
+export function withToneRole<T>(role: 'ink' | 'fill' | 'sheet' | 'raw', f: () => T): T {
+  const g = globalThis as any, was = g.__cxRole;
+  g.__cxRole = role;
+  try {
+    return f();
+  } finally {
+    g.__cxRole = was;
+  }
+}
+
 export class ThemeService extends Extension {
   app$: Signal<ColorScheme>;
 
@@ -96,7 +114,7 @@ export class ThemeService extends Extension {
         : `var(${result})`;
     }
 
-    return result;
+    return cxTone(result);
   }
 
   /**
@@ -131,7 +149,7 @@ export class ThemeService extends Extension {
         : this.getCssVariableColor(result, theme);
     }
 
-    return result ?? DefaultTheme.transparent;
+    return cxTone(result ?? DefaultTheme.transparent);
   }
 
   getCssVariableColor(property: string, theme = this.theme) {

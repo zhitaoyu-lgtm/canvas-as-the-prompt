@@ -281,7 +281,7 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   const dot = h('button', 'cx-sel-dot'); dot.setAttribute('aria-label', 'Ask Claude about this'); layer.append(dot);
   let tbOn = false;
   const SEL_CSS = '.handle > *, .rotate, [class*="rotate-handle"] { opacity: 0 !important; } .affine-edgeless-selected-rect { border-width: 1.5px !important; border-color: #0c8ce9 !important; border-radius: var(--cx-r, 0px) !important; }';
-  const FT_CSS = ':host { background-color: var(--cx-ft, #53b1f3) !important; color: #14212b !important; border: 0 !important; border-radius: 6px !important; padding: 0 8px !important; font-weight: 600 !important; font-size: 13px !important; } :host(:hover) { filter: brightness(.95); }';
+  const FT_CSS = ':host { background-color: color-mix(in srgb, var(--cx-ft, #53b1f3) var(--cx-ft-mix, 100%), #1c1c1e) !important; color: var(--cx-ft-ink, #14212b) !important; border: 0 !important; border-radius: 6px !important; padding: 0 8px !important; font-weight: 600 !important; font-size: 13px !important; } :host(:hover) { filter: brightness(.95); }';
   const TB_CSS = ':host(:not([data-cx-tb])) editor-toolbar { opacity: 0 !important; pointer-events: none !important; }';
   // both widgets live in the light tree: found by a native lookup and remembered. (This used to walk the whole
   // page, shadow roots included, several times a second; on a board full of cards that was a stall each time.)

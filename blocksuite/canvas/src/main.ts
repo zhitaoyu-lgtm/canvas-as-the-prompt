@@ -32,14 +32,11 @@ import { ImageProxyService } from '@blocksuite/affine/shared/adapters';
 
 import { editorSetting, parseDocUrl, whiteboardOnly } from './services';
 import { mountPanel } from './exit/panel';
+import { initLook } from './theme';
 
-// Always the light look. A host page (e.g. a dark-mode preview) may set
-// data-theme="dark" on <html>; AFFiNE would then turn every component dark.
-const root = document.documentElement;
-const pinLight = () => { if (root.dataset.theme !== 'light') root.dataset.theme = 'light'; };
-pinLight();
-new MutationObserver(pinLight).observe(root, { attributes: true, attributeFilter: ['data-theme'] });
-root.style.colorScheme = 'light';
+// Light by default; a dark look can be switched on for testing (theme.ts keeps the choice against a host
+// page that sets data-theme itself).
+initLook();
 
 itEffects();
 const storeManager = getTestStoreManager();

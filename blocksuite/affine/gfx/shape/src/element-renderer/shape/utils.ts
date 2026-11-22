@@ -80,7 +80,16 @@ export function drawGeneralShape(
       ctx.shadowOffsetY = offsetY * scale;
     }
 
-    ctx.shadowColor = renderer.getColorValue(color, undefined, true);
+    {
+      // [canvas] a shadow is not writing: it keeps its own colour
+      const g = globalThis as any, was = g.__cxRole;
+      g.__cxRole = 'raw';
+      try {
+        ctx.shadowColor = renderer.getColorValue(color, undefined, true);
+      } finally {
+        g.__cxRole = was;
+      }
+    }
   }
 
   ctx.stroke();

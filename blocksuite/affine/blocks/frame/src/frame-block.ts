@@ -24,6 +24,18 @@ import {
   type FrameOverlay,
 } from './frame-manager';
 
+
+// [canvas] say what a colour is for while it is resolved (see theme-service)
+const cxRole = <T>(role: string, f: () => T): T => {
+  const g = globalThis as any, was = g.__cxRole;
+  g.__cxRole = role;
+  try {
+    return f();
+  } finally {
+    g.__cxRole = was;
+  }
+};
+
 export class FrameBlockComponent extends GfxBlockComponent<FrameBlockModel> {
   override connectedCallback() {
     super.connectedCallback();
@@ -81,9 +93,11 @@ export class FrameBlockComponent extends GfxBlockComponent<FrameBlockModel> {
 
   override renderGfxBlock() {
     const { model, showBorder, std } = this;
-    const backgroundColor = std
-      .get(ThemeProvider)
-      .generateColorProperty(model.props.background, DefaultTheme.transparent);
+    const backgroundColor = cxRole('raw', () =>
+      std
+        .get(ThemeProvider)
+        .generateColorProperty(model.props.background, DefaultTheme.transparent)
+    );
     const _isNavigator =
       this.gfx.tool.currentToolName$.value === 'frameNavigator';
     const frameIndex = this.gfx.layer.getZIndex(model);

@@ -33,6 +33,18 @@ import { property } from 'lit/decorators.js';
 import { NoteConfigExtension } from '../config';
 import * as styles from './edgeless-note-background.css';
 
+
+// [canvas] say what a colour is for while it is resolved (see theme-service)
+const cxRole = <T>(role: string, f: () => T): T => {
+  const g = globalThis as any, was = g.__cxRole;
+  g.__cxRole = role;
+  try {
+    return f();
+  } finally {
+    g.__cxRole = was;
+  }
+};
+
 @requiredProperties({
   note: PropTypes.instanceOf(NoteBlockModel),
 })
@@ -42,10 +54,12 @@ export class EdgelessNoteBackground extends SignalWatcher(
   readonly backgroundStyle$ = computed(() => {
     const themeProvider = this.std.get(ThemeProvider);
     const theme = themeProvider.theme$.value;
-    const backgroundColor = themeProvider.generateColorProperty(
-      this.note.props.background$.value,
-      DefaultTheme.noteBackgrounColor,
-      theme
+    const backgroundColor = cxRole('fill', () =>
+      themeProvider.generateColorProperty(
+        this.note.props.background$.value,
+        DefaultTheme.noteBackgrounColor,
+        theme
+      )
     );
 
     const { borderRadius, borderSize, borderStyle, shadowType } =

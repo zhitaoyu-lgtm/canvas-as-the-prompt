@@ -618,3 +618,47 @@ affine-edgeless-note {
 .cx-check-a button { border: 0; border-radius: 8px; padding: 7px 14px; font: inherit; font-weight: 500; background: #f2f2f4; color: #1d1d1f; cursor: pointer; }
 .cx-check-a button.go { background: #1d1d1f; color: #fff; }
 .cx-check-a button:disabled { opacity: .4; cursor: default; }
+
+/* ── Dark look (a test switch behind "+") ────────────────────────────────────────────────────────
+   The board is near black; sections one step up; notes and cards one more. Colours on the board are retuned
+   where they are shown (theme.ts), never in what is stored. */
+:root[data-cx-look='dark'] { --cx-board: #0e0e0f; --cx-dot: #222224; }
+:root[data-cx-look='dark'] { --affine-background-overlay-panel-color: #1c1c1e; --affine-note-shadow-box: 0 0 0 .5px rgba(255,255,255,.07); }
+[data-cx-look='dark'] body.cx-pn-on { background: #060607 !important; }
+[data-cx-look='dark'] body.cx-pn-on #app { box-shadow: 0 0 0 1px rgba(255,255,255,.06); }
+
+/* the bar and its panels */
+[data-cx-look='dark'] .cx-bar, [data-cx-look='dark'] .cx-traybox { background: #1c1c1e; box-shadow: 0 0 0 .5px rgba(255,255,255,.1), 0 8px 24px rgba(0,0,0,.5); }
+[data-cx-look='dark'] .cx-div, [data-cx-look='dark'] .cx-tdiv i { background: #303032; }
+[data-cx-look='dark'] .cx-s, [data-cx-look='dark'] .cx-ti { color: #98989d; }
+[data-cx-look='dark'] .cx-s:hover, [data-cx-look='dark'] .cx-ti:hover, [data-cx-look='dark'] .cx-stamp:hover { background: rgba(255,255,255,.07); }
+[data-cx-look='dark'] .cx-s.on, [data-cx-look='dark'] .cx-ti.on, [data-cx-look='dark'] .cx-stamp.on { background: rgba(255,255,255,.12); color: #ececee; }
+[data-cx-look='dark'] .cx-sw:hover .sel { stroke: #3a3a3c; }
+[data-cx-look='dark'] .cx-sw[aria-pressed='true'] .sel { stroke: #7c7c80; }
+[data-cx-look='dark'] .cx-sw svg { opacity: .88; }
+[data-cx-look='dark'] .cx-trayscroll::before { background: linear-gradient(to bottom, rgba(28,28,30,.96) 10%, rgba(28,28,30,0)); }
+[data-cx-look='dark'] .cx-trayscroll::after { background: linear-gradient(to top, rgba(28,28,30,.96) 10%, rgba(28,28,30,0)); }
+[data-cx-look='dark'] .cx-pn-open { color: #98989d; }
+[data-cx-look='dark'] .cx-pn-open:hover { color: #ececee; background: rgba(255,255,255,.08); }
+[data-cx-look='dark'] .cx-pn-open:active { background: rgba(255,255,255,.13); }
+
+/* what waits for an answer is dimmed toward the board, not toward white */
+[data-cx-look='dark'] .cx-sense-veil { background: rgba(14,14,15,.5); }
+[data-cx-look='dark'] .cx-sense-veil.ghost { background: rgba(14,14,15,.45); }
+[data-cx-look='dark'] .cx-sense-veil.ghost.near { background: rgba(14,14,15,0); }
+[data-cx-look='dark'] .cx-hover { border-color: rgba(255,255,255,.28); }
+[data-cx-look='dark'] .cx-toast, [data-cx-look='dark'] .cx-in { box-shadow: 0 0 0 .5px rgba(255,255,255,.16); }
+
+/* The remaining floating pieces (the AI's bars, comment pins, the side panel and its document, the check panel)
+   were drawn for a light ground. Until each has its own dark drawing, they are turned as a whole: light becomes
+   dark, hues stay. Pictures inside are turned back. */
+[data-cx-look='dark'] :is(.cx-cap, .cx-sense-bar, .cx-link-chip, .cx-pin, .cx-evidence, .cx-check, .cx-pn, .cx-update) { filter: invert(.9) hue-rotate(180deg); }
+[data-cx-look='dark'] :is(.cx-cap, .cx-sense-bar, .cx-link-chip, .cx-evidence, .cx-check, .cx-pn, .cx-update) { box-shadow: 0 0 0 1px rgba(0,0,0,.1) !important; }
+[data-cx-look='dark'] :is(.cx-cap, .cx-sense-bar, .cx-pin, .cx-evidence, .cx-check, .cx-pn) :is(img, video, canvas) { filter: invert(1) hue-rotate(180deg); }
+
+/* sections on the dark board: the same hue, as a faint ground, a quiet edge and a muted title tab */
+:root[data-cx-look='dark'] { --cx-ft-mix: 32%; --cx-ft-ink: #dde3e8; }
+[data-cx-look='dark'] affine-frame .affine-frame-container { border-color: color-mix(in srgb, var(--cx-line, #73bef1) 38%, transparent) !important; }
+[data-cx-look='dark'] affine-edgeless-note { color: color-mix(in srgb, #dededf calc(clamp(0, (var(--cx-z, 1) - .25) * 5, 1) * 100%), #7c7c80); }
+[data-cx-look='dark'] affine-edgeless-note > div, [data-cx-look='dark'] affine-edgeless-note edgeless-note-background { box-shadow: 0 0 0 .5px rgba(255,255,255,.06) !important; }
+[data-cx-look='dark'] affine-edgeless-note edgeless-note-background { box-shadow: none !important; }
