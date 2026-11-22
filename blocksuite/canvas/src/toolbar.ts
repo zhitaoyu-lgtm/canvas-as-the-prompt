@@ -1,7 +1,8 @@
 import { CARD_STYLE, FILL, HUES, INK, TEXT, stickyProps, type Hue } from './design';
-// Bottom toolbar, built from the Figma "FigJam · Home (empty board)" toolbar (google-2026, node 2052:2316)
-// and its trays ("Tool tray / Sticky", "Tool tray / Shape"). It drives AFFiNE's own tools, so drawing,
-// zoom, snapping and undo stay the engine's.
+// The toolbar: a small vertical bar at the middle of the left edge. Everyday tools are in the bar as gray line
+// icons; the rest (doc note, image, table, mind map, templates, zoom) is a short labelled list behind "+".
+// Each tool's options open as a narrow two-column panel beside the bar, never across the board.
+// It drives AFFiNE's own tools, so drawing, zoom, snapping and undo stay the engine's.
 
 import { addImages } from '@blocksuite/affine/blocks/image';
 import { EdgelessCRUDIdentifier } from '@blocksuite/affine/blocks/surface';
@@ -11,7 +12,7 @@ import { focusTextModel } from '@blocksuite/affine/rich-text';
 import { EditPropsStore } from '@blocksuite/affine/shared/services';
 import { GfxControllerIdentifier } from '@blocksuite/affine/std/gfx';
 
-import { GLYPH, ICON, PEN_3D, STICKY_3D } from './icons';
+import { GLYPH, ICON } from './icons';
 import { STAMPS } from './stickers';
 
 // Palettes come from the shared design system, so hand-made and AI-made things share one hue set.
@@ -78,40 +79,27 @@ export async function mountToolbar(rootEl: any) {
   wrap.append(trayEl, bar);
   document.body.append(wrap);
 
-  // Exact geometry of the Figma toolbar (node 2052:2316, 664 × 55). Every slot is placed where Figma has it.
-  // [id, label, x, y, w, h, kind]; kind: flat icon (24px), dim (dimensional art), more (round + button)
-  const LAYOUT: [string, string, number, number, number, number, 'flat' | 'dim' | 'more', string][] = [
-    ['select', 'Select · V', 15, 15, 24, 24, 'flat', ICON.cursor],
-    ['hand', 'Hand · H', 59, 15, 24, 24, 'flat', ICON.hand],
-    ['pen', 'Pen · P', 117.5, 7.5, 39, 48, 'dim', PEN_3D],
-    ['sticky', 'Sticky note · S', 170.63, 5.7, 75, 50, 'dim', STICKY_3D],
-    ['text', 'Text · T', 275, 15.5, 24, 24, 'flat', ICON.text],
-    ['shape', 'Shapes & connectors · O', 320.8, 15.5, 24, 24, 'flat', ICON.shapes],
-    ['frame', 'Frame · F', 366.6, 15.5, 24, 24, 'flat', ICON.section],
-    ['doc', 'Doc note · N', 412.4, 15.5, 24, 24, 'flat', ICON.doc],
-    ['stamp', 'Stamp', 458.2, 15.5, 24, 24, 'flat', ICON.stamp],
-    ['image', 'Image', 504, 15.5, 24, 24, 'flat', ICON.image],
-    ['templates', 'Templates & stickers', 549.8, 15.5, 24, 24, 'flat', ICON.templates],
-    ['more', 'More', 592.8, 13.5, 28, 28, 'more', ICON.plus],
+  // The bar, top to bottom. '|' is a thin rule. What is not here lives behind "+".
+  const LAYOUT: ([string, string, string] | '|')[] = [
+    ['select', 'Select · V', ICON.cursor],
+    ['hand', 'Hand · H', ICON.hand],
+    '|',
+    ['pen', 'Pen · P', ICON.pen],
+    ['sticky', 'Sticky note · S', ICON.sticky],
+    ['text', 'Text · T', ICON.text],
+    ['shape', 'Shapes & connectors · O', ICON.shapes],
+    ['frame', 'Section · F', ICON.section],
+    ['stamp', 'Stamp', ICON.stamp],
+    '|',
+    ['more', 'More', ICON.plus],
   ];
-  const BAR_W = 637;
-  const DIM_BG: Record<string, [number, number]> = { pen: [108, 58], sticky: [168, 78] };
   const slots: Record<string, El> = {};
-  for (const [id, label, x, y, w, hh, kind, svg] of LAYOUT) {
-    if (kind === 'dim') {
-      const [bx, bw] = DIM_BG[id];
-      bar.append(h('span', { class: 'cx-dimbg', 'data-for': id, style: `left:${bx}px;width:${bw}px` }));
-    }
-    const b = h('button', {
-      class: `cx-s cx-${kind}`, 'data-id': id, 'aria-label': label,
-      style: kind === 'flat' ? `left:${x - 6}px;top:${y - 6}px` : `left:${x}px;top:${y}px;width:${w}px;height:${hh}px`,
-      html: kind === 'more' ? `<span>${svg}</span>` : svg,
-      onclick: () => { if (!dragGuard) pick(id); },
-    });
+  for (const it of LAYOUT) {
+    if (it === '|') { bar.append(h('span', { class: 'cx-div' })); continue; }
+    const [id, label, svg] = it;
+    const b = h('button', { class: 'cx-s' + (id === 'more' ? ' cx-more' : ''), 'data-id': id, 'aria-label': label, html: svg, onclick: () => { if (!dragGuard) pick(id); } });
     slots[id] = b; bar.append(b);
   }
-  bar.append(h('span', { class: 'cx-div', style: 'left:100px' }), h('span', { class: 'cx-div', style: 'left:253px' }));
-  wrap.style.width = `${BAR_W}px`;
 
   // ── trays ────────────────────────────────────────────────────────────
   function openTray(id: string | null) {
@@ -125,11 +113,15 @@ export async function mountToolbar(rootEl: any) {
       // Figma kit "Tool tray / Marker": sub-tools | stroke presets | colours
       trayEl.classList.add('cx-tray-shape');
       const kinds: ['brush' | 'highlighter' | 'eraser', string, string][] = [['brush', 'Marker', GLYPH.marker], ['highlighter', 'Highlighter', GLYPH.highlighter], ['eraser', 'Eraser · E', GLYPH.eraser]];
-      for (const [k, label, g] of kinds) trayEl.append(icon(label, g, penKind === k, () => { penKind = k; armPen(); render(); }, 'cx-ti cx-glyph'));
+      // three of a kind sit in one row across the panel's two columns
+      const g3 = () => { const g = h('div', { class: 'cx-tg3' }); trayEl.append(g); return g; };
+      const gk = g3();
+      for (const [k, label, g] of kinds) gk.append(icon(label, g, penKind === k, () => { penKind = k; armPen(); render(); }, 'cx-ti cx-glyph'));
       trayEl.append(h('span', { class: 'cx-tdiv' }, h('i')));
       const kind = penKind === 'highlighter' ? 'highlighter' : 'brush';
       const off = penKind === 'eraser';
-      SIZE_NAMES.forEach((n, i) => trayEl.append(icon(`${n} stroke`, ICON.squiggle(i), !off && size[kind] === i, () => { size[kind] = i; armPen(); render(); }, 'cx-ti' + (off ? ' off' : ''))));
+      const gs = g3();
+      SIZE_NAMES.forEach((n, i) => gs.append(icon(`${n} stroke`, ICON.squiggle(i), !off && size[kind] === i, () => { size[kind] = i; armPen(); render(); }, 'cx-ti' + (off ? ' off' : ''))));
       trayEl.append(h('span', { class: 'cx-tdiv' }, h('i')));
       const pal = kind === 'highlighter' ? HILITE : MARKER;
       const cur = kind === 'highlighter' ? hilite : ink;
@@ -146,20 +138,27 @@ export async function mountToolbar(rootEl: any) {
       for (const [n, label, ic] of C) trayEl.append(icon(label, ic, shape.kind === 'connector' && shape.name === n, () => { shape = { kind: 'connector', name: n }; armShape(); render(); }));
       const S: [string, string, string][] = [['rect', 'Square', ICON.rect], ['ellipse', 'Ellipse', ICON.ellipse], ['diamond', 'Diamond', ICON.diamond], ['triangle', 'Triangle', ICON.triangle], ['triangleDown', 'Triangle down', ICON.triangleDown], ['roundedRect', 'Rounded', ICON.rounded]];
       for (const [n, label, ic] of S) trayEl.append(icon(label, ic, shape.kind === 'shape' && shape.name === n, () => { shape = { kind: 'shape', name: n }; armShape(); render(); }));
-      trayEl.append(icon('Mind map', ICON.mindmap, false, () => { insertMindmap(); }));
     } else if (id === 'stamp') {
       // FigJam-style stamps: pick one, then click the board to stamp it (stays armed until Esc).
       trayEl.classList.add('cx-tray-stamp');
       for (const st of STAMPS) trayEl.append(h('button', { class: 'cx-stamp' + (st === stamp ? ' on' : ''), 'aria-label': st.name, onclick: () => { stamp = st; placing = 'stamp'; setTool('default'); render(); } }, h('img', { src: st.url, alt: '' })));
     } else if (id === 'more') {
-      trayEl.classList.add('cx-tray-shape');
+      trayEl.classList.add('cx-tray-more');
+      const row = (label: string, svg: string, f: () => void, on = false) => h('button', { class: 'cx-mi' + (on ? ' on' : ''), onclick: f, html: `${svg}<span>${label}</span>` });
+      const place = (what: 'doc' | 'table') => () => { openTray(null); mode = what === 'doc' ? 'doc' : 'select'; placing = what; setTool('default'); paint(); };
       trayEl.append(
-        icon('Mind map', ICON.mindmap, false, () => insertMindmap()),
-        icon('Table', ICON.table, false, () => { openTray(null); mode = 'select'; placing = 'table'; setTool('default'); paint(); }),
+        row('Doc note', ICON.doc, place('doc'), mode === 'doc'),
+        row('Image', ICON.image, () => { placing = null; openTray(null); pickImage(); }),
+        row('Table', ICON.table, place('table')),
+        row('Mind map', ICON.mindmap, () => insertMindmap()),
+        row('Templates', ICON.templates, () => { openTray(null); toggleTemplates(); paint(); }, mode === 'templates'),
         h('span', { class: 'cx-tdiv' }, h('i')),
-        icon('Zoom out · Ctrl −', ICON.minus, false, () => zoomBy(1 / 1.25)),
-        icon('Zoom in · Ctrl +', ICON.plusThin, false, () => zoomBy(1.25)),
-        icon('Fit to screen · Shift 1', ICON.fit, false, () => { try { rootEl.service?.setZoomByAction?.('fit'); } catch {} openTray(null); }),
+        h('div', { class: 'cx-zoom' },
+          icon('Zoom out · Ctrl −', ICON.minus, false, () => { zoomBy(1 / 1.25); render(); }),
+          h('span', {}, `${Math.round(gfx.viewport.zoom * 100)}%`),
+          icon('Zoom in · Ctrl +', ICON.plusThin, false, () => { zoomBy(1.25); render(); }),
+          icon('Fit to screen · Shift 1', ICON.fit, false, () => { try { rootEl.service?.setZoomByAction?.('fit'); } catch {} openTray(null); }),
+        ),
       );
     }
     placeTray();
@@ -176,16 +175,14 @@ export async function mountToolbar(rootEl: any) {
   }
   function zoomBy(k: number) {
     const vp = gfx.viewport; const c = vp.center;
-    vp.setZoom(Math.max(0.1, Math.min(6, vp.zoom * k)), { x: c.x, y: c.y } as any, true);
+    vp.setZoom(Math.max(0.1, Math.min(6, vp.zoom * k)), { x: c.x, y: c.y } as any, false);
   }
   function placeTray() {
-    const w = trayEl.offsetWidth;
-    trayEl.style.left = `${(bar.offsetWidth - w) / 2}px`;
-    trayEl.style.bottom = `${55 + (tray === 'sticky' ? 13 : 10)}px`;
-    // keep inside the window
-    const r = wrap.getBoundingClientRect(); let x = (bar.offsetWidth - w) / 2;
-    x = Math.max(12 - r.left, Math.min(x, innerWidth - 12 - r.left - w));
-    trayEl.style.left = `${x}px`;
+    const r = wrap.getBoundingClientRect(), a = (slots[tray ?? ''] ?? bar).getBoundingClientRect();
+    const hgt = trayEl.offsetHeight;
+    const top = Math.max(12, Math.min(a.top + a.height / 2 - hgt / 2, innerHeight - 12 - hgt));
+    trayEl.style.left = `${r.width + 8}px`;
+    trayEl.style.top = `${top - r.top}px`;
   }
 
   // ── tools ────────────────────────────────────────────────────────────
@@ -209,7 +206,7 @@ export async function mountToolbar(rootEl: any) {
   }
   function armSticky() { placing = 'sticky'; setTool('default'); }
   function pick(id: string) {
-    if (id !== 'templates') closeTemplates();
+    closeTemplates();
     switch (id) {
       case 'select': placing = null; setTool('default'); mode = id; openTray(null); break;
       case 'hand': placing = null; setTool('pan', { panning: false }); mode = id; openTray(null); break;
@@ -219,10 +216,7 @@ export async function mountToolbar(rootEl: any) {
       case 'sticky': mode = id; armSticky(); openTray(tray === 'sticky' ? null : 'sticky'); break;
       case 'shape': mode = id; armShape(); openTray(tray === 'shape' ? null : 'shape'); break;
       case 'more': openTray(tray === 'more' ? null : 'more'); break;
-      case 'templates': openTray(null); toggleTemplates(); break;
-      case 'doc': mode = id; placing = 'doc'; setTool('default'); openTray(null); break;
       case 'stamp': mode = id; placing = 'stamp'; setTool('default'); openTray(tray === 'stamp' ? null : 'stamp'); break;
-      case 'image': placing = null; openTray(null); pickImage(); break;
     }
     paint();
   }
@@ -380,7 +374,7 @@ export async function mountToolbar(rootEl: any) {
     document.body.append(input); input.click();
   }
 
-  // Templates: AFFiNE's own template library, opened above the bar.
+  // Templates: AFFiNE's own template library, opened beside the bar.
   let panel: any = null;
   function closeTemplates() { if (panel) { panel.remove(); panel = null; if (mode === 'templates') { mode = 'select'; setTool('default'); } } }
   function toggleTemplates() {
@@ -393,17 +387,17 @@ export async function mountToolbar(rootEl: any) {
     panel.addEventListener('closepanel', () => { closeTemplates(); paint(); });
     document.body.append(panel);
     requestAnimationFrame(() => {
-      const a = slots.templates.getBoundingClientRect();
+      const b = bar.getBoundingClientRect();
       const w = panel.offsetWidth || 467, hgt = panel.offsetHeight || 568;
       panel.style.position = 'fixed';
-      panel.style.left = `${Math.max(12, Math.min(a.left + a.width / 2 - w / 2, innerWidth - w - 12))}px`;
-      panel.style.top = `${Math.max(12, bar.getBoundingClientRect().top - hgt - 12)}px`;
+      panel.style.left = `${Math.min(b.right + 12, innerWidth - w - 12)}px`;
+      panel.style.top = `${Math.max(12, Math.min(b.top + b.height / 2 - hgt / 2, innerHeight - hgt - 12))}px`;
       const arrow = panel.renderRoot?.querySelector('.arrow'); if (arrow) arrow.style.display = 'none';
     });
   }
 
   // Close trays on Escape; keep the bar in sync with keyboard shortcuts (V, H, P, T, F, E…).
-  addEventListener('keydown', e => { if (e.key === 'Escape') { openTray(null); closeTemplates(); placing = null; paint(); } });
+  addEventListener('keydown', e => { if (e.key === 'Escape') { openTray(null); closeTemplates(); if (placing) { mode = 'select'; setTool('default'); } placing = null; paint(); } });
   addEventListener('resize', () => tray && placeTray());
   gfx.tool.currentToolName$.subscribe((name: string) => {
     const map: Record<string, string> = { default: placing === 'doc' ? 'doc' : 'select', pan: 'hand', brush: 'pen', highlighter: 'pen', eraser: 'pen', text: 'text', frame: 'frame', shape: 'shape', connector: 'shape', template: 'templates' };
@@ -430,14 +424,12 @@ export async function mountToolbar(rootEl: any) {
 
   function paint() {
     for (const [id, b] of Object.entries(slots)) {
-      const on = id === mode || (id === 'more' && tray === 'more');
+      // what lives behind "+" lights the "+" while it is the tool in hand
+      const on = id === mode || (id === 'more' && (tray === 'more' || mode === 'doc' || mode === 'templates'));
       b.classList.toggle('on', on);
       b.setAttribute('aria-pressed', String(on));
     }
     bar.classList.toggle('tray-open', !!tray);
-    bar.querySelectorAll<HTMLElement>('.cx-dimbg').forEach(e => e.classList.toggle('on', e.dataset.for === mode));
-    const tip = slots.pen.querySelector('.tip') as SVGPathElement | null;
-    if (tip) tip.setAttribute('fill', penKind === 'eraser' ? '#c9c9c9' : ink);
   }
   paint();
 }

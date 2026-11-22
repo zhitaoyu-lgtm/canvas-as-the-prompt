@@ -20,76 +20,73 @@ affine-edgeless-zoom-toolbar-widget { display: none !important; }
   --affine-background-overlay-panel-color: #ffffff;
 }
 
-/* ── Bottom toolbar: Figma "FigJam · Home (empty board)" toolbar, google-2026 node 2052:2316 ──
-   664 × 55, radius 14, white, FigJam/Elevation 200. Slots are absolutely placed at Figma's x/y. */
+/* ── Toolbar: a small vertical bar at the middle of the left edge ──
+   32px slots, 20px gray line icons, radius 12, white. Options open beside it as narrow two-column panels. */
 edgeless-toolbar-widget { display: none !important; }
 
 .cx-dock {
-  position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 40;
-  width: 637px; height: 55px;
+  position: fixed; left: 12px; top: 50%; transform: translateY(-50%); z-index: 40;
   font: 500 12px/1.2 Inter, system-ui, -apple-system, 'Segoe UI', sans-serif; color: #1e1e1e;
 }
 .cx-bar {
-  position: absolute; inset: 0; background: #fff; border-radius: 14px; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 5px;
+  background: #fff; border-radius: 12px;
   box-shadow: 0 4px 12px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.08), 0 0 .5px rgba(0,0,0,.18);
 }
-.cx-div { position: absolute; top: 0; width: 1px; height: 55px; background: #e6e6e6; }
-:where(.cx-dock) button { all: unset; box-sizing: border-box; cursor: pointer; position: absolute; }
+.cx-div { width: 18px; height: 1px; margin: 3px 0; background: #e6e6e6; flex: none; }
+:where(.cx-dock) button { all: unset; box-sizing: border-box; cursor: pointer; position: relative; }
 
-/* flat 24px icons: 36px hit box, icon 6px in (Tool button: Default / Hover / Active) */
-.cx-flat { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; color: #86868b; }
-.cx-flat[data-id='select'] { color: #515151; }
-.cx-flat:hover { background: #f5f5f5; }
-.cx-flat.on { background: #f2f2f2; box-shadow: 0 0 4px rgba(0,0,0,.05); color: #515151; }
+.cx-s { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: #86868b; flex: none; }
+.cx-s svg { width: 20px; height: 20px; display: block; }
+.cx-s:hover { background: #f5f5f5; }
+.cx-s.on { background: #f0f0f0; color: #3a3a3c; }
+.cx-s[data-id='sticky'] { touch-action: none; transition: transform .16s cubic-bezier(.2,.8,.2,1); }
+.cx-s[data-id='sticky'].pulling { transform: scale(.9); }
 
-/* dimensional art, exact Figma bounds; clipped by the bar */
-.cx-dim svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.cx-dim[data-id='shape'] { color: #86868b; }
-.cx-dim[data-id='shape']:hover, .cx-dim[data-id='shape'].on { color: #757575; }
-.cx-dimbg { position: absolute; top: 0; height: 55px; background: transparent; transition: background .12s; }
-.cx-dimbg.on { background: transparent; }
-/* picked dimensional tools lift a little, like FigJam */
-.cx-dim { transition: transform .16s cubic-bezier(.2,.8,.2,1); }
-.cx-dim[data-id='pen']:hover { transform: translateY(-2px); }
-.cx-dim[data-id='sticky']:hover { transform: translateY(-2px); }
-.cx-dim.on { transform: translateY(-5px); }
-
-.cx-more { width: 28px; height: 28px; border-radius: 14px; background: #f0f0f0; color: #86868b; }
-.cx-more span { position: absolute; left: 2px; top: 2px; width: 24px; height: 24px; }
-.cx-more:hover, .cx-more.on { background: #e8e8e8; }
-
-/* trays: Tool tray / Sticky (gap 8, px 12) and Tool tray / Shape (gap 4, px 8), h 50, radius 12 */
+/* panels beside the bar: two columns, top to bottom */
 .cx-tray {
-  position: absolute; display: flex; align-items: center; height: 50px; background: #fff; border-radius: 14px;
-  white-space: nowrap;
+  position: absolute; display: grid; grid-template-columns: repeat(2, 34px); gap: 2px; padding: 5px;
+  background: #fff; border-radius: 12px; max-height: calc(100vh - 24px); overflow-y: auto; scrollbar-width: none;
   box-shadow: 0 4px 12px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.08), 0 0 .5px rgba(0,0,0,.18);
 }
 .cx-tray[hidden] { display: none; }
-.cx-tray button { position: relative; }
-.cx-tray-sticky { gap: 8px; padding: 0 12px; }
-.cx-tray-shape { gap: 4px; padding: 0 8px; }
-.cx-sw { width: 32px; height: 32px; display: block; }
-/* selected: the same ring as Figma's, in light gray; hover: a fainter ring */
+.cx-tray::-webkit-scrollbar { display: none; }
+.cx-sw { width: 34px; height: 34px; display: grid; place-items: center; }
 .cx-sw .sel { stroke: transparent; transition: stroke .12s ease; }
 .cx-sw:hover .sel { stroke: #ececec; }
 .cx-sw[aria-pressed='true'] .sel { stroke: #c8c8c8; }
-.cx-sw svg { display: block; }
-.cx-ti { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; color: #757575; }
+.cx-sw svg { display: block; width: 30px; height: 30px; }
+.cx-ti { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; color: #757575; }
+.cx-ti svg { width: 22px; height: 22px; }
 .cx-ti:hover { background: #f5f5f5; }
-.cx-ti.on { background: #f2f2f2; border-radius: 8px; }
-.cx-tdiv { position: relative; width: 17px; height: 50px; flex: none; }
-.cx-tdiv i { position: absolute; left: 8px; top: 0; width: 1px; height: 50px; background: #e6e6e6; }
+.cx-ti.on { background: #f0f0f0; border-radius: 8px; }
+.cx-tg3 { grid-column: 1 / -1; display: flex; justify-content: space-between; }
+.cx-tg3 .cx-ti { width: 23px; height: 32px; border-radius: 7px; }
+.cx-tg3 .cx-ti svg { width: 20px; height: 20px; }
+.cx-tdiv { grid-column: 1 / -1; height: 7px; display: grid; align-items: center; }
+.cx-tdiv i { display: block; height: 1px; margin: 0 6px; background: #e6e6e6; }
 .cx-ti.off, .cx-sw.off { opacity: .3; pointer-events: none; }
 .cx-glyph { align-items: end; overflow: hidden; }
 .cx-glyph svg { margin-bottom: -2px; }
-.cx-glyph.on { border: 0; border-radius: 8px; background: #f2f2f2; }
-.cx-tray-stamp { display: grid; grid-template-columns: repeat(12, 36px); gap: 4px; height: auto; padding: 8px; }
-.cx-stamp { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; }
-.cx-stamp img { width: 28px; height: 28px; display: block; pointer-events: none; }
+.cx-glyph.on { border: 0; border-radius: 8px; background: #f0f0f0; }
+.cx-stamp { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; }
+.cx-stamp img { width: 26px; height: 26px; display: block; pointer-events: none; }
 .cx-stamp:hover { background: #f5f5f5; }
-.cx-stamp.on { background: #f2f2f2; }
-.cx-fillbtn { display: flex !important; align-items: center; height: 36px; padding-left: 4px; color: #757575; }
-.cx-fillbtn svg:last-child { width: 16px; height: 16px; }
+.cx-stamp.on { background: #f0f0f0; }
+.cx-fillbtn { grid-column: 1 / -1; display: flex !important; align-items: center; justify-content: center; height: 34px; border-radius: 8px; color: #757575; }
+.cx-fillbtn:hover { background: #f5f5f5; }
+.cx-fillbtn svg:first-child { width: 22px; height: 22px; }
+.cx-fillbtn svg:last-child { width: 14px; height: 14px; }
+
+/* "+": what is used less, as a short list with names (there are no hover labels to explain a bare icon) */
+.cx-tray-more { display: flex; flex-direction: column; gap: 1px; padding: 5px; min-width: 164px; }
+.cx-mi { display: flex !important; align-items: center; gap: 9px; height: 32px; padding: 0 10px 0 7px; border-radius: 8px; color: #3a3a3c; font: 500 12.5px/1 Inter, system-ui, sans-serif; white-space: nowrap; }
+.cx-mi svg { width: 20px; height: 20px; color: #86868b; flex: none; }
+.cx-mi:hover, .cx-mi.on { background: #f5f5f5; }
+.cx-zoom { display: flex; align-items: center; gap: 1px; }
+.cx-zoom .cx-ti { width: 32px; height: 32px; }
+.cx-zoom .cx-ti svg { width: 18px; height: 18px; }
+.cx-zoom span { flex: 1; text-align: center; font: 500 12px/1 Inter, system-ui, sans-serif; color: #86868b; font-variant-numeric: tabular-nums; }
 
 /* AFFiNE's template library, opened from the bar */
 .cx-tpl-panel { z-index: 41; }
@@ -114,8 +111,6 @@ affine-tooltip, .affine-tooltip { display: none !important; }
 .cx-ghost.land { transition: transform .14s cubic-bezier(.3,.7,.3,1), box-shadow .14s ease, width .14s, height .14s; box-shadow: 0 3px 8px rgba(0,0,0,.10); }
 .cx-ghost.back { transition: transform .2s cubic-bezier(.4,0,.6,1), opacity .2s ease; opacity: 0; }
 .cx-ghost.gone { opacity: 0; }
-.cx-dim[data-id='sticky'].pulling { transform: translateY(2px); }
-.cx-dim[data-id='sticky'] { touch-action: none; }
 
 /* ── AI entry: input capsule (same surface, height and radius as the toolbar it replaces) ──
    Inner controls are concentric with the capsule: inset 6px, so their radius is 14 - 6 = 8. */
@@ -279,7 +274,7 @@ affine-link-preview-details { display: none !important; }
 body.cx-pn-on { background: #ebebe9 !important; }
 body.cx-pn-on #app { left: 8px; top: 8px; bottom: 8px; right: calc(var(--pnw, 440px) + 16px); border-radius: 12px; overflow: hidden;
   box-shadow: 0 0 0 1px rgba(0,0,0,.07), 0 1px 3px rgba(0,0,0,.04); }
-body.cx-pn-on .cx-dock { left: calc((100vw - var(--pnw, 440px) - 16px) / 2 + 8px); }
+body.cx-pn-on .cx-dock { left: 20px; }
 .cx-pn button { font: inherit; color: inherit; border: 0; background: transparent; cursor: pointer; padding: 0; }
 .cx-pn-head { flex: none; height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px 0 12px; border-bottom: 1px solid #f1f1f1; }
 .cx-pn-tabs { display: flex; gap: 2px; }

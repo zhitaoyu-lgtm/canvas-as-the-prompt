@@ -27,6 +27,9 @@ export const ICON = {
   fit: s('<path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15" STROKE/>'),
   templates: s('<path d="M7.2 3.6L11 7.4L7.2 11.2L3.4 7.4L7.2 3.6Z" STROKE/><circle cx="17" cy="7.4" r="3.4" STROKE/><rect x="3.6" y="13.8" width="7.2" height="7.2" rx="1.6" STROKE/><path d="M17 13.6V21M13.3 17.3H20.7" STROKE/>'),
   plus: s('<path d="M12 5.5V18.5M5.5 12H18.5" STROKE/>', 1.3),
+  // a sticky note as a line icon: a square with one corner folded
+  sticky: s('<path d="M4.5 6.5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v7.2l-5.8 5.8H6.5a2 2 0 0 1-2-2v-11Z" STROKE/><path d="M19.5 13.5h-3.8a2 2 0 0 0-2 2v4" STROKE/>'),
+  more: s('<circle cx="6" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="18" cy="12" r="1.2" fill="currentColor"/>'),
   image: s('<rect x="3.5" y="4.5" width="17" height="15" rx="2" STROKE/><circle cx="9" cy="9.5" r="1.6" STROKE/><path d="M20.5 15.5L15.5 10.5L6 19.5" STROKE/>'),
   // pen tray
   pen: s('<path d="M15.2 4.8l4 4L9 19l-5 1 1-5L15.2 4.8Z" STROKE/><path d="M13 7l4 4" STROKE/>'),
