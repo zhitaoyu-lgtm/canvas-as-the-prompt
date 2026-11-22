@@ -13,6 +13,7 @@ import * as Y from 'yjs';
 import { Text } from '@blocksuite/affine/store';
 import { generateKeyBetween } from '@blocksuite/affine/std/gfx';
 import { ask, online, parseAnswer } from './model';
+import { diag } from './diag';
 import { readBoard, toPrompt, type Box, type Item, type Reading } from './reading';
 import { cleanRefs } from './actions';
 import { addComment, removeCommentsOn } from './comments';
@@ -109,13 +110,19 @@ export function mountSense(rootEl: any) {
     if (!intent) return;
     busy = true;
     const stop = thinking(intent);
-    try { await respond(intent); failed.delete(intent.key); }
+    let said: string | undefined;
+    try {
+      await respond(intent); failed.delete(intent.key);
+      // asked, and nothing came of it: say so where the dots were, instead of leaving a silence that looks like a fault
+      if (intent.type === 'general' && !pending) said = 'Nothing to add';
+    }
     catch (e: any) {
       console.warn('[sense]', e); failed.set(intent.key, Date.now());
+      diag({ path: intent.type, result: 'error', code: e?.code ?? e?.name ?? '', message: String(e?.message ?? e) });
       const code = e?.code ?? '';
-      toast(code === 'no_model' ? 'Connect Claude in the side panel (Chat) to let the board help.' : code === 'not_granted' ? 'Claude was not allowed for this page.' : 'Couldn’t reach Claude just now.', undefined);
+      toast(code === 'no_model' ? 'Connect Claude in the side panel (Chat) to let the board help.' : code === 'not_granted' ? 'Claude was not allowed for this page.' : (e?.name === 'AbortError' || /abort|timed? ?out/i.test(String(e?.message ?? ''))) ? 'That took too long. Change something to ask again.' : 'Couldn’t reach Claude just now.', undefined);
     }
-    finally { stop(); busy = false; rebase(); }
+    finally { stop(said); busy = false; rebase(); }
   }, POLL_MS);
 
   const areaOf = (intent: Intent): Box => intent.type === 'general' ? intent.area : intent.type === 'point' ? intent.label.box : intent.type === 'section' ? box(intent.frame) : intent.type === 'group' ? union([intent.anchor.box, ...intent.members.map(m => m.box)]) : intent.type === 'link' ? intent.line.box : intent.type === 'label' ? union(intent.members.map(m => m.box)) : intent.type === 'more' || intent.type === 'stress' ? intent.item.box : intent.marks[intent.marks.length - 1].host.box;
@@ -127,13 +134,15 @@ export function mountSense(rootEl: any) {
     return ask(MEANING + '\n\n' + sys, user + (seen.note ? `\n\nPICTURES: ${seen.note}` : ''), seen.blobs);
   }
   // While Claude thinks: the 2×2 dots breathe at the top-left of the place it is thinking about. Nothing else.
-  function thinking(intent: Intent): () => void {
+  function thinking(intent: Intent): (said?: string) => void {
     const area = areaOf(intent);
     const d = document.createElement('div'); d.className = 'cx-sense-think'; d.innerHTML = '<i></i><i></i><i></i><i></i>'; document.body.append(d);
-    let raf = 0;
-    const tick = () => { const rr = rootEl.getBoundingClientRect(); const [x, y] = gfx.viewport.toViewCoord(area.x, area.y); d.style.left = (rr.left + x - 18) + 'px'; d.style.top = (rr.top + y) + 'px'; /* level with the top edge */ raf = requestAnimationFrame(tick); };
+    let raf = 0, words = false;
+    const tick = () => { const rr = rootEl.getBoundingClientRect(); const [x, y] = gfx.viewport.toViewCoord(area.x, area.y); d.style.left = (rr.left + x - (words ? 0 : 18)) + 'px'; d.style.top = (rr.top + y - (words ? 20 : 0)) + 'px'; /* level with the top edge */ raf = requestAnimationFrame(tick); };
     tick();
-    return () => { cancelAnimationFrame(raf); d.remove(); };
+    const end = () => { cancelAnimationFrame(raf); d.remove(); };
+    // with a word, the dots give way to it for a moment (asked, nothing to add), then it fades
+    return (said?: string) => { if (!said) return end(); words = true; d.className = 'cx-sense-said'; d.textContent = said; setTimeout(() => { d.classList.add('out'); setTimeout(end, 450); }, 2200); };
   }
 
   // ── reading the settled board for a category ──

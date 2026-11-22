@@ -50,7 +50,7 @@ export type Callbacks = {
 
 type Preview = { ids: string[]; focus: () => Box[]; anchor?: () => Box[]; undo: () => void };
 
-export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, openings: Opening[], cb: Callbacks): PendingSet | null {
+export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, openings: Opening[], cb: Callbacks, home?: Box): PendingSet | null {
   const gfx = rootEl.gfx, store = rootEl.std.store, surf = gfx.surface;
   const form = forms[0];
   const hub = form?.hub ? r.byRef.get(form.hub) : undefined;
@@ -439,9 +439,11 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, op
   const merge = (a: Preview, b: Preview | null): Preview => (b ? { ids: [...a.ids, ...b.ids], focus: () => [...a.focus(), ...b.focus()], anchor: () => [...(a.anchor?.() ?? []), ...b.focus()], undo: () => { a.undo(); b.undo(); } } : a);
 
   const set = new PendingSet(rootEl, ans, cb);
+  // the bar always belongs to a place: by what it offers, else by what the user just made
+  set.home = form?.box ?? home ?? null;
   void (async () => {
     try {
-      if (ans.strength === 'ask') { set.showAsk(form?.box ?? null); return; }
+      if (ans.strength === 'ask') { set.showAsk(home ?? form?.box ?? null); return; }
       const extra = merge(applyLinks(), await applyParts());
       if (ans.strength === 'fork') {
         const previews = ans.fork.map(f => f.cards);
@@ -495,15 +497,17 @@ export class PendingSet {
     this.bar.querySelectorAll<HTMLElement>('.cx-seg button').forEach((b, i) => { b.textContent = reads[i]; b.onclick = () => this.flip(i); });
     this.wire(); this.mount();
   }
+  // An offer of something larger (a figure): one line and the same ✓ ✕ as everything else. Never a menu.
   showAsk(near: Box | null) {
     const a = this.ans.ask!;
-    this.bar.innerHTML = `<span class="cx-sense-dots"><i></i><i></i><i></i><i></i></span><span class="cx-sense-label"></span><span class="cx-ask">${a.options.map((_, i) => `<button data-i="${i}"></button>`).join('')}</span><button aria-label="Dismiss">${CROSS}</button>`;
+    this.bar.innerHTML = `<span class="cx-sense-dots"><i></i><i></i><i></i><i></i></span><span class="cx-sense-label"></span><button class="ok" aria-label="Yes">${TICK}</button><button aria-label="Dismiss">${CROSS}</button>`;
     (this.bar.querySelector('.cx-sense-label') as HTMLElement).textContent = a.question;
-    this.bar.querySelectorAll<HTMLElement>('.cx-ask button').forEach((b, i) => { b.textContent = a.options[i]; b.onclick = () => { this.close(); this.cb.done(); this.cb.onAsk?.(a.options[i]); }; });
+    (this.bar.querySelector('.ok') as HTMLElement).onclick = () => { this.close(); this.cb.done(); this.cb.onAsk?.(a.do || a.question); };
     (this.bar.querySelector('button[aria-label="Dismiss"]') as HTMLElement).onclick = () => this.drop();
     this.askAt = near; this.mount();
   }
   private askAt: Box | null = null;
+  home: Box | null = null;
   private async flip(i: number) {
     if (!this.fork || this.fork.i === i) return;
     this.fork.i = i;
@@ -527,8 +531,9 @@ export class PendingSet {
   private place() {
     const bs = this.previews.flatMap(p => p.focus());
     const anchors = this.previews.flatMap(p => (p.anchor ? p.anchor() : []));
-    const area = bs.length || anchors.length ? [...bs, ...anchors] : this.askAt ? [this.askAt] : [];
-    if (!area.length) return;
+    const area = bs.length || anchors.length ? [...bs, ...anchors] : this.askAt ? [this.askAt] : this.home ? [this.home] : [];
+    if (!area.length) { this.bar.style.visibility = 'hidden'; return; }   // nowhere to belong yet: not in a corner
+    this.bar.style.visibility = '';
     while (this.veils.length < bs.length) { const v = document.createElement('div'); v.className = 'cx-sense-veil' + (this.ghost ? ' ghost' : ''); document.body.append(v); this.veils.push(v); }
     while (this.veils.length > bs.length) this.veils.pop()!.remove();
     bs.forEach((b, i) => {

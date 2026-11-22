@@ -25,7 +25,8 @@ export type V5 = {
   links: { from: string; to: string; label?: string }[];
   arrow_labels: { line: string; label: string }[];
   fork: { function: string; read: string; cards: Card[] }[];
-  ask: { question: string; options: [string, string] } | null;
+  /** one proposal the user accepts or waves away (✓ ✕): the question, and what a yes makes */
+  ask: { question: string; do: string } | null;
   excluded: { item: string; kind?: string; why?: string }[];
   insight: string | null;
   keep: string | null;
@@ -57,7 +58,7 @@ export function coerce(raw: any): V5 | null {
     links: arr(raw.links).filter((l: any) => l && typeof l.from === 'string' && typeof l.to === 'string'),
     arrow_labels: arr(raw.arrow_labels).filter((l: any) => l && typeof l.line === 'string' && typeof l.label === 'string'),
     fork: arr(raw.fork).map((f: any) => ({ function: String(f?.function ?? ''), read: String(f?.read ?? f?.function ?? '').trim(), cards: arr(f?.cards).map(card).filter(Boolean) as Card[] })).filter((f: any) => f.cards.length),
-    ask: raw.ask && typeof raw.ask.question === 'string' && Array.isArray(raw.ask.options) && raw.ask.options.length >= 2 ? { question: raw.ask.question, options: [String(raw.ask.options[0]), String(raw.ask.options[1])] } : null,
+    ask: raw.ask && typeof raw.ask.question === 'string' && raw.ask.question.trim() ? { question: raw.ask.question, do: String(raw.ask.do ?? (Array.isArray(raw.ask.options) ? raw.ask.options[0] : '') ?? '') || raw.ask.question } : null,
     excluded: arr(raw.excluded).filter((e: any) => e && typeof e.item === 'string'),
     insight: typeof raw.insight === 'string' && raw.insight.trim() ? raw.insight.trim() : null,
     keep: typeof raw.keep === 'string' ? raw.keep : null,
@@ -174,7 +175,7 @@ export function validate(a: V5, r: Reading, forms: Form[], openings: Opening[] =
   // the bar always says what is being offered
   if (!a.read) a.read = visible(a.function ?? '').replace(/[.。]$/, '').slice(0, 64) || ({ point: 'One thing worth a look', reveal: 'A connection between these', complete: 'Filled in where you left room', extend: 'A next step for this', compose: 'Drawn from your notes' } as Record<string, string>)[a.move ?? ''] || '';
   a.insight = a.insight ? visible(a.insight) : null;
-  if (a.ask) a.ask = { question: visible(a.ask.question), options: [visible(a.ask.options[0]), visible(a.ask.options[1])] };
+  if (a.ask) a.ask = { question: visible(a.ask.question).slice(0, 80), do: visible(a.ask.do) };
   a.excluded = a.excluded.filter(e => item(e.item)).slice(0, 8);
   // unasked, the board may only gain things: parts that add (a figure, a tag, a loop, a comment, a line).
   // Moving, recolouring or rewriting what the user made waits for a typed request.

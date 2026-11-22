@@ -8,6 +8,7 @@
 //   render.ts    the answer in the board's own visual language, pending until ✓
 //   keys.ts      what a kept (or dismissed) answer teaches, with its scope
 
+import { diag } from './diag';
 import { ask, parseAnswer, online } from './model';
 import { readBoard, toPrompt, type Box, type Reading } from './reading';
 import { detectForms, serialiseForms, serialiseQuestions, isBlank, type Form } from './forms';
@@ -128,7 +129,7 @@ export function mountIntent(rootEl: any, trace: Trace) {
     const seen = await pictures(rootEl, r, union([intent.area, ...forms.map(f => f.box), ...rel.map(i => i.box)]), [...refs, ...rel.map(i => i.ref)]).catch(() => ({ blobs: [] as Blob[], note: '' }));
     const picture = seen.blobs.length ? seen.blobs : null;
     const userFull = user + (seen.note ? `\n\nPICTURES: ${seen.note} The text cannot say what a photo shows or what a sticker sits on: the pictures can.` : '');
-    const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 25_000);
+    const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 50_000);   // a reading with pictures has taken up to 30 s
     let raw: any;
     try { raw = await call(userFull, picture, ctl.signal); } finally { clearTimeout(timer); }
     const a0 = coerce(raw);
@@ -137,11 +138,13 @@ export function mountIntent(rootEl: any, trace: Trace) {
     const idOf = (ref?: string) => (ref ? r.byRef.get(ref)?.id : undefined);
     const situation = openings.length ? situationOf(openings, r) : (intent.arranged ?? []).filter(a => a.strong).map(a => a.line).join('; ').slice(0, 180);
     if (!dev.dry) habits.open({ features, situation, ids: [...new Set([...forms.flatMap(idsOf(r)), ...openings.flatMap(o => o.refs.map(idOf))].filter(Boolean) as string[])], blanks: openings.map(o => idOf(o.into)).filter(Boolean) as string[], box: intent.area, ends: openings.filter(o => o.tip).map(o => ({ x: o.tip!.x, y: o.tip!.y })) });
-    if (!a0) { entry.result = 'unusable answer'; habits.settle(features, 'not offered'); return null; }
+    const note = (result: string, more: any = {}) => { if (!dev.dry) diag({ path: 'general', result, ms: entry.ms, features, openings: entry.openings, arranged: entry.arranged, pictures: seen.blobs.length, look: lastLook, ...more }); };
+    if (!a0) { entry.result = 'unusable answer'; note('unusable answer', { raw: typeof raw === 'string' ? raw : JSON.stringify(raw ?? null) }); habits.settle(features, 'not offered'); return null; }
     const { answer, edits } = validate(a0, r, forms, openings);
     entry.edits = edits; entry.answer = answer;
     say(answer.strength, answer.function, edits);
-    if (answer.strength === 'silent' || (intent.request && answer.strength === 'ask')) { entry.result = 'silent'; habits.settle(features, 'not offered'); return null; }
+    if (answer.strength === 'silent' || (intent.request && answer.strength === 'ask')) { entry.result = 'silent'; note(a0.strength === 'silent' ? 'silent (the model chose it)' : 'silent (everything it offered was removed)', { edits, move: a0.move, built: (raw as any)?.built, lacks: (raw as any)?.lacks, could_be: (raw as any)?.could_be }); habits.settle(features, 'not offered'); return null; }
+    note(answer.strength, { edits, move: answer.move, read: answer.read, cards: (answer.cards ?? []).length, fork: (answer.fork ?? []).length, actions: (answer.actions ?? []).length });
     const f0 = forms[0], a0b = intent.area;
     const scope = (): any => f0?.facts.container ? { kind: 'section', id: f0.facts.container.id, title: f0.facts.container.title } : { kind: 'region', box: { x: a0b.x - a0b.w / 2, y: a0b.y - a0b.h / 2, w: a0b.w * 2, h: a0b.h * 2 } };
     const sig = features.join(' '), sit = situation;
@@ -160,7 +163,7 @@ export function mountIntent(rootEl: any, trace: Trace) {
         (dev.followUp as ((i: GeneralIntent) => void) | undefined)?.({ ...intent, key: intent.key + ':ask', request: option });
       },
       done,
-    });
+    }, intent.area);
     habits.aiWrote([...(answer.cards ?? []), ...(answer.fork ?? []).flatMap((k: any) => k.cards ?? [])].map((c: any) => (c.slot ? r.byRef.get(c.slot)?.id : undefined)).filter(Boolean) as string[]);
     entry.result = answer.strength;
     return set;

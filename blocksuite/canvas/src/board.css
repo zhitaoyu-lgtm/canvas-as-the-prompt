@@ -662,3 +662,7 @@ affine-edgeless-note {
 [data-cx-look='dark'] affine-edgeless-note { color: color-mix(in srgb, #dededf calc(clamp(0, (var(--cx-z, 1) - .25) * 5, 1) * 100%), #7c7c80); }
 [data-cx-look='dark'] affine-edgeless-note > div, [data-cx-look='dark'] affine-edgeless-note edgeless-note-background { box-shadow: 0 0 0 .5px rgba(255,255,255,.06) !important; }
 [data-cx-look='dark'] affine-edgeless-note edgeless-note-background { box-shadow: none !important; }
+
+/* asked, and nothing to add: a word where the dots were, for a moment */
+.cx-sense-said { position: fixed; z-index: 31; pointer-events: none; white-space: nowrap; font: 500 11.5px/1 Inter, system-ui, sans-serif; color: #8e8e93; transition: opacity .45s ease; }
+.cx-sense-said.out { opacity: 0; }
