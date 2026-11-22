@@ -19,6 +19,7 @@ import photo2Src from '../assets/demo/photo2.jpg';
 import photo3Src from '../assets/demo/photo3.jpg';
 import planSrc from '../assets/demo/plan.png';
 import sectionSrc from '../assets/demo/section.png';
+import STROKES from '../assets/demo/strokes.json';
 
 type Box = { x: number; y: number; w: number; h: number };
 type Pt = [number, number];
@@ -28,13 +29,15 @@ const ss = (a: number, b: number, v: number) => { const x = Math.max(0, Math.min
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 const PIC = {
-  aerial: { src: aerialSrc, ratio: 979 / 600, name: 'The Colosseum in Ancient Rome', label: 'The Colosseum, Rome — seen from above' },
-  photo2: { src: photo2Src, ratio: 368 / 246, name: 'Colosseum 1928 Mittelholzer', label: 'Colosseum, 1928 · W. Mittelholzer' },
-  photo3: { src: photo3Src, ratio: 356 / 248, name: 'Colosseum and surroundings Mittelholzer', label: 'The Colosseum and its surroundings' },
-  plan: { src: planSrc, ratio: 1242 / 999, name: 'Colosseum plan', label: 'Plan — ground floor and upper tiers' },
-  section: { src: sectionSrc, ratio: 1010 / 380, name: 'Colosseum longitudinal section', label: 'Longitudinal section' },
-  detail: { src: detailSrc, ratio: 413 / 470, name: 'Colosseum section detail', label: 'Detail — vaults and seating tiers' },
+  aerial: { src: aerialSrc, ratio: 2461 / 1537, name: 'The Colosseum in Ancient Rome', label: 'The Colosseum, Rome — seen from above' },
+  photo2: { src: photo2Src, ratio: 1400 / 1001, name: 'Colosseum 1928 Mittelholzer', label: 'Colosseum, 1928 · W. Mittelholzer' },
+  photo3: { src: photo3Src, ratio: 1400 / 976, name: 'Colosseum and surroundings Mittelholzer', label: 'The Colosseum and its surroundings' },
+  plan: { src: planSrc, ratio: 2400 / 2062, name: 'Colosseum plan', label: 'Plan — ground floor and upper tiers' },
+  section: { src: sectionSrc, ratio: 1727 / 584, name: 'Colosseum longitudinal section', label: 'Section A–B' },
+  detail: { src: detailSrc, ratio: 976 / 1103, name: 'Colosseum section detail', label: 'Detail — vaults and seating tiers' },
 };
+// where the building sits inside each picture (fractions of the picture), so the drawings can be lined up
+const EXT = { aerial: { x0: 0.192, x1: 0.797, yc: 0.534 }, plan: { x0: 0.022, x1: 0.978, y0: 0.025, y1: 0.968 }, section: { x0: 0.02, x1: 0.989 } };
 const VALUE = { length: '189 m', width: '156 m', height: '48 m' };
 // What each drawing is annotated with once it is drawn: a point on it (as a fraction of its box), which side the
 // note stands on, and the words. A few, not a legend.
@@ -43,14 +46,14 @@ const NOTES: Record<'plan' | 'section' | 'detail', Note[]> = {
   plan: [
     { at: [0.7, 0.2], side: 'right', text: 'Radial walls carrying the vaults' },
     { at: [0.8, 0.36], side: 'right', text: 'Cavea · seating in four tiers' },
-    { at: [0.6, 0.5], side: 'right', text: 'Arena · 83 × 48 m, over the hypogeum' },
+    { at: [0.6, 0.57], side: 'right', text: 'Arena · 83 × 48 m, over the hypogeum' },
     { at: [0.9, 0.7], side: 'right', text: 'Outer arcade · 80 arches' },
   ],
   section: [
-    { at: [0.045, 0.12], side: 'left', text: 'Attic storey, masts for the awning' },
-    { at: [0.73, 0.47], side: 'top', text: 'Seating tiers on raking vaults' },
-    { at: [0.5, 0.9], side: 'bottom', text: 'Arena floor over the hypogeum' },
-    { at: [0.94, 0.78], side: 'bottom', text: 'Ring corridors, barrel-vaulted' },
+    { at: [0.045, 0.1], side: 'left', text: 'Attic storey, masts for the awning' },
+    { at: [0.2, 0.55], side: 'bottom', text: 'Seating on raking vaults' },
+    { at: [0.5, 0.86], side: 'bottom', text: 'Arena over the hypogeum' },
+    { at: [0.86, 0.8], side: 'bottom', text: 'Vaulted ring corridors' },
   ],
   detail: [
     { at: [0.62, 0.07], side: 'right', text: 'Colonnade of the top gallery' },
@@ -135,7 +138,7 @@ export function mountRome(rootEl: any) {
   };
 
   // ── the state of the film ──
-  const S: { map?: string; aerial?: string; plan?: string; section?: string; detail?: string; u: number; used: Set<string>; busy: boolean; filled: number } = { u: 1, used: new Set(), busy: false, filled: 0 };
+  const S: { map?: string; aerial?: string; plan?: string; section?: string; detail?: string; u: number; used: Set<string>; busy: boolean; filled: number; fills: { which: keyof typeof VALUE; line?: string; ids: string[] }[] } = { u: 1, used: new Set(), busy: false, filled: 0, fills: [] };
   const scenePics = () => [S.map, S.aerial, S.plan, S.section, S.detail].filter(Boolean) as string[];
   /** the newest unused ring: on the given picture, or (with none given) on a picture that is not yet part of the film */
   const latestRing = (onId?: string): Ring | null => { for (const e of [...els()].reverse()) { if (S.used.has(e.id)) continue; const r = ringOf(e); if (r && (onId ? r.host.id === onId : !scenePics().includes(r.host.id))) return r; } return null; };
@@ -188,8 +191,8 @@ export function mountRome(rootEl: any) {
         let y = from[1]; const k = n.side, min = lastOn[k] != null ? lastOn[k] + h * 1.5 : -Infinity; if (y < min) y = min; lastOn[k] = y;
         to = [n.side === 'left' ? b.x - out : b.x + b.w + out, y]; tx = n.side === 'left' ? to[0] - 5 * u - w : to[0] + 5 * u; ty = y - h / 2; align = n.side === 'left' ? 'right' : 'left';
       } else {
-        let x = from[0]; const k = n.side, min = lastOn[k] != null ? lastOn[k] + 12 * u : -Infinity; if (x - w / 2 < min) x = min + w / 2; lastOn[k] = x + w / 2;
-        x = Math.max(b.x + w / 2, Math.min(b.x + b.w - w / 2, x));
+        let x = Math.max(b.x + w / 2, from[0]); const k = n.side, min = lastOn[k] != null ? lastOn[k] + 12 * u : -Infinity; if (x - w / 2 < min) x = min + w / 2; lastOn[k] = x + w / 2;
+        x = Math.max(b.x + w / 2, x);
         to = [x, n.side === 'top' ? b.y - out * 1.6 : b.y + b.h + out]; tx = x - w / 2; ty = n.side === 'top' ? to[1] - h - 3 * u : to[1] + 3 * u;
       }
       made.push({ from, to, text: n.text, tx, ty, w, h, align });
@@ -228,54 +231,83 @@ export function mountRome(rootEl: any) {
   }
 
   /**
-   * A line drawing appears as if drawn: pens travel along the structure (rings for a plan, courses for a section)
-   * and the drawing shows only where a pen has passed; the strokes start thin and settle to the full drawing.
+   * A line drawing is drawn, not shown: every line of it has been traced beforehand (its centre line and its
+   * width), and here pens go along those lines — the long lines of the structure first, then the fine work,
+   * sweeping across the sheet. What appears is the real drawing, exactly where a pen has passed.
    */
-  async function draw(p: typeof PIC.plan, b: Box, kind: 'rings' | 'courses', ms = 1500): Promise<string | undefined> {
+  const decoded: Record<string, { w: number; h: number; n: number; off: Uint32Array; cnt: Uint16Array; wid: Float32Array; len: Float32Array; xy: Uint16Array }> = {};
+  function strokesOf(key: 'plan' | 'section' | 'detail') {
+    if (decoded[key]) return decoded[key];
+    const src = (STROKES as any)[key], bin = atob(src.data), buf = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    const u16 = new Uint16Array(buf.buffer); let n = 0; for (let i = 0; i < u16.length; ) { i += 2 + u16[i] * 2; n++; }
+    const off = new Uint32Array(n), cnt = new Uint16Array(n), wid = new Float32Array(n), len = new Float32Array(n);
+    for (let i = 0, k = 0; i < u16.length; k++) { const c = u16[i]; cnt[k] = c; wid[k] = u16[i + 1] / 8; off[k] = i + 2; let l = 0; for (let j = 1; j < c; j++) l += Math.hypot(u16[i + 2 + j * 2] - u16[i + j * 2], u16[i + 3 + j * 2] - u16[i + 1 + j * 2]); len[k] = l; i += 2 + c * 2; }
+    return (decoded[key] = { w: src.w, h: src.h, n, off, cnt, wid, len, xy: u16 });
+  }
+  async function draw(p: typeof PIC.plan, b: Box, key: 'plan' | 'section' | 'detail', ms = 3000): Promise<string | undefined> {
     const im = new Image(); im.src = p.src; await im.decode().catch(() => {});
-    const cw = Math.min(1400, im.naturalWidth || 1000), ch = Math.round(cw / p.ratio);
+    const D = strokesOf(key), cw = Math.min(D.w, 2200), ch = Math.round((cw * D.h) / D.w), k = cw / D.w;
     const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch; cv.className = 'cx-rome-draw';
     Object.assign(cv.style, { left: `${b.x}px`, top: `${b.y}px`, width: `${b.w}px`, height: `${b.h}px` }); world.append(cv);
     const ctx = cv.getContext('2d')!, mask = document.createElement('canvas'); mask.width = cw; mask.height = ch; const mx = mask.getContext('2d')!;
-    const tmp = document.createElement('canvas'); tmp.width = cw; tmp.height = ch; const tx = tmp.getContext('2d')!;
-    // the paths of the pens, each a list of points; all are drawn at once, a little out of step
-    const paths: Pt[][] = []; let band = 0;
-    if (kind === 'rings') {
-      const n = 9; band = (Math.min(cw, ch) / 2 / n) * 1.5;
-      for (let k = 0; k < n; k++) { const f = 1.02 - (k / n) * 0.98, a0 = k * 2.1, dir = k % 2 ? -1 : 1; paths.push(Array.from({ length: 73 }, (_, i) => { const a = a0 + dir * (i / 72) * Math.PI * 2.04; return [cw / 2 + (cw / 2) * f * Math.cos(a), ch / 2 + (ch / 2) * f * Math.sin(a)] as Pt; })); }
-      paths.push([[cw * 0.42, ch / 2], [cw * 0.58, ch / 2]]);
-    } else {
-      const n = 11; band = (ch / n) * 1.5;
-      for (let k = 0; k < n; k++) { const y = ((k + 0.5) / n) * ch, l2r = k % 2 === 0; paths.push(Array.from({ length: 25 }, (_, i) => { const t = i / 24; return [(l2r ? t : 1 - t) * cw, y + Math.sin(t * 9 + k) * band * 0.06] as Pt; })); }
+    mx.lineCap = 'round'; mx.lineJoin = 'round'; mx.strokeStyle = '#000'; mx.fillStyle = '#000';
+    // when each line starts: the structure (long lines) in the first third, the fine work swept across after it
+    const n = D.n, long = D.w * 0.06, start = new Float32Array(n), dur = new Float32Array(n), order = new Uint32Array(n);
+    const cx = D.w / 2, cy = D.h / 2; let nLong = 0; const sweep = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const o = D.off[i], m = o + (D.cnt[i] >> 1) * 2, x = D.xy[m], y = D.xy[m + 1];
+      sweep[i] = key === 'plan' ? ((Math.atan2(y - cy, x - cx) / (Math.PI * 2) + 1.25) % 1) * 0.82 + (1 - Math.min(1, Math.hypot((x - cx) / cx, (y - cy) / cy))) * 0.18
+        : key === 'section' ? (x / D.w) * 0.8 + (1 - y / D.h) * 0.2 : (1 - y / D.h) * 0.75 + (x / D.w) * 0.25;
+      if (D.len[i] >= long) nLong++;
     }
-    const lens = paths.map(lengthOf);
+    const speed = (D.w * 2.6) / ms;   // image px per ms: a long line takes a visible moment
+    for (let i = 0; i < n; i++) {
+      const isLong = D.len[i] >= long, jitter = ((i * 2654435761) >>> 0) / 4294967296;
+      dur[i] = Math.max(30, Math.min(ms * 0.3, D.len[i] / speed));
+      start[i] = isLong ? (sweep[i] * 0.3 + jitter * 0.04) * ms : (0.16 + sweep[i] * 0.66 + jitter * 0.06) * ms;
+      if (start[i] + dur[i] > ms) start[i] = Math.max(0, ms - dur[i]);
+      order[i] = i;
+    }
+    order.sort((p2, q2) => start[p2] - start[q2]);
+    const done = new Float32Array(n); let head = 0; let active: number[] = [];
     const t0 = performance.now();
-    await new Promise<void>(done => {
+    await new Promise<void>(fin => {
       const frame = (now: number) => {
-        const t = Math.min(1, (now - t0) / ms);
-        mx.clearRect(0, 0, cw, ch); mx.lineCap = 'round'; mx.lineJoin = 'round'; mx.strokeStyle = '#000';
-        // thin at first (lines being drawn), opening to the whole drawing at the end
-        mx.lineWidth = band * (0.16 + 0.95 * ss(0.5, 1, t));
-        const tips: Pt[] = [];
-        paths.forEach((path, k) => {
-          const lag = (k / paths.length) * 0.34, prog = ease(Math.max(0, Math.min(1, (t - lag) / 0.6))), want = prog * lens[k];
-          if (want <= 0) return;
-          mx.beginPath(); mx.moveTo(path[0][0], path[0][1]); let acc = 0, tip = path[0];
-          for (let i = 1; i < path.length; i++) { const d = Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]); if (acc + d <= want) { mx.lineTo(path[i][0], path[i][1]); acc += d; tip = path[i]; } else { const f = (want - acc) / d; tip = [path[i - 1][0] + (path[i][0] - path[i - 1][0]) * f, path[i - 1][1] + (path[i][1] - path[i - 1][1]) * f]; mx.lineTo(tip[0], tip[1]); break; } }
-          mx.stroke(); if (prog < 1) tips.push(tip);
-        });
-        tx.globalCompositeOperation = 'source-over'; tx.clearRect(0, 0, cw, ch); tx.drawImage(im, 0, 0, cw, ch); tx.globalCompositeOperation = 'destination-in'; tx.drawImage(mask, 0, 0);
-        ctx.clearRect(0, 0, cw, ch); ctx.globalAlpha = ss(0, 0.12, t); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cw, ch); ctx.globalAlpha = 1; ctx.drawImage(tmp, 0, 0);
-        ctx.fillStyle = '#111'; for (const tip of tips) { ctx.beginPath(); ctx.arc(tip[0], tip[1], Math.max(2, cw / 420), 0, Math.PI * 2); ctx.fill(); }
-        if (t < 1) requestAnimationFrame(frame); else done();
+        const t = now - t0;
+        while (head < n && start[order[head]] <= t) active.push(order[head++]);
+        const tips: number[] = [], still: number[] = [];
+        for (const i of active) {
+          const o = D.off[i], c = D.cnt[i], total = D.len[i], want = Math.min(1, (t - start[i]) / dur[i]) * total, from = done[i];
+          mx.lineWidth = Math.max(1.2, D.wid[i] * k + 1.6);
+          if (total < 0.5) { mx.beginPath(); mx.arc(D.xy[o] * k, D.xy[o + 1] * k, mx.lineWidth / 2, 0, 6.2832); mx.fill(); continue; }
+          // the piece of the line between where the pen was and where it is now
+          mx.beginPath(); let acc = 0, begun = false, tx = D.xy[o] * k, ty = D.xy[o + 1] * k;
+          for (let j = 1; j < c; j++) {
+            const x0 = D.xy[o + j * 2 - 2], y0 = D.xy[o + j * 2 - 1], x1 = D.xy[o + j * 2], y1 = D.xy[o + j * 2 + 1], d = Math.hypot(x1 - x0, y1 - y0) || 0.001, e = acc + d;
+            if (e > from - 0.01) {
+              const f0 = Math.max(0, (from - acc) / d), f1 = Math.min(1, (want - acc) / d);
+              if (!begun) { mx.moveTo((x0 + (x1 - x0) * f0) * k, (y0 + (y1 - y0) * f0) * k); begun = true; }
+              tx = (x0 + (x1 - x0) * f1) * k; ty = (y0 + (y1 - y0) * f1) * k; mx.lineTo(tx, ty);
+              if (e >= want) break;
+            }
+            acc = e;
+          }
+          mx.stroke(); done[i] = want;
+          if (want < total) { still.push(i); if (total >= long) tips.push(tx, ty); }
+        }
+        active = still;
+        ctx.globalCompositeOperation = 'source-over'; ctx.clearRect(0, 0, cw, ch); ctx.drawImage(mask, 0, 0); ctx.globalCompositeOperation = 'source-in'; ctx.drawImage(im, 0, 0, cw, ch); ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = '#1d1d1f'; for (let q = 0; q < tips.length; q += 2) { ctx.beginPath(); ctx.arc(tips[q], tips[q + 1], Math.max(2.2, cw / 520), 0, 6.2832); ctx.fill(); }
+        if (t < ms || active.length) requestAnimationFrame(frame); else fin();
       };
       requestAnimationFrame(frame);
     });
     ctx.clearRect(0, 0, cw, ch); ctx.drawImage(im, 0, 0, cw, ch);
     const id = await picture(p, b);
-    setTimeout(() => cv.remove(), 180);
+    setTimeout(() => cv.remove(), 220);
     return id;
   }
+
 
   // ── 1 · the ring on the map gathers into a drop; 2 · the drop opens the photos ──
   async function identify(ring: Ring) {
@@ -332,44 +364,98 @@ export function mountRome(rootEl: any) {
   }
 
   /** a free place for a drawing of this size: tried below, then right, of the thing it comes from */
-  function placeBy(from: Box, w: number, h: number, prefer: 'below' | 'right', gap: number): Box {
-    const taken = els().filter(e => e.type !== 'group' && !(isMark(e) && S.used.has(e.id))).map(boxOf);   // their own lines and words count too
-    const free = (b: Box) => !taken.some(o => b.x < o.x + o.w + gap / 3 && b.x + b.w > o.x - gap / 3 && b.y < o.y + o.h + gap / 3 && b.y + b.h > o.y - gap / 3);
-    const below: Box = { x: from.x + (from.w - w) / 2, y: from.y + from.h + gap, w, h }, right: Box = { x: from.x + from.w + gap, y: from.y + (from.h - h) / 2, w, h };
-    let b = prefer === 'below' ? below : right; for (let i = 0; i < 30 && !free(b); i++) b = prefer === 'below' ? { ...b, y: b.y + gap } : { ...b, x: b.x + gap };
+  /** a free place below a thing, centred on it: slides down past whatever is already there (their lines and words too) */
+  function below(from: Box, w: number, h: number, gap: number): Box {
+    const taken = els().filter(e => e.type !== 'group' && !inside(mid(boxOf(e)), from)).map(boxOf);
+    const free = (b: Box) => !taken.some(o => b.x < o.x + o.w && b.x + b.w > o.x && b.y < o.y + o.h + gap * 0.5 && b.y + b.h > o.y - gap * 0.5);
+    let b: Box = { x: from.x + (from.w - w) / 2, y: from.y + from.h + gap, w, h }; for (let i = 0; i < 60 && !free(b); i++) b = { ...b, y: b.y + gap / 4 };
     return b;
   }
+  const INK = '#3a3a3c', GUIDE = '#a1a1a6';
+  /** a clean line: dashed or solid, with or without arrowheads */
+  function line(a: Pt, b: Pt, o: { dash?: boolean; color?: string; w?: number; arrows?: 'both' | 'end' | 'none' } = {}) {
+    const id = surf.addElement({ type: 'connector', mode: 0, source: { position: a }, target: { position: b }, stroke: o.color ?? INK, strokeWidth: o.w ?? Math.max(0.6, S.u), strokeStyle: o.dash ? 'dash' : 'solid', frontEndpointStyle: o.arrows === 'both' ? 'Arrow' : 'None', rearEndpointStyle: o.arrows === 'both' || o.arrows === 'end' ? 'Arrow' : 'None' });
+    S.used.add(id); return id as string;
+  }
+  function words(text: string, cx: number, cy: number, size: number, color = '#1d1d1f', weight = '400') {
+    const Y = YText(); measure.font = `${weight} ${size}px Inter, sans-serif`; const w = Math.ceil(measure.measureText(text).width) + 4, h = Math.ceil(size * 1.4), t = new Y(); t.insert(0, text);
+    const id = surf.addElement({ type: 'text', xywh: `[${cx - w / 2},${cy - h / 2},${w},${h}]`, text: t, fontSize: size, fontWeight: weight, color, fontFamily: 'blocksuite:surface:Inter', textAlign: 'center' });
+    S.used.add(id); return { id: id as string, w, h };
+  }
+  const drop = (id?: string | null) => { try { const e = id && byId(id); if (!e) return; if (e.flavour) store.deleteBlock(store.getBlock(id)!.model); else surf.deleteElement(id); } catch { /* already gone */ } };
+  /** their rough ring becomes a clean dashed outline of the same place (an oval, or a box if they drew a box) */
+  function tidyRing(ring: Ring, scribbles: string[] = []) {
+    const b = boxOf(ring.el), el = ring.el; let boxy = el.type === 'shape' && el.shapeType !== 'ellipse';
+    if (el.type !== 'shape') { let far = 0; for (const q of ring.pts) far += Math.max(Math.abs((q[0] - b.x - b.w / 2) / (b.w / 2)), Math.abs((q[1] - b.y - b.h / 2) / (b.h / 2))); boxy = far / ring.pts.length > 0.94; }
+    const color = el.type === 'shape' ? el.strokeColor : el.color;
+    const id = surf.addElement({ type: 'shape', shapeType: boxy ? 'rect' : 'ellipse', xywh: `[${b.x},${b.y},${b.w},${b.h}]`, filled: false, fillColor: 'transparent', strokeColor: color ?? INK, strokeWidth: Math.max(1, 1.4 * S.u), strokeStyle: 'dash', radius: 0 });
+    S.used.add(id); drop(el.id); for (const s2 of scribbles) drop(s2);
+    return { id: id as string, box: b };
+  }
+  /** the measures they sketched (a rough line, a scribbled or typed "length = …") are redrawn as dimension lines */
+  function tidyMeasures() {
+    const pb = S.plan ? boxOf(byId(S.plan)) : null; if (!pb) return; const u = S.u, size = 12.5 * u;
+    for (const f of S.fills.splice(0)) {
+      const ln = byId(f.line), s2 = ln ? straight(ln) : null; let level = f.which !== 'width', at: number, from: number, to: number;
+      if (s2) { level = Math.abs(s2[1][0] - s2[0][0]) >= Math.abs(s2[1][1] - s2[0][1]); at = level ? (s2[0][1] + s2[1][1]) / 2 : (s2[0][0] + s2[1][0]) / 2; }
+      else at = level ? pb.y + pb.h + 30 * u : pb.x - 30 * u;
+      // the measure is the building's: the line spans the drawing from end to end
+      if (level) { from = pb.x + pb.w * EXT.plan.x0; to = pb.x + pb.w * EXT.plan.x1; } else { from = pb.y + pb.h * EXT.plan.y0; to = pb.y + pb.h * EXT.plan.y1; }
+      drop(f.line); for (const id of f.ids) drop(id);
+      const a: Pt = level ? [from, at] : [at, from], b: Pt = level ? [to, at] : [at, to];
+      line(a, b, { arrows: 'both', w: Math.max(0.6, 0.9 * u) });
+      for (const e of [a, b]) line(level ? [e[0], e[1] - 5 * u] : [e[0] - 5 * u, e[1]], level ? [e[0], e[1] + 5 * u] : [e[0] + 5 * u, e[1]], { w: Math.max(0.6, 0.9 * u) });
+      const text = `${f.which === 'length' ? 'Length' : f.which === 'width' ? 'Width' : 'Height'} = ${VALUE[f.which]}`, out = level ? (at > pb.y + pb.h / 2 ? 1 : -1) : at > pb.x + pb.w / 2 ? 1 : -1;
+      measure.font = `400 ${size}px Inter, sans-serif`; const tw = measure.measureText(text).width;
+      words(text, level ? (from + to) / 2 : at + out * (tw / 2 + 12 * u), level ? at + out * 13 * u : (from + to) / 2, size);
+    }
+  }
 
-  // ── 3 · the building on the photo → its plan ──
+  // ── 3 · the building on the photo → its plan, set under the photo so the two line up ──
   async function plan(ring: Ring) {
     const hb = boxOf(ring.host), rb = boxOf(ring.el), u = S.u;
-    S.used.add(ring.el.id); for (const e of els()) if (isMark(e) && inside(mid(boxOf(e)), rb, 4)) S.used.add(e.id);   // the scribble inside the ring
+    const scribbles = els().filter(e => isMark(e) && e.id !== ring.el.id && !S.used.has(e.id) && inside(mid(boxOf(e)), rb, 4)).map(e => e.id as string);
+    S.used.add(ring.el.id); for (const id of scribbles) S.used.add(id);
     const stop = think([rb.x - 22 * u, rb.y], u); await wait(1500); stop();
-    const w = hb.w * 0.78, b = placeBy(hb, w, w / PIC.plan.ratio, 'below', 56 * u);
-    S.plan = await draw(PIC.plan, b, 'rings', 1400); const l = label(PIC.plan.label, b.x, b.y - 5 * u, 11.5 * u); await annotate(S.plan, b, NOTES.plan, u, [l]); store.captureSync?.();
+    tidyRing(ring, scribbles);
+    // as wide as the building is in the photo, and straight below it
+    const bx0 = hb.x + hb.w * EXT.aerial.x0, bx1 = hb.x + hb.w * EXT.aerial.x1, w = (bx1 - bx0) / (EXT.plan.x1 - EXT.plan.x0), h = w / PIC.plan.ratio;
+    const b: Box = { x: bx0 - w * EXT.plan.x0, y: hb.y + hb.h + 64 * u, w, h };
+    S.plan = await draw(PIC.plan, b, 'plan', 3000); const l = label(PIC.plan.label, b.x, b.y - 5 * u, 11.5 * u);
+    // two dashed lines carry the building's ends down from the photo to the drawing
+    const ya = hb.y + hb.h * EXT.aerial.yc, yp = b.y + b.h / 2, g = [line([bx0, ya], [bx0, yp], { dash: true, color: GUIDE, w: Math.max(0.5, 0.8 * u) }), line([bx1, ya], [bx1, yp], { dash: true, color: GUIDE, w: Math.max(0.5, 0.8 * u) })];
+    await annotate(S.plan, b, NOTES.plan, u, [l]); void g; store.captureSync?.();
   }
-  // ── 5 · a line across the plan → the section ──
+  // ── 5 · a line across the plan → the section, set under the plan it is cut from ──
   async function section(cut: { el: any; a: Pt; b: Pt } | null) {
     const pb = boxOf(byId(S.plan)), u = S.u; if (cut) S.used.add(cut.el.id);
     const stop = think(cut ? [Math.min(cut.a[0], cut.b[0]) - 22 * u, Math.min(cut.a[1], cut.b[1]) - 10 * u] : [pb.x - 22 * u, pb.y], u); await wait(1500); stop();
-    const w = pb.w * 1.08, h = w / PIC.section.ratio;
-    let b = placeBy(pb, w, h, 'right', 56 * u);
-    if (cut && Math.abs(b.x - (pb.x + pb.w)) < 80 * u) b = { ...b, y: (cut.a[1] + cut.b[1]) / 2 - h / 2 };   // beside the plan: level with the cut
-    S.section = await draw(PIC.section, b, 'courses', 1300); const l = label(PIC.section.label, b.x, b.y - 5 * u, 11.5 * u); await annotate(S.section, b, NOTES.section, u, [l]); store.captureSync?.();
+    tidyMeasures();
+    // their rough line becomes the cut A–B: dashed, level, a little past the building at both ends
+    const y = cut && Math.abs(cut.b[1] - cut.a[1]) < Math.abs(cut.b[0] - cut.a[0]) * 0.2 ? (cut.a[1] + cut.b[1]) / 2 : pb.y + pb.h / 2;
+    const ax = pb.x - 10 * u, bx = pb.x + pb.w + 10 * u; if (cut) drop(cut.el.id);
+    line([ax, y], [bx, y], { dash: true, w: Math.max(0.8, 1.2 * u) }); words('A', ax + 4 * u, y - 12 * u, 13 * u, '#1d1d1f', '600'); words('B', bx - 4 * u, y - 12 * u, 13 * u, '#1d1d1f', '600');
+    const px0 = pb.x + pb.w * EXT.plan.x0, px1 = pb.x + pb.w * EXT.plan.x1, w = (px1 - px0) / (EXT.section.x1 - EXT.section.x0), h = w / PIC.section.ratio;
+    const b0 = below(pb, w, h, 64 * u), b: Box = { ...b0, x: px0 - w * EXT.section.x0 };
+    S.section = await draw(PIC.section, b, 'section', 2700); const l = label(PIC.section.label, b.x, b.y - 5 * u, 11.5 * u);
+    line([px0, y], [px0, b.y + b.h * 0.2], { dash: true, color: GUIDE, w: Math.max(0.5, 0.8 * u) }); line([px1, y], [px1, b.y + b.h * 0.2], { dash: true, color: GUIDE, w: Math.max(0.5, 0.8 * u) });
+    await annotate(S.section, b, NOTES.section, u, [l]); store.captureSync?.();
   }
-  // ── 6 · a ring on the section (and an arrow out of it) → the detail ──
+  // ── 6 · a frame on the section → that part, larger, to the right ──
   async function detail(ring: Ring) {
     const sb = boxOf(ring.host), rb = boxOf(ring.el), u = S.u; S.used.add(ring.el.id);
-    // an arrow or line that leaves the ring says where the detail should go
-    let tip: Pt | null = null;
-    for (const e of [...els()].reverse()) { if (S.used.has(e.id) || e.id === ring.el.id) continue; const s = straight(e); if (!s) continue; const near = (p: Pt) => inside(p, rb, Math.max(rb.w, rb.h) * 0.2); if (near(s[0]) !== near(s[1])) { tip = near(s[0]) ? s[1] : s[0]; S.used.add(e.id); break; } }
+    // an arrow they drew out of the frame has said what it had to say
+    const arrows = els().filter(e => !S.used.has(e.id) && e.id !== ring.el.id && straight(e) && (() => { const s2 = straight(e)!, near = (q: Pt) => inside(q, rb, Math.max(rb.w, rb.h) * 0.25); return near(s2[0]) !== near(s2[1]); })()).map(e => e.id as string);
+    for (const id of arrows) S.used.add(id);
     const stop = think([rb.x - 22 * u, rb.y], u); await wait(1500); stop();
-    const h = Math.max(sb.h * 1.15, rb.h * 1.2), w = h * PIC.detail.ratio;
-    let b: Box;
-    if (tip) { const [rx, ry] = mid(rb), dx = tip[0] - rx, dy = tip[1] - ry, g = 18 * u; b = Math.abs(dx) >= Math.abs(dy) ? { x: dx > 0 ? tip[0] + g : tip[0] - g - w, y: tip[1] - h / 2, w, h } : { x: tip[0] - w / 2, y: dy > 0 ? tip[1] + g : tip[1] - g - h, w, h }; }
-    else b = placeBy(sb, w, h, 'right', 56 * u);
-    S.detail = await draw(PIC.detail, b, 'courses', 1200); const l = label(PIC.detail.label, b.x, b.y - 5 * u, 11.5 * u); await annotate(S.detail, b, NOTES.detail, u, [l]); store.captureSync?.();
+    const frame = tidyRing(ring, arrows);
+    const h = Math.max(sb.h * 1.9, rb.h * 2), w = h * PIC.detail.ratio;
+    const b: Box = { x: sb.x + sb.w + 90 * u, y: sb.y + sb.h - h * 0.72, w, h };
+    const from: Pt = [frame.box.x + frame.box.w, frame.box.y + frame.box.h / 2];
+    line(from, [b.x - 10 * u, Math.max(b.y + 12 * u, Math.min(b.y + b.h - 12 * u, from[1]))], { arrows: 'end', w: Math.max(0.6, u) });
+    S.detail = await draw(PIC.detail, b, 'detail', 2500); const l = label(PIC.detail.label, b.x, b.y - 5 * u, 11.5 * u); await annotate(S.detail, b, NOTES.detail, u, [l]); store.captureSync?.();
   }
+
 
   // ── 4 · "length =" → the blank is filled, typed like theirs or written like theirs ──
   const whichOf = (word: string): keyof typeof VALUE | null => (/长|length|long|^l$/i.test(word) ? 'length' : /宽|width|wide|^w$/i.test(word) ? 'width' : /高|height|tall|^h$/i.test(word) ? 'height' : null);
@@ -382,6 +468,7 @@ export function mountRome(rootEl: any) {
       const yt = e.type === 'text' ? e.text : e.flavour === 'affine:edgeless-text' ? e.children?.[0]?.text?.yText ?? e.children?.[0]?.text : null; if (!yt?.insert) continue;
       const m = OPEN.exec(String(yt.toString?.() ?? '')); if (!m) continue; const which = whichOf(m[1]); if (!which) continue;
       S.used.add(e.id);
+      { const pb = boxOf(byId(S.plan)), m0 = mid(boxOf(e)); const ln = els().filter(x => !S.used.has(x.id)).map(x => ({ x, s: straight(x) })).filter(o => o.s && Math.hypot(o.s![1][0] - o.s![0][0], o.s![1][1] - o.s![0][1]) > Math.min(pb.w, pb.h) * 0.45 && !inside(mid(boxOf(o.x)), { x: pb.x + pb.w * 0.2, y: pb.y + pb.h * 0.2, w: pb.w * 0.6, h: pb.h * 0.6 })).sort((a, b) => Math.hypot(mid(boxOf(a.x))[0] - m0[0], mid(boxOf(a.x))[1] - m0[1]) - Math.hypot(mid(boxOf(b.x))[0] - m0[0], mid(boxOf(b.x))[1] - m0[1]))[0]; if (ln) S.used.add(ln.x.id); S.fills.push({ which, line: ln?.x.id, ids: [e.id] }); }
       const add = (/\s$/.test(yt.toString()) ? '' : ' ') + VALUE[which];
       await wait(500);
       for (const ch of add) { yt.insert(yt.length, ch); if (e.type === 'text') { measure.font = `${e.fontWeight ?? 400} ${e.fontSize ?? 16}px Inter, sans-serif`; const b = boxOf(e), w = Math.ceil(measure.measureText(yt.toString()).width) + 6; if (w > b.w) surf.updateElement(e.id, { xywh: `[${b.x},${b.y},${w},${b.h}]` }); } await wait(55); }
@@ -405,13 +492,13 @@ export function mountRome(rootEl: any) {
       if (!word.length) continue;
       for (const s of [p, q, ...word]) S.used.add(s.e.id);
       // which measure: the long straight line nearest the writing says (level = length, upright = width); else in order
-      const lines = els().map(e => ({ e, s: straight(e) })).filter(x => x.s && Math.hypot(x.s![1][0] - x.s![0][0], x.s![1][1] - x.s![0][1]) > Math.min(pb.w, pb.h) * 0.45 && !inside(mid(boxOf(x.e)), { x: pb.x + pb.w * 0.2, y: pb.y + pb.h * 0.2, w: pb.w * 0.6, h: pb.h * 0.6 }));
+      const lines = els().filter(e => !S.used.has(e.id)).map(e => ({ e, s: straight(e) })).filter(x => x.s && Math.hypot(x.s![1][0] - x.s![0][0], x.s![1][1] - x.s![0][1]) > Math.min(pb.w, pb.h) * 0.45 && !inside(mid(boxOf(x.e)), { x: pb.x + pb.w * 0.2, y: pb.y + pb.h * 0.2, w: pb.w * 0.6, h: pb.h * 0.6 }));
       const m0 = mid(eq), dist = (x: any) => Math.hypot(mid(boxOf(x.e))[0] - m0[0], mid(boxOf(x.e))[1] - m0[1]), nearest = lines.sort((a, b) => dist(a) - dist(b))[0];
       const which: keyof typeof VALUE = nearest ? (Math.abs(nearest.s![1][0] - nearest.s![0][0]) >= Math.abs(nearest.s![1][1] - nearest.s![0][1]) ? 'length' : 'width') : (['length', 'width', 'height'] as const)[S.filled % 3];
       S.filled++;
       const all = [...word, p, q].map(s => s.b), top = Math.min(...all.map(b => b.y)), bot = Math.max(...all.map(b => b.y + b.h));
       writing = true; await wait(450);
-      try { await write(VALUE[which], eq.x + w * 1.55, top, Math.max(eq.h * 1.5, (bot - top) * 0.9), p.e.color, p.e.lineWidth ?? 4); } finally { writing = false; }
+      try { const made = await write(VALUE[which], eq.x + w * 1.55, top, Math.max(eq.h * 1.5, (bot - top) * 0.9), p.e.color, p.e.lineWidth ?? 4); if (nearest) S.used.add(nearest.e.id); S.fills.push({ which, line: nearest?.e.id, ids: [...word, p, q].map(s2 => s2.e.id as string).concat(made) }); } finally { writing = false; }
       return;
     }
   }
@@ -419,7 +506,7 @@ export function mountRome(rootEl: any) {
   async function write(text: string, x: number, y: number, h: number, color: any, lw: number) {
     lw = Math.max(h * 0.035, Math.min(lw, h * 0.085));   // never heavier than the letters can carry: small writing stays legible
     const NS = 'http://www.w3.org/2000/svg'; const svg = document.createElementNS(NS, 'svg'); svg.classList.add('cx-rome-ink'); svg.setAttribute('overflow', 'visible'); world.append(svg);
-    let cx = x; const made: { pts: Pt[]; node: SVGPathElement }[] = [];
+    let cx = x; const made: { pts: Pt[]; node: SVGPathElement }[] = [], ids: string[] = [];
     for (const ch of text) {
       const g = HAND[ch] ?? HAND[' '];
       for (const s of g.s) {
@@ -435,8 +522,8 @@ export function mountRome(rootEl: any) {
       }
       cx += g.w * h;
     }
-    for (const m of made) { const x0 = Math.min(...m.pts.map(q => q[0])), y0 = Math.min(...m.pts.map(q => q[1])), x1 = Math.max(...m.pts.map(q => q[0])), y1 = Math.max(...m.pts.map(q => q[1])); const id = surf.addElement({ type: 'brush', points: m.pts.map(q => [q[0] - x0, q[1] - y0]), xywh: `[${x0},${y0},${Math.max(1, x1 - x0)},${Math.max(1, y1 - y0)}]`, color, lineWidth: lw }); S.used.add(id); }
-    store.captureSync?.(); setTimeout(() => svg.remove(), 120);
+    for (const m of made) { const x0 = Math.min(...m.pts.map(q => q[0])), y0 = Math.min(...m.pts.map(q => q[1])), x1 = Math.max(...m.pts.map(q => q[0])), y1 = Math.max(...m.pts.map(q => q[1])); const id = surf.addElement({ type: 'brush', points: m.pts.map(q => [q[0] - x0, q[1] - y0]), xywh: `[${x0},${y0},${Math.max(1, x1 - x0)},${Math.max(1, y1 - y0)}]`, color, lineWidth: lw }); S.used.add(id); ids.push(id); }
+    store.captureSync?.(); setTimeout(() => svg.remove(), 120); return ids;
   }
 
   // ── which step the user's last mark asks for ──
