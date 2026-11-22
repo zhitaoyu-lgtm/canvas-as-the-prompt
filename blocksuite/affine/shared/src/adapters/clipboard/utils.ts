@@ -9,26 +9,15 @@ for (let i = 0; i < chars.length; i++) {
   lookup[chars.charCodeAt(i)] = i;
 }
 
+// canvas-app: the browser's own encoder, a slice at a time. Building the string one character at a time took
+// about two seconds for a large picture, and a copy (which some tools send on every mouse release) froze the board.
 export const encode = (arraybuffer: ArrayBuffer): string => {
   const bytes = new Uint8Array(arraybuffer);
-  const len = bytes.length;
-  let i,
-    base64 = '';
-
-  for (i = 0; i < len; i += 3) {
-    base64 += chars[bytes[i] >> 2];
-    base64 += chars[((bytes[i] & 3) << 4) | (bytes[i + 1] >> 4)];
-    base64 += chars[((bytes[i + 1] & 15) << 2) | (bytes[i + 2] >> 6)];
-    base64 += chars[bytes[i + 2] & 63];
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    parts.push(String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000) as unknown as number[]));
   }
-
-  if (len % 3 === 2) {
-    base64 = base64.substring(0, base64.length - 1) + '=';
-  } else if (len % 3 === 1) {
-    base64 = base64.substring(0, base64.length - 2) + '==';
-  }
-
-  return base64;
+  return btoa(parts.join(''));
 };
 
 export const decode = (base64: string): ArrayBuffer => {

@@ -29,6 +29,10 @@ export function mountLatency() {
       }
     }).observe({ type: 'long-animation-frame', buffered: true } as any);
   } catch { /* this browser does not say */ }
+  // copies: some tools send Ctrl+C on every mouse release (to read selected text); a copy of a board with
+  // pictures is heavy, so it is counted here
+  let copies = 0, lastCopy = '';
+  addEventListener('copy', e => { copies++; lastCopy = `${new Date().toLocaleTimeString()} ${e.isTrusted ? 'from the system' : 'from the page'}`; }, true);
   let box: HTMLDivElement | null = null;
   const show = () => {
     if (box) { box.remove(); box = null; return; }
@@ -36,6 +40,7 @@ export function mountLatency() {
     box.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:99999;background:rgba(28,28,30,.92);color:#f2f2f7;font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;padding:10px 12px;border-radius:10px;max-height:80vh;max-width:70vw;overflow:auto;white-space:pre;pointer-events:auto';
     const top = [...rows].sort((a, b) => b.total - a.total).slice(0, 14);
     box.textContent = top.length ? 'slowest presses (ms)   wait  work  draw  total\n' + top.map(r => `${r.what.padEnd(22)} ${String(r.wait).padStart(5)} ${String(r.work).padStart(5)} ${String(r.draw).padStart(5)} ${String(r.total).padStart(6)}`).join('\n') : 'no slow presses yet';
+    box.textContent += `\n\ncopies since opening: ${copies}${copies ? ' (last ' + lastCopy + ')' : ''}`;
     box.textContent += '\n\nlongest frames\n' + (frames.length ? [...frames].reverse().join('\n') : 'none over 200 ms');
     document.body.append(box);
   };
