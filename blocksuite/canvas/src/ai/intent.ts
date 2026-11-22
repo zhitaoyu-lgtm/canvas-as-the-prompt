@@ -105,7 +105,7 @@ export function mountIntent(rootEl: any, trace: Trace) {
   async function call(user: string, picture: Blob[] | null, signal: AbortSignal): Promise<any> {
     const mock = (window as any).cxMockIntent;
     if (mock) return typeof mock === 'function' ? await mock(user) : mock;
-    const raw = await ask(SYSTEM_V6 + (online() ? '\nYou may search the web only when the function needs literature; at most 3 searches.' : ''), user, picture, signal);
+    const raw = await ask(SYSTEM_V6 + (online() ? '\nYou may search the web only when the function needs literature; at most 3 searches. A request to see a drawing or photo (a section, a plan, a detail) is answered with {"do":"add","kind":"picture"}: the app finds the picture itself, so do not search for it.' : '\nPictures from the web cannot be fetched here: if the request is to see a drawing or photo, still answer with {"do":"add","kind":"picture"}; the board will say plainly that none could be found.'), user, picture, signal);
     lastLook = lookOf(raw);
     try { return parseAnswer(raw); }
     catch {

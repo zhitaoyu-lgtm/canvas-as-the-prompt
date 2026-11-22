@@ -2,6 +2,7 @@
 // The model says what and roughly where ("after s4", "in f1", "like s2"); this file decides exact
 // positions, sizes and colours from the user's own layout, so additions sit in their structure.
 
+import { canFind, fetchPicture, findPicture, type Found } from './pictures';
 import { frames2 as framesBg } from './timer';
 import { TableDataManager } from '@blocksuite/affine/blocks/table';
 import { Text } from '@blocksuite/affine/store';
@@ -317,6 +318,34 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       else store.addBlock('affine:paragraph', { text: new Text(l) }, noteId);
     }
     remember(a, noteId, box, like);
+  }
+  // A picture found on the web, set where it was asked for, with a small line under it saying what it is and
+  // where it comes from. It is a likeness found online, so the line says "reference" — never passed off as theirs.
+  async function addPicture(a: Action) {
+    const words = String(a.find ?? a.query ?? a.caption ?? a.text ?? '').trim();
+    const found = a.url ? await (async () => { const b = await fetchPicture(a.url); if (!b) return null; const bm = await createImageBitmap(b); return { blob: b, w: bm.width, h: bm.height, title: a.caption ?? '', source: new URL(a.url).hostname.replace(/^www\./, '') } as Found; })().catch(() => null) : await findPicture(words);
+    const like = item(a.like), near = item(a.place?.below ?? a.place?.right ?? a.place?.left ?? a.place?.above ?? a.place?.near ?? a.place?.after);
+    const base = like?.kind === 'image' ? like.box.w : near?.kind === 'image' ? Math.min(near.box.w, 640) : 480;
+    const size = 12;
+    if (!found) {
+      const msg = canFind() ? `No picture found for “${words}”.` : `Pictures from the web need the desktop app (“${words}”).`;
+      const m = measure(msg, size, 400, 420), box = place(a.place, m.w, m.h, anchorOf(a));
+      const t = new Y.Text(); t.insert(0, msg);
+      const id = addEl({ type: 'text', xywh: xywh(box), text: t, color: TEXT.muted, fontSize: size, fontWeight: '400', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', hasMaxWidth: true });
+      remember(a, id, box, like); errors.push(`picture: none for ${words}`); return;
+    }
+    const w = Math.round(a.width ?? base), h = Math.round(w * found.h / found.w);
+    const credit = [found.title || a.caption, [found.source, found.author, found.licence].filter(Boolean).join(' · ')].filter(Boolean).join(' — ');
+    const line = `${a.caption ? a.caption + '  ·  ' : ''}Reference, found online: ${credit}`;
+    const m = measure(line, size, 400, w), gap = 8;
+    const box = place(a.place, w, h + gap + m.h, anchorOf(a));
+    const sourceId = await store.blobSync.set(found.blob);
+    const id = store.addBlock('affine:image', { sourceId, xywh: xywh({ x: box.x, y: box.y, w, h }), width: found.w, height: found.h, caption: credit, index: nextTop() } as any, surf.id);
+    const t = new Y.Text(); t.insert(0, line);
+    const cap = addEl({ type: 'text', xywh: xywh({ x: box.x, y: box.y + h + gap, w: m.w, h: m.h }), text: t, color: TEXT.muted, fontSize: size, fontWeight: '400', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', hasMaxWidth: true });
+    created.push(id);
+    try { const g = surf.addElement({ type: 'group', children: { [id]: true, [cap]: true }, title: new Y.Text('') }); created.push(g); } catch { /* two things then */ }
+    remember(a, id, { x: box.x, y: box.y, w, h }, like);
   }
   function addFrame(a: Action, refs: string[], title: string) {
     const ids = refs.map(idOf).filter(Boolean) as string[];
@@ -977,7 +1006,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     }
     if (k === 'image' && it.url) {
       try {
-        const blob = await (await fetch(it.url)).blob(); if (!blob.type.startsWith('image/')) throw 0;
+        const blob = await fetchPicture(it.url); if (!blob) throw 0;
         const sourceId = await store.blobSync.set(blob);
         const bmp = await createImageBitmap(blob); const w = 300, h = Math.round(300 * bmp.height / bmp.width);
         const id = store.addBlock('affine:image', { sourceId, xywh: xywh({ ...STAGE, w, h }), width: bmp.width, height: bmp.height, caption: it.caption ?? null, index: nextTop() } as any, surf.id);
@@ -1371,6 +1400,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
           if (a.kind === 'sticky') addSticky(a);
           else if (a.kind === 'text') addText(a);
           else if (a.kind === 'doc') addDoc(a);
+          else if (a.kind === 'picture' || a.kind === 'image') await addPicture(a);
           else if (a.kind === 'shape') addShape(a);
           else if (a.kind === 'frame') addFrame(a, a.contains ?? [], a.text ?? a.title ?? '');
           else addSticky(a);

@@ -46,6 +46,13 @@ Answer with a list of actions. Use only these parts; combine them freely. Refer 
    "like":"ref (copy its size, colour, font)", "colour":"name or #hex", "name":"new1",
    "shape":"rect|ellipse|diamond|triangle (shape only)", "size":"small|normal|large",
    "contains":["refs a new frame should wrap"]}
+{"do":"add", "kind":"picture", "find":"words a picture archive would use", "caption":"what it shows, one line", "place":PLACE, "width":480}
+   A real drawing or photo found online and set on the board with its source. When the user asks to SEE something
+   (a section, plan, elevation, axonometric, detail, map, photo of a building or object), answer with a picture,
+   never a sticky or a card describing it. "find" is short and concrete, in English, the way such pictures are
+   titled: "Pantheon Rome section drawing", "Hagia Sophia plan", "Gothic cathedral flying buttress section".
+   It is a likeness of the kind asked for, not a drawing of their exact cut: the caption says what it shows. Put it
+   beside the thing it is about (below or to the right of the picture they marked), as wide as that picture or less.
 {"do":"write", "ref":"s9", "text":"…"}                   fill an empty sticky/shape (never overwrite user words)
 {"do":"fill", "ref":"tb1", "row":2, "col":3, "text":"…"}  1-based cell; row = rows+1 adds a row
 {"do":"highlight", "ref":"n1", "quote":"exact words from it", "colour":"red|orange|yellow|green|teal|blue|purple|grey"}

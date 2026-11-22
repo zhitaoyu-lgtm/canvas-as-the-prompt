@@ -78,6 +78,44 @@ async function claude(req: http.IncomingMessage, res: http.ServerResponse, u: UR
   } catch (e: any) { res.writeHead(502).end(String(e?.message || e)); }
 }
 
+// ---------------------------------------------------------------- pictures for the board
+// The board asks for a drawing or a photo it can put down ("a section of the Pantheon"): this server looks it up in
+// Wikimedia Commons (free pictures with their source and licence) and hands back the picture itself, so the page
+// never needs another site's permission to show it. Only the board may ask (same origin, own header).
+const UA = 'CanvasAsThePrompt/1.0 (thesis prototype; https://github.com/zhitaoyu-lgtm/canvas-as-the-prompt)';
+const ownPage = (req: http.IncomingMessage) => { const o = String(req.headers.origin || req.headers.referer || ''); return /^https?:\/\/(127\.0\.0\.1|localhost):\d+/.test(o) && req.headers['x-canvas'] === 'picture'; };
+const strip = (v: any) => String(v ?? '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+async function pictures(req: http.IncomingMessage, res: http.ServerResponse, u: URL) {
+  if (!ownPage(req)) { res.writeHead(403).end(); return; }
+  const q = (u.searchParams.get('q') || '').slice(0, 200).trim(); if (!q) { res.writeHead(400).end(); return; }
+  try {
+    const api = 'https://commons.wikimedia.org/w/api.php?' + new URLSearchParams({ action: 'query', format: 'json', generator: 'search', gsrnamespace: '6', gsrlimit: '12', gsrsearch: q + ' filetype:bitmap',
+      prop: 'imageinfo', iiprop: 'url|size|mime|extmetadata', iiurlwidth: '1600', origin: '*' });
+    const r = await fetch(api, { headers: { 'user-agent': UA }, signal: AbortSignal.timeout(12000) });
+    const j: any = await r.json();
+    const pages = Object.values(j?.query?.pages ?? {}).sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0)) as any[];
+    const out = pages.map(p => { const ii = p.imageinfo?.[0] ?? {}, m = ii.extmetadata ?? {}; return {
+      title: strip(m.ObjectName?.value) || String(p.title || '').replace(/^File:/, '').replace(/\.[a-z0-9]+$/i, ''),
+      url: ii.thumburl || ii.url, page: ii.descriptionurl, w: ii.width, h: ii.height, mime: ii.mime,
+      author: strip(m.Artist?.value).slice(0, 80), licence: strip(m.LicenseShortName?.value), what: strip(m.ImageDescription?.value).slice(0, 200) }; })
+      .filter(c => c.url && /image\/(jpeg|png|gif|webp)/.test(c.mime || '') && (c.w || 0) >= 300 && (c.h || 0) >= 200);
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(out));
+  } catch (e: any) { res.writeHead(502).end(String(e?.message || e)); }
+}
+async function picture(req: http.IncomingMessage, res: http.ServerResponse, u: URL) {
+  if (!ownPage(req)) { res.writeHead(403).end(); return; }
+  let target: URL; try { target = new URL(u.searchParams.get('u') || ''); } catch { res.writeHead(400).end(); return; }
+  // pictures only, from the open web (never this computer or its network)
+  if (target.protocol !== 'https:' || /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.|\[)/.test(target.hostname)) { res.writeHead(403).end(); return; }
+  try {
+    const r = await fetch(target, { headers: { 'user-agent': UA, accept: 'image/*' }, redirect: 'follow', signal: AbortSignal.timeout(15000) });
+    const type = r.headers.get('content-type') || '';
+    if (!r.ok || !/^image\/(jpeg|png|gif|webp|svg\+xml)/.test(type)) { res.writeHead(415).end(); return; }
+    const buf = Buffer.from(await r.arrayBuffer()); if (buf.length > 20 * 1024 * 1024) { res.writeHead(413).end(); return; }
+    res.writeHead(200, { 'content-type': type, 'cache-control': 'max-age=3600' }).end(buf);
+  } catch (e: any) { res.writeHead(502).end(String(e?.message || e)); }
+}
+
 // ---------------------------------------------------------------- updates
 // The desktop app updates itself from the project's GitHub branch `desktop-app`: a manifest (version.json) lists
 // every file with its sha256; only files that changed are downloaded, checked against that hash and written in
@@ -125,6 +163,8 @@ function startOwner(): Promise<boolean> {
       const u = new URL(req.url || '/', URL_);
       if (u.pathname === '/__quit' && req.headers['x-canvas'] === 'quit') { res.writeHead(200).end('bye'); setTimeout(() => process.exit(0), 100); return; }
       if (u.pathname === '/__claude' || u.pathname.startsWith('/__claude/')) { void claude(req, res, u); return; }
+      if (u.pathname === '/__pictures') { void pictures(req, res, u); return; }
+      if (u.pathname === '/__picture') { void picture(req, res, u); return; }
       let f = path.normalize(path.join(APP, decodeURIComponent(u.pathname)));
       if (!f.startsWith(path.normalize(APP))) { res.writeHead(403).end(); return; }
       if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(APP, 'index.html');
