@@ -1,6 +1,6 @@
 import { CARD_STYLE, FILL, HUES, INK, TEXT, stickyProps, type Hue } from './design';
 // The toolbar: a small vertical bar at the middle of the left edge. Everyday tools are in the bar as gray line
-// icons; the rest (doc note, image, table, mind map, templates, zoom) is a short labelled list behind "+".
+// icons; the rest (doc note, image, table, mind map, templates) is behind "+".
 // Each tool's options open as a narrow two-column panel beside the bar, never across the board.
 // It drives AFFiNE's own tools, so drawing, zoom, snapping and undo stay the engine's.
 
@@ -154,22 +154,14 @@ export async function mountToolbar(rootEl: any) {
       // FigJam-style stamps: pick one, then click the board to stamp it (stays armed until Esc).
       for (const st of STAMPS) trayEl.append(h('button', { class: 'cx-stamp' + (st === stamp ? ' on' : ''), 'aria-label': st.name, onclick: () => { stamp = st; placing = 'stamp'; setTool('default'); render(); } }, h('img', { src: st.url, alt: '' })));
     } else if (id === 'more') {
-      trayEl.classList.add('cx-tray-more');
-      const row = (label: string, svg: string, f: () => void, on = false) => h('button', { class: 'cx-mi' + (on ? ' on' : ''), onclick: f, html: `${svg}<span>${label}</span>` });
+      // what is used less: the same single column of icons as every other panel
       const place = (what: 'doc' | 'table') => () => { openTray(null); mode = what === 'doc' ? 'doc' : 'select'; placing = what; setTool('default'); paint(); };
       trayEl.append(
-        row('Doc note', ICON.doc, place('doc'), mode === 'doc'),
-        row('Image', ICON.image, () => { placing = null; openTray(null); pickImage(); }),
-        row('Table', ICON.table, place('table')),
-        row('Mind map', ICON.mindmap, () => insertMindmap()),
-        row('Templates', ICON.templates, () => { openTray(null); toggleTemplates(); paint(); }, mode === 'templates'),
-        h('span', { class: 'cx-tdiv' }, h('i')),
-        h('div', { class: 'cx-zoom' },
-          icon('Zoom out · Ctrl −', ICON.minus, false, () => { zoomBy(1 / 1.25); render(); }),
-          h('span', {}, `${Math.round(gfx.viewport.zoom * 100)}%`),
-          icon('Zoom in · Ctrl +', ICON.plusThin, false, () => { zoomBy(1.25); render(); }),
-          icon('Fit to screen · Shift 1', ICON.fit, false, () => { try { rootEl.service?.setZoomByAction?.('fit'); } catch {} openTray(null); }),
-        ),
+        icon('Doc note', ICON.doc, mode === 'doc', place('doc')),
+        icon('Image', ICON.image, false, () => { placing = null; openTray(null); pickImage(); }),
+        icon('Table', ICON.table, false, place('table')),
+        icon('Mind map', ICON.mindmap, false, () => insertMindmap()),
+        icon('Templates', ICON.templates, mode === 'templates', () => { openTray(null); toggleTemplates(); paint(); }),
       );
     }
     placeTray();
@@ -189,15 +181,10 @@ export async function mountToolbar(rootEl: any) {
   function icon(label: string, svg: string, on: boolean, f: () => void, cls = 'cx-ti') {
     return h('button', { class: cls + (on ? ' on' : ''), 'aria-label': label, 'aria-pressed': String(on), html: svg, onclick: f });
   }
-  function zoomBy(k: number) {
-    const vp = gfx.viewport; const c = vp.center;
-    vp.setZoom(Math.max(0.1, Math.min(6, vp.zoom * k)), { x: c.x, y: c.y } as any, false);
-  }
   // The panel is centred on the bar (CSS). A list shows five things (three under the pen's two cells) and a sliver
   // of the next, so it is plain there is more; the rest is reached by rolling.
   const CELL = 38;
   function placeTray() {
-    if (tray === 'more') { trayEl.style.maxHeight = `${innerHeight - 24}px`; return; }
     const rows = tray === 'pen' ? 3 : 5, n = trayEl.children.length;
     trayEl.style.maxHeight = n > rows ? `${rows * CELL + 6 + 16}px` : '';
   }
