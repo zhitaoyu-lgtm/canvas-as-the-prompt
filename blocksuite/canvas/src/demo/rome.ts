@@ -278,56 +278,56 @@ export function mountRome(rootEl: any) {
     const ctx = cv.getContext('2d')!, mask = document.createElement('canvas'); mask.width = cw; mask.height = ch; const mx = mask.getContext('2d')!;
     mx.lineCap = 'round'; mx.lineJoin = 'round'; mx.strokeStyle = '#000'; mx.fillStyle = '#000';
     // The order a hand would take: first the outline and the long lines of the structure, from the edge of the
-    // sheet inward; then the fine work, patch by patch — a patch near the edge, then one further in — and inside a
-    // patch the strokes follow one another, as hatching does. Nothing sweeps round like a clock hand.
-    const n = D.n, long = D.w * 0.06, start = new Float32Array(n), dur = new Float32Array(n), order = new Uint32Array(n);
-    const cx = D.w / 2, cy = D.h / 2, rnd = (v: number) => ((Math.imul(v + 1, 2654435761) >>> 0) / 4294967296);
-    const edge = new Float32Array(n), cell = new Int32Array(n), along = new Float32Array(n), cols = 12, cs = D.w / cols, rows = Math.ceil(D.h / cs);
-    const longs: number[] = [], fine: number[] = [];
+    // sheet inward; then the fine lines, the hand wandering inward with no hard front (no blocks, no clock hand);
+    // and only then the solid parts are inked in, each one first a thin line and later filled to its weight.
+    const n = D.n, long = D.w * 0.06, cx = D.w / 2, cy = D.h / 2, rnd = (v: number) => ((Math.imul(v + 1, 2654435761) >>> 0) / 4294967296);
+    const heavy = (i: number) => D.wid[i] * k > 5;
+    const longs: number[] = [], fine: number[] = [], solid: number[] = []; const rank = new Float32Array(n);
     for (let i = 0; i < n; i++) {
-      const o = D.off[i], m = o + (D.cnt[i] >> 1) * 2, x = D.xy[m], y = D.xy[m + 1];
-      edge[i] = Math.min(1.2, Math.hypot((x - cx) / cx, (y - cy) / cy));   // 1 at the rim of the drawing, 0 at its middle
-      cell[i] = Math.min(rows - 1, Math.floor(y / cs)) * cols + Math.min(cols - 1, Math.floor(x / cs)); along[i] = x + y * 0.35;
-      (D.len[i] >= long ? longs : fine).push(i);
+      const o = D.off[i], m = o + (D.cnt[i] >> 1) * 2, x = D.xy[m], y = D.xy[m + 1], u2 = x / D.w, v2 = y / D.w;
+      const edge = Math.min(1.2, Math.hypot((x - cx) / cx, (y - cy) / cy));   // 1 at the rim of the drawing, 0 at its middle
+      // a soft, slow unevenness over the sheet, so the work advances in drifting tongues rather than rings or squares
+      const drift = 0.5 + 0.2 * Math.sin(u2 * 7.1 + 1.3) * Math.cos(v2 * 6.3 + 0.7) + 0.16 * Math.sin((u2 + v2) * 11.7 + 2.1) + 0.14 * Math.cos((u2 - v2) * 9.3 + 4.2);
+      rank[i] = (1 - edge) * 0.6 + drift * 0.5 + rnd(i) * 0.16;
+      (D.len[i] >= long ? longs : fine).push(i); if (heavy(i)) solid.push(i);
     }
-    // each patch gets a turn: the outer ones early, with enough chance in it that the hand seems to wander
-    const turn = new Float32Array(rows * cols), seen = new Uint8Array(rows * cols);
-    for (let c = 0; c < rows * cols; c++) { const x = ((c % cols) + 0.5) * cs, y = (Math.floor(c / cols) + 0.5) * cs; turn[c] = (1 - Math.min(1.2, Math.hypot((x - cx) / cx, (y - cy) / cy))) * 0.7 + rnd(c * 7 + 3) * 0.42; }
-    longs.sort((a, b) => edge[b] - edge[a] || D.len[b] - D.len[a]);
-    fine.sort((a, b) => turn[cell[a]] - turn[cell[b]] || cell[a] - cell[b] || along[a] - along[b]);
-    void seen;
-    const speed = (D.w * 3.4) / ms;   // image px per ms: the outline takes a good moment to go round
-    const A = 0.36;                   // the share of the time in which the structure is set out
+    longs.sort((a, b) => rank[a] - rank[b] - (D.len[a] - D.len[b]) / D.w * 0.2);
+    fine.sort((a, b) => rank[a] - rank[b]); solid.sort((a, b) => rank[a] - rank[b]);
+    // every line has a turn; a solid part has two (index n + j is the second turn of solid[j])
+    const N = n + solid.length, start = new Float32Array(N), dur = new Float32Array(N), order = new Uint32Array(N);
+    const speed = (D.w * 3.4) / ms, A = 0.34;
     let at = 0; const total = longs.reduce((q, i) => q + D.len[i], 0) || 1;
     for (const i of longs) { dur[i] = Math.max(60, Math.min(ms * 0.22, D.len[i] / speed)); start[i] = (at / total) * A * ms; at += D.len[i]; }
-    fine.forEach((i, k) => { dur[i] = Math.max(34, Math.min(ms * 0.1, (D.len[i] / speed) * 1.6)); start[i] = (A * 0.55 + (k / fine.length) * (0.985 - A * 0.55)) * ms + (rnd(i) - 0.5) * 30; });
-    for (let i = 0; i < n; i++) { if (start[i] < 0) start[i] = 0; if (start[i] + dur[i] > ms) start[i] = Math.max(0, ms - dur[i]); order[i] = i; }
+    fine.forEach((i, q) => { dur[i] = Math.max(40, Math.min(ms * 0.1, (D.len[i] / speed) * 1.8)); start[i] = (A * 0.5 + (q / fine.length) * (0.86 - A * 0.5)) * ms; });
+    solid.forEach((i, q) => { const e = n + q; dur[e] = Math.max(90, Math.min(ms * 0.12, (D.len[i] / speed) * 3)); start[e] = Math.max(start[i] + dur[i] + ms * 0.08, (0.5 + (q / solid.length) * 0.47) * ms); });
+    for (let i = 0; i < N; i++) { if (start[i] + dur[i] > ms) start[i] = Math.max(0, ms - dur[i]); order[i] = i; }
     order.sort((p2, q2) => start[p2] - start[q2]);
-    const done = new Float32Array(n); let head = 0; let active: number[] = [];
+    const done = new Float32Array(N); let head = 0; let active: number[] = [];
     const t0 = performance.now();
     await new Promise<void>(fin => {
       const frame = (now: number) => {
         const t = now - t0;
-        while (head < n && start[order[head]] <= t) active.push(order[head++]);
+        while (head < N && start[order[head]] <= t) active.push(order[head++]);
         const tips: number[] = [], still: number[] = [];
-        for (const i of active) {
-          const o = D.off[i], c = D.cnt[i], total = D.len[i], want = Math.min(1, (t - start[i]) / dur[i]) * total, from = done[i];
-          mx.lineWidth = Math.max(1.2, D.wid[i] * k + 1.6);
-          if (total < 0.5) { mx.beginPath(); mx.arc(D.xy[o] * k, D.xy[o + 1] * k, mx.lineWidth / 2, 0, 6.2832); mx.fill(); continue; }
+        for (const e of active) {
+          const i = e < n ? e : solid[e - n], o = D.off[i], c = D.cnt[i], total2 = D.len[i], want = Math.min(1, (t - start[e]) / dur[e]) * total2, from = done[e];
+          const full = Math.max(1.2, D.wid[i] * k + 1.6);
+          mx.lineWidth = e < n && heavy(i) ? Math.min(full, 2.4) : full;   // first turn of a solid part: only its line
+          if (total2 < 0.5) { mx.beginPath(); mx.arc(D.xy[o] * k, D.xy[o + 1] * k, mx.lineWidth / 2, 0, 6.2832); mx.fill(); continue; }
           // the piece of the line between where the pen was and where it is now
           mx.beginPath(); let acc = 0, begun = false, tx = D.xy[o] * k, ty = D.xy[o + 1] * k;
           for (let j = 1; j < c; j++) {
-            const x0 = D.xy[o + j * 2 - 2], y0 = D.xy[o + j * 2 - 1], x1 = D.xy[o + j * 2], y1 = D.xy[o + j * 2 + 1], d = Math.hypot(x1 - x0, y1 - y0) || 0.001, e = acc + d;
-            if (e > from - 0.01) {
+            const x0 = D.xy[o + j * 2 - 2], y0 = D.xy[o + j * 2 - 1], x1 = D.xy[o + j * 2], y1 = D.xy[o + j * 2 + 1], d = Math.hypot(x1 - x0, y1 - y0) || 0.001, e2 = acc + d;
+            if (e2 > from - 0.01) {
               const f0 = Math.max(0, (from - acc) / d), f1 = Math.min(1, (want - acc) / d);
               if (!begun) { mx.moveTo((x0 + (x1 - x0) * f0) * k, (y0 + (y1 - y0) * f0) * k); begun = true; }
               tx = (x0 + (x1 - x0) * f1) * k; ty = (y0 + (y1 - y0) * f1) * k; mx.lineTo(tx, ty);
-              if (e >= want) break;
+              if (e2 >= want) break;
             }
-            acc = e;
+            acc = e2;
           }
-          mx.stroke(); done[i] = want;
-          if (want < total) { still.push(i); if (total >= long) tips.push(tx, ty); }
+          mx.stroke(); done[e] = want;
+          if (want < total2) { still.push(e); if (e < n && total2 >= long) tips.push(tx, ty); }
         }
         active = still;
         ctx.globalCompositeOperation = 'source-over'; ctx.clearRect(0, 0, cw, ch); ctx.drawImage(mask, 0, 0); ctx.globalCompositeOperation = 'source-in'; ctx.drawImage(im, 0, 0, cw, ch); ctx.globalCompositeOperation = 'source-over';
@@ -461,7 +461,7 @@ export function mountRome(rootEl: any) {
     const bx0 = hb.x + hb.w * EXT.aerial.x0, bx1 = hb.x + hb.w * EXT.aerial.x1, w = (bx1 - bx0) / (EXT.plan.x1 - EXT.plan.x0), h = w / PIC.plan.ratio;
     const b: Box = { x: bx0 - w * EXT.plan.x0, y: hb.y + hb.h + 64 * u, w, h };
     lookAt({ x: b.x - 40 * u, y: b.y - 30 * u, w: b.w + 270 * u, h: b.h + 60 * u });
-    S.plan = await draw(PIC.plan, b, 'plan', 4600); const l = label(PIC.plan.label, b.x, b.y - 5 * u, 11.5 * u);
+    S.plan = await draw(PIC.plan, b, 'plan', 5000); const l = label(PIC.plan.label, b.x, b.y - 5 * u, 11.5 * u);
     // two dashed lines carry the building's ends down from the photo to the drawing
     const ya = hb.y + hb.h * EXT.aerial.yc, yp = b.y + b.h / 2, g = [line([bx0, ya], [bx0, yp], { dash: true, color: GUIDE, w: Math.max(0.5, 0.8 * u) }), line([bx1, ya], [bx1, yp], { dash: true, color: GUIDE, w: Math.max(0.5, 0.8 * u) })];
     await annotate(S.plan, b, NOTES.plan, u, [l]); void g; store.captureSync?.();
@@ -478,7 +478,7 @@ export function mountRome(rootEl: any) {
     const px0 = pb.x + pb.w * EXT.plan.x0, px1 = pb.x + pb.w * EXT.plan.x1, w = (px1 - px0) / (EXT.section.x1 - EXT.section.x0), h = w / PIC.section.ratio;
     const b0 = below(pb, w, h, 64 * u), b: Box = { ...b0, x: px0 - w * EXT.section.x0 };
     lookAt({ x: b.x - 200 * u, y: b.y - 30 * u, w: b.w + 240 * u, h: b.h + 80 * u });
-    S.section = await draw(PIC.section, b, 'section', 3800); const l = label(PIC.section.label, b.x, b.y - 5 * u, 11.5 * u);
+    S.section = await draw(PIC.section, b, 'section', 4200); const l = label(PIC.section.label, b.x, b.y - 5 * u, 11.5 * u);
     line([px0, y], [px0, b.y + b.h * 0.2], { dash: true, color: GUIDE, w: Math.max(0.5, 0.8 * u) }); line([px1, y], [px1, b.y + b.h * 0.2], { dash: true, color: GUIDE, w: Math.max(0.5, 0.8 * u) });
     await annotate(S.section, b, NOTES.section, u, [l]); store.captureSync?.();
   }
@@ -495,7 +495,7 @@ export function mountRome(rootEl: any) {
     const from: Pt = [frame.box.x + frame.box.w, frame.box.y + frame.box.h / 2];
     line(from, [b.x - 10 * u, Math.max(b.y + 12 * u, Math.min(b.y + b.h - 12 * u, from[1]))], { arrows: 'end', w: Math.max(0.6, u) });
     lookAt({ x: b.x - 30 * u, y: b.y - 30 * u, w: b.w + 250 * u, h: b.h + 70 * u });
-    S.detail = await draw(PIC.detail, b, 'detail', 3400); const l = label(PIC.detail.label, b.x, b.y - 5 * u, 11.5 * u); await annotate(S.detail, b, NOTES.detail, u, [l]); store.captureSync?.();
+    S.detail = await draw(PIC.detail, b, 'detail', 3800); const l = label(PIC.detail.label, b.x, b.y - 5 * u, 11.5 * u); await annotate(S.detail, b, NOTES.detail, u, [l]); store.captureSync?.();
   }
 
 
