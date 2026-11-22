@@ -686,3 +686,6 @@ affine-edgeless-note {
 .cx-rome-notedot { fill: #6e6e73; opacity: 0; transition: opacity .2s ease; } .cx-rome-notedot.on { opacity: 1; }
 .cx-rome-note { font-family: Inter, system-ui, sans-serif; font-weight: 400; color: #6e6e73; white-space: nowrap; opacity: 0; transform: translateY(18%); transition: opacity .28s ease, transform .34s cubic-bezier(.22,1,.36,1); }
 .cx-rome-note.on { opacity: 1; transform: none; }
+/* A text box is as tall as its words. The engine also pins the element to the stored height; in some browsers the
+   words then stretched to that height, the stored height followed, and the box grew by itself. Unpinned. */
+affine-edgeless-text { height: auto !important; }
