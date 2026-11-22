@@ -106,6 +106,7 @@ export function mountSense(rootEl: any) {
     if (changed) { quietSince = Date.now(); return; }
     if (!recent.size || pointerDown || editing() || Date.now() - quietSince < STABLE_MS) return;
     const touched = new Set(recent); base = last; recent.clear();
+    if ((window as any).cxRome?.owns?.(touched)) return;   // a pen loop on a picture is answered by the filmed scene when asked
     const intent = detect(touched);
     if (!intent) return;
     busy = true;
