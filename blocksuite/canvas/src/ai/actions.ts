@@ -321,6 +321,9 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   }
   // A picture found on the web, set where it was asked for, with a small line under it saying what it is and
   // where it comes from. It is a likeness found online, so the line says "reference" — never passed off as theirs.
+  /** two short lines under a found picture: what it is, then where it comes from */
+  const cut = (v: string, n: number) => (v.length > n ? v.slice(0, n - 1).trimEnd() + '…' : v);
+  const creditOf = (f: Found, caption?: string) => [cut(`Reference · ${caption || f.title || 'found online'}`, 90), cut([f.source, f.author, f.licence].filter(Boolean).join(' · '), 90)].join('\n');
   async function addPicture(a: Action) {
     const words = String(a.find ?? a.query ?? a.caption ?? a.text ?? '').trim();
     const found = a.url ? await (async () => { const b = await fetchPicture(a.url); if (!b) return null; const bm = await createImageBitmap(b); return { blob: b, w: bm.width, h: bm.height, title: a.caption ?? '', source: new URL(a.url).hostname.replace(/^www\./, '') } as Found; })().catch(() => null) : await findPicture(words);
@@ -335,12 +338,11 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       remember(a, id, box, like); errors.push(`picture: none for ${words}`); return;
     }
     const w = Math.round(a.width ?? base), h = Math.round(w * found.h / found.w);
-    const credit = [found.title || a.caption, [found.source, found.author, found.licence].filter(Boolean).join(' · ')].filter(Boolean).join(' — ');
-    const line = `${a.caption ? a.caption + '  ·  ' : ''}Reference, found online: ${credit}`;
+    const line = creditOf(found, a.caption);
     const m = measure(line, size, 400, w), gap = 8;
     const box = place(a.place, w, h + gap + m.h, anchorOf(a));
     const sourceId = await store.blobSync.set(found.blob);
-    const id = store.addBlock('affine:image', { sourceId, xywh: xywh({ x: box.x, y: box.y, w, h }), width: found.w, height: found.h, caption: credit, index: nextTop() } as any, surf.id);
+    const id = store.addBlock('affine:image', { sourceId, xywh: xywh({ x: box.x, y: box.y, w, h }), width: found.w, height: found.h, index: nextTop() } as any, surf.id);
     const t = new Y.Text(); t.insert(0, line);
     const cap = addEl({ type: 'text', xywh: xywh({ x: box.x, y: box.y + h + gap, w: m.w, h: m.h }), text: t, color: TEXT.muted, fontSize: size, fontWeight: '400', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', hasMaxWidth: true });
     created.push(id);
@@ -1004,12 +1006,19 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       const id = addEl({ type: 'text', xywh: xywh({ x: 0, y: 0, w: m.w, h: m.h }), text: t, color: it.muted ? TEXT.muted : TEXT.ink, fontSize: size, fontWeight: String(weight), fontFamily: 'blocksuite:surface:Inter', textAlign: 'left', hasMaxWidth: true });
       created.push(id); return { kind: k, id, w: m.w, h: m.h, spec: it };
     }
+    if (k === 'picture' || (k === 'image' && !it.url && (it.find || it.caption))) {
+      const f = await findPicture(String(it.find ?? it.caption ?? '')); if (!f) { errors.push(`picture: none for ${it.find ?? it.caption}`); return null; }
+      const sourceId = await store.blobSync.set(f.blob); const w = it.width ?? 300, h = Math.round(w * f.h / f.w);
+      const id = store.addBlock('affine:image', { sourceId, xywh: xywh({ ...STAGE, w, h }), width: f.w, height: f.h, index: nextTop() } as any, surf.id);
+      created.push(id);
+      return { kind: 'image', id, w, h, spec: { ...it, caption: creditOf(f, it.caption) } };
+    }
     if (k === 'image' && it.url) {
       try {
         const blob = await fetchPicture(it.url); if (!blob) throw 0;
         const sourceId = await store.blobSync.set(blob);
         const bmp = await createImageBitmap(blob); const w = 300, h = Math.round(300 * bmp.height / bmp.width);
-        const id = store.addBlock('affine:image', { sourceId, xywh: xywh({ ...STAGE, w, h }), width: bmp.width, height: bmp.height, caption: it.caption ?? null, index: nextTop() } as any, surf.id);
+        const id = store.addBlock('affine:image', { sourceId, xywh: xywh({ ...STAGE, w, h }), width: bmp.width, height: bmp.height, caption: it.caption ? cut(String(it.caption), 70) : null, index: nextTop() } as any, surf.id);
         created.push(id); return { kind: k, id, w, h, spec: it };
       } catch { errors.push(`image: could not load ${it.url}`); return null; }
     }
