@@ -155,7 +155,15 @@ async function selfUpdate() {
   let local: any = { version: '0', files: {} };
   try { local = JSON.parse(fs.readFileSync(path.join(HERE, 'version.json'), 'utf8')); } catch { /* first run */ }
   try {
-    const r = await fetch(UPDATES + 'version.json?t=' + Date.now(), { signal: AbortSignal.timeout(10000) });
+    // The raw-file service keeps a branch's files for a few minutes; pinned to the branch's newest commit, it
+    // serves exactly what was published (asked of GitHub, which answers at once). Otherwise the branch as before.
+    let base = UPDATES;
+    const gh = /^https:\/\/raw\.githubusercontent\.com\/([^/]+)\/([^/]+)\/([^/]+)\/$/.exec(UPDATES);
+    if (gh) try {
+      const c = await fetch(`https://api.github.com/repos/${gh[1]}/${gh[2]}/commits/${gh[3]}`, { headers: { accept: 'application/vnd.github.sha', 'user-agent': UA }, signal: AbortSignal.timeout(8000) });
+      const id = c.ok ? (await c.text()).trim() : ''; if (/^[0-9a-f]{40}$/.test(id)) base = `https://raw.githubusercontent.com/${gh[1]}/${gh[2]}/${id}/`;
+    } catch { /* the branch, then */ }
+    const r = await fetch(base + 'version.json?t=' + Date.now(), { signal: AbortSignal.timeout(10000) });
     if (!r.ok) return;
     const m = await r.json();
     if (!m?.version || m.version <= local.version) return;
@@ -167,7 +175,7 @@ async function selfUpdate() {
     if (!want.length) { fs.writeFileSync(path.join(HERE, 'version.json'), JSON.stringify(m)); return; }
     const got: [string, Buffer][] = [];
     for (const [p, h] of want) {
-      const f = await fetch(UPDATES + p.split('/').map(encodeURIComponent).join('/'), { signal: AbortSignal.timeout(60000) });
+      const f = await fetch(base + p.split('/').map(encodeURIComponent).join('/'), { signal: AbortSignal.timeout(60000) });
       if (!f.ok) throw new Error(`${p}: ${f.status}`);
       const b = Buffer.from(await f.arrayBuffer());
       if (sha(b) !== h) throw new Error(`${p}: checksum`);
@@ -179,6 +187,14 @@ async function selfUpdate() {
     fs.writeFileSync(path.join(HERE, 'version.json'), JSON.stringify(m));
     updated = { version: m.version, restart: want.some(([p]) => p === 'server.mjs') };
     if (want.every(([p]) => !p.startsWith('app/') && p !== 'server.mjs')) updated = null;   // only launcher files: nothing to reload
+    // a new server: this one hands over to it by itself (the open board just offers a reload)
+    if (updated?.restart && process.argv.includes('--app')) {
+      updated = { ...updated, restart: false };
+      for (const b of boards) b.send(JSON.stringify({ event: 'updated', ...updated }));
+      log('restarting on the new server');
+      setTimeout(() => { try { spawn(process.execPath, process.argv.slice(1), { cwd: HERE, detached: true, stdio: 'ignore', env: { ...process.env, CANVAS_RESTARTED: '1' } }).unref(); } finally { process.exit(0); } }, 400);
+      return;
+    }
     if (updated) for (const b of boards) b.send(JSON.stringify({ event: 'updated', ...updated }));
   } catch (e: any) { log('update skipped:', e?.message || e); }
 }
@@ -237,7 +253,11 @@ function joinOwner() {
   ws.on('close', () => { if (upstream === ws) upstream = null; setTimeout(boot, 2000); });
   ws.on('error', () => { /* close follows */ });
 }
-async function boot() { if (!(await startOwner())) joinOwner(); }
+async function boot() {
+  // started by an older copy of itself that is just leaving: wait for the port rather than join the old one
+  if (process.env.CANVAS_RESTARTED) { for (let i = 0; i < 40; i++) { if (await startOwner()) return; await new Promise(r => setTimeout(r, 250)); } }
+  if (!(await startOwner())) joinOwner();
+}
 
 function openBrowser() {
   // on Windows the board opens as its own app window (Edge app mode), the same window the desktop launcher uses
