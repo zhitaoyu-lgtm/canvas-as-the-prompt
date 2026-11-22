@@ -63,7 +63,9 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, op
   // the user's own sticky to copy (size, colour, font, corner, shadow), and the user's own line
   const template: Item | undefined = targets.find(t => (t.kind === 'sticky' || t.kind === 'shape') && isBlank(t))
     ?? targets.find(t => t.kind === 'sticky')
-    ?? r.items.find(i => i.kind === 'sticky' && i.author === 'user' && form && hit(i.box, form.box, 400));
+    ?? r.items.find(i => i.kind === 'sticky' && i.author === 'user' && form && hit(i.box, form.box, 400))
+    // no drawn form (a section, notes set in a row): the user's own notes where they were just working
+    ?? (home ? r.items.filter(i => i.kind === 'sticky' && i.author === 'user' && !isBlank(i) && hit(i.box, home, 24)).sort((p, q) => (q.box.y + q.box.x / 10) - (p.box.y + p.box.x / 10))[0] : undefined);
   const userLine = form?.lines.map(l => r.byRef.get(l)).find(c => c && c.author === 'user' && c.arrow?.from && c.arrow?.to);
   const layout = String(ans.grammar?.layout ?? '').toLowerCase();
 
@@ -251,12 +253,48 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, op
     stacks.set(key, b);
     return b;
   }
-  function anywhere(w: number, h: number): Box {
-    const f = form?.box ?? { x: 0, y: 0, w: 0, h: 0 };
-    let b = { x: snap(f.x + f.w + 64), y: snap(f.y), w, h };
-    for (let s = 0; s < 60 && !free(b); s++) b = { ...b, y: b.y + 32 };
-    return b;
+  // ── no exact place was left: continue the arrangement the user made ──
+  // New notes take the next places of the user's own row, column or grid (same pitch, same edges), wrap inside
+  // a section, and only when there is no arrangement at all sit beside what the user just made. Never somewhere
+  // far off on the board.
+  const sectionOf = (b: Box) => r.items.filter(i => i.kind === 'frame' && b.x >= i.box.x && b.y >= i.box.y && b.x + b.w <= i.box.x + i.box.w + 1 && b.y + b.h <= i.box.y + i.box.h + 1).sort((p, q) => p.box.w * p.box.h - q.box.w * q.box.h)[0];
+  let flow: { rows: Box[][]; gapX: number; gapY: number; cols: number; x0: number; limit: number | null; column: boolean } | null | undefined;
+  function arrange(w: number, h: number): Box {
+    const base = home ?? form?.box ?? null;
+    if (flow === undefined) {
+      flow = null;
+      const sibs = base ? r.items.filter(i => (i.kind === 'sticky' || i.kind === 'shape' || i.kind === 'card') && hit(i.box, base, 8) && Math.abs(i.box.w - w) <= w * 0.6).map(i => i.box) : [];
+      if (sibs.length) {
+        const rows: Box[][] = [];
+        for (const b of [...sibs].sort((p, q) => p.y - q.y || p.x - q.x)) { const row = rows.find(rw => Math.abs(rw[0].y - b.y) <= Math.max(12, b.h / 3)); if (row) row.push(b); else rows.push([b]); }
+        rows.forEach(rw => rw.sort((p, q) => p.x - q.x));
+        const gx = rows.flatMap(rw => rw.slice(1).map((b, k) => b.x - (rw[k].x + rw[k].w))).filter(g => g >= 0 && g < 400);
+        const gy = rows.slice(1).map((rw, k) => rw[0].y - (rows[k][0].y + rows[k][0].h)).filter(g => g >= 0 && g < 400);
+        const sec = sectionOf(union(sibs));
+        const column = rows.length >= 2 && rows.every(rw => rw.length === 1);
+        flow = { rows, gapX: gx.length ? median(gx) : gy.length ? median(gy) : 24, gapY: gy.length ? median(gy) : gx.length ? median(gx) : 24, cols: Math.max(...rows.map(rw => rw.length)), x0: Math.min(...sibs.map(b => b.x)), limit: sec ? sec.box.x + sec.box.w - 24 : null, column };
+      }
+    }
+    if (!flow) {
+      // nothing to continue: beside what they made, top edges level; in an empty section, at its first place
+      const sec = base ? r.items.find(i => i.kind === 'frame' && hit(i.box, base, 0) && i.box.w * i.box.h <= base.w * base.h * 1.2) : undefined;
+      let b: Box = sec ? { x: sec.box.x + 32, y: sec.box.y + 56, w, h } : base ? { x: snap(base.x + base.w + 32), y: base.y, w, h } : (() => { const vb = gfx.viewport.viewportBounds; return { x: snap(vb.x + vb.w / 2 - w / 2), y: snap(vb.y + vb.h / 2 - h / 2), w, h }; })();
+      for (let k = 0; k < 40 && !free(b); k++) b = sec ? { ...b, x: b.x + w + 24 } : { ...b, y: b.y + h + 24 };
+      return b;
+    }
+    const f = flow;
+    for (let guard = 0; guard < 80; guard++) {
+      const last = f.rows[f.rows.length - 1], tail = last[last.length - 1];
+      let b: Box;
+      // a column grows down; a row (or the last row of a grid that is not full) grows right; a full row starts a new one
+      const full = f.column || (f.rows.length >= 2 && last.length >= f.cols) || (f.limit != null && tail.x + tail.w + f.gapX + w > f.limit && last.length >= 2);
+      if (full) { b = { x: f.x0, y: Math.max(...last.map(q => q.y + q.h)) + f.gapY, w, h }; f.rows.push([b]); }
+      else { b = { x: tail.x + tail.w + f.gapX, y: last[0].y, w, h }; last.push(b); f.cols = Math.max(f.cols, last.length); }
+      if (free(b)) return b;
+    }
+    return { x: f.x0, y: f.rows[f.rows.length - 1][0].y + h + f.gapY, w, h };
   }
+  const anywhere = arrange;
 
   // ── one preview: fill the blanks, add the rest, connect, label ──
   async function apply(cards: Card[], _ghost: boolean): Promise<Preview> {
@@ -370,7 +408,9 @@ export function renderAnswer(rootEl: any, r: Reading, forms: Form[], ans: V5, op
     }
     // a section grows to hold what was added to it (and shrinks back if the answer is dismissed)
     let regrow: (() => void) | null = null;
-    const fr: any = form?.facts.container ? gfx.getElementById(form.facts.container.id) : null;
+    // (with no drawn form, the section is the one the user was working in, when the new things reach into it)
+    const homeSec = !form?.facts.container && home ? sectionOf(home) : undefined;
+    const fr: any = form?.facts.container ? gfx.getElementById(form.facts.container.id) : homeSec && placed.some(b => hit(b, homeSec.box, 0)) ? gfx.getElementById(homeSec.id) : null;
     if (fr && placed.length) {
       const fb = fr.elementBound, u = union([{ x: fb.x, y: fb.y, w: fb.w, h: fb.h }, ...placed.map(b => ({ x: b.x - 32, y: b.y - 32, w: b.w + 64, h: b.h + 64 }))]);
       if (u.w > fb.w + 1 || u.h > fb.h + 1) { const before = xywh({ x: fb.x, y: fb.y, w: fb.w, h: fb.h }); store.updateBlock(fr, { xywh: xywh(u) }); regrow = () => { const f2: any = gfx.getElementById(fr.id); if (f2) store.updateBlock(f2, { xywh: before }); }; }

@@ -93,6 +93,12 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   };
   const idOf = (ref?: string) => (ref ? named.get(ref)?.id ?? item(ref)?.id : undefined);
   const groupOfRef = (ref: string) => reading.groups.find(g => g.ref === reading.groupOf.get(ref));
+  // a new thing placed "after" something continues that thing's line (its direction and pitch), so a chain of
+  // new things stays one row or one column instead of turning a corner at the first new one
+  const flowOf = new Map<string, { dir: string; gap: number }>();
+  let lastFlow: { dir: string; gap: number } | null = null;
+  // what was put "in" a section, so the section can grow to hold it
+  const putIn = new Map<string, Box[]>();
 
   // obstacles: everything except containers (frames, groups, loops) and lines
   const containers = new Set(reading.items.filter(i => i.children?.length || i.kind === 'frame' || i.kind === 'group').map(i => i.ref));
@@ -118,7 +124,9 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     return [Math.max(48, Math.round(w * k)), Math.max(48, Math.round(h * k))];
   }
   function place(p: Place | undefined, w: number, h: number, fallbackRef?: string): Box {
+    lastFlow = null;
     const b = placeRaw(p, w, h, fallbackRef);
+    if (p?.in && item(p.in)?.kind === 'frame') putIn.set(p.in, [...(putIn.get(p.in) ?? []), b]);
     if (p?.cell || p?.venn || p?.slot) return b;          // fitted inside a shape: keep exact
     const s0 = { ...b, x: snap(b.x), y: snap(b.y) };
     return free(s0) || !free(b) ? s0 : b;
@@ -126,11 +134,12 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   function placeRaw(p: Place | undefined, w: number, h: number, fallbackRef?: string): Box {
     p = p ?? {};
     const dirOf = (ref: string) => {
+      const fl = flowOf.get(ref); if (fl) return fl.dir;
       const g = groupOfRef(ref);
       if (g?.layout === 'column') return 'below';
       return 'right';
     };
-    const gapNear = (ref: string) => groupOfRef(ref)?.gap ?? 40;
+    const gapNear = (ref: string) => flowOf.get(ref)?.gap ?? groupOfRef(ref)?.gap ?? 40;
     const step = (from: Box, dir: string, gap: number): Box => {
       // stay on the anchor's line: share its top (rows) or its left (columns)
       switch (dir) {
@@ -186,7 +195,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
     const rel: [keyof Place, string][] = [['after', ''], ['before', ''], ['below', 'below'], ['above', 'above'], ['right', 'right'], ['left', 'left']];
     for (const [k, d] of rel) {
       const ref = p[k] as string | undefined; const a = boxOfRef(ref); if (!ref || !a) continue;
-      if (k === 'after') return walk(a, dirOf(ref), gapNear(ref));
+      if (k === 'after') { lastFlow = { dir: dirOf(ref), gap: gapNear(ref) }; return walk(a, lastFlow.dir, lastFlow.gap); }
       if (k === 'before') return walk(a, dirOf(ref) === 'below' ? 'above' : 'left', gapNear(ref));
       return walk(a, d, gapNear(ref), false);
     }
@@ -194,6 +203,27 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
       const f = boxOfRef(p.in);
       if (f) {
         const pad = 32;
+        // a section that already holds a row or grid of like things: the new one takes the next place of that
+        // arrangement (same pitch, same edges), wrapping at the section's edge. Not the first gap that fits.
+        const like = [...reading.items.filter(i => ['sticky', 'shape', 'card'].includes(i.kind)).map(i => boxOfRef(i.ref)!).filter(Boolean), ...newBoxes]
+          .filter(b => b.x >= f.x - 2 && b.y >= f.y - 2 && b.x + b.w <= f.x + f.w + 2 && Math.abs(b.w - w) <= w * 0.6 && Math.abs(b.h - h) <= h * 0.8);
+        if (like.length) {
+          const rows: Box[][] = [];
+          for (const b of [...like].sort((p0, q) => p0.y - q.y || p0.x - q.x)) { const row = rows.find(rw => Math.abs(rw[0].y - b.y) <= Math.max(12, b.h / 3)); if (row) row.push(b); else rows.push([b]); }
+          rows.forEach(rw => rw.sort((p0, q) => p0.x - q.x));
+          const med = (v: number[]) => [...v].sort((x, y) => x - y)[v.length >> 1];
+          const gx = rows.flatMap(rw => rw.slice(1).map((b, k) => b.x - (rw[k].x + rw[k].w))).filter(g => g >= 0 && g < 400);
+          const gy = rows.slice(1).map((rw, k) => rw[0].y - (rows[k][0].y + rows[k][0].h)).filter(g => g >= 0 && g < 400);
+          const gapX = gx.length ? med(gx) : gy.length ? med(gy) : 24, gapY = gy.length ? med(gy) : gapX;
+          const x0 = Math.min(...like.map(b => b.x)), cols = Math.max(...rows.map(rw => rw.length)), column = rows.length >= 2 && cols === 1;
+          for (let guard = 0; guard < 60; guard++) {
+            const last = rows[rows.length - 1], tail = last[last.length - 1];
+            const wrap = column || (rows.length >= 2 && last.length >= cols) || (tail.x + tail.w + gapX + w > f.x + f.w - 16 && last.length >= 2);
+            const b: Box = wrap ? { x: x0, y: Math.max(...last.map(q => q.y + q.h)) + gapY, w, h } : { x: tail.x + tail.w + gapX, y: last[0].y, w, h };
+            if (wrap) rows.push([b]); else last.push(b);
+            if (free(b)) return b;
+          }
+        }
         for (let y = f.y + pad + 24; y + h <= f.y + f.h - pad / 2; y += 24)
           for (let x = f.x + pad; x + w <= f.x + f.w - pad / 2; x += 24) { const b = { x, y, w, h }; if (free(b)) return b; }
         // too big for the frame: start at its top-left, under whatever is already inside; the frame grows to fit
@@ -221,6 +251,7 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   const remember = (a: Action, id: string, box: Box, like?: Item) => {
     created.push(id); newBoxes.push(box);
     if (a.name) named.set(a.name, { id, box, like });
+    if (a.name && lastFlow && a.place?.after) flowOf.set(a.name, lastFlow);
   };
   const anchorOf = (a: Action) => a.like ?? a.place?.after ?? a.place?.before ?? a.place?.near ?? a.place?.below ?? a.place?.right ?? a.place?.left ?? a.place?.above;
 
@@ -1387,5 +1418,11 @@ export async function execute(rootEl: any, reading: Reading, answer: Answer): Pr
   const touched = [...created, ...changed].map(id => gfx.getElementById(id)).filter(Boolean).map((e: any) => ({ ...e.elementBound }));
   // one key for every colour the answer used as a mark (unless the answer drew its own legend)
   if (keyEntries.size && !legendDrawn && keyBoxes.length) { try { key([...keyEntries].map(([colour, label]) => ({ colour, label })), union(keyBoxes)); } catch (e: any) { errors.push('key: ' + e?.message); } }
+  // a section grows to hold what was put in it
+  for (const [ref, bs] of putIn) {
+    const it = item(ref), el: any = it ? gfx.getElementById(it.id) : null; if (!el || !bs.length) continue;
+    const fb = el.elementBound, u = union([{ x: fb.x, y: fb.y, w: fb.w, h: fb.h }, ...bs.map(b => ({ x: b.x - 32, y: b.y - 32, w: b.w + 64, h: b.h + 64 }))]);
+    if (u.w > fb.w + 1 || u.h > fb.h + 1) { store.updateBlock(el, { xywh: xywh(u) }); changed.add(el.id); }
+  }
   return { created, changed: [...changed].filter(id => !created.includes(id)), errors, box: touched.length ? union(touched) : null };
 }
