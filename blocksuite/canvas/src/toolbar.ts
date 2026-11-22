@@ -76,13 +76,16 @@ export async function mountToolbar(rootEl: any) {
   const wrap = h('div', { class: 'cx-dock' });
   const bar = h('div', { class: 'cx-bar', role: 'toolbar', 'aria-label': 'Tools' });
   // the panel beside the bar: a box (surface, shadow, the fades) around a list that scrolls when it is long
+  // One column, as wide as the bar. A few things show; the rest is reached by rolling, and fades at both ends.
   const trayEl = h('div', { class: 'cx-tray' });
-  const trayBox = h('div', { class: 'cx-traybox', hidden: true }, trayEl);
+  const headEl = h('div', { class: 'cx-trayhead' });                 // what stays put above the list (pen: kind, width)
+  const scrollEl = h('div', { class: 'cx-trayscroll' }, trayEl);
+  const trayBox = h('div', { class: 'cx-traybox', hidden: true }, headEl, scrollEl);
   wrap.append(trayBox, bar);
   // no scrollbar and no position dots: a long list simply fades out where there is more to roll to
   const fades = () => {
-    trayBox.classList.toggle('more-up', trayEl.scrollTop > 2);
-    trayBox.classList.toggle('more-down', trayEl.scrollTop + trayEl.clientHeight < trayEl.scrollHeight - 2);
+    scrollEl.classList.toggle('more-up', trayEl.scrollTop > 2);
+    scrollEl.classList.toggle('more-down', trayEl.scrollTop + trayEl.clientHeight < trayEl.scrollHeight - 2);
   };
   trayEl.addEventListener('scroll', fades, { passive: true });
   document.body.append(wrap);
@@ -111,27 +114,25 @@ export async function mountToolbar(rootEl: any) {
 
   // ── trays ────────────────────────────────────────────────────────────
   function openTray(id: string | null) {
-    const keep = id && id === tray ? trayEl.scrollTop : 0;   // picking something must not roll the list back
-    tray = id; trayEl.textContent = ''; trayEl.className = 'cx-tray';
+    const fresh = id !== tray, keep = trayEl.scrollTop;   // picking something must not roll the list back
+    tray = id; trayEl.textContent = ''; headEl.textContent = ''; trayEl.className = 'cx-tray';
     if (!id) { trayBox.hidden = true; paint(); return; }
     trayBox.hidden = false;
+    const rule = () => h('span', { class: 'cx-tdiv' }, h('i'));
     if (id === 'sticky') {
-      trayEl.classList.add('cx-tray-sticky');
       for (const [name, c] of STICKY) trayEl.append(swatch(name, c, c === sticky, () => { sticky = c; armSticky(); render(); }));
     } else if (id === 'pen') {
-      // Figma kit "Tool tray / Marker": sub-tools | stroke presets | colours
-      trayEl.classList.add('cx-tray-shape');
+      // Kind and width are one cell each: a tap moves to the next (marker → highlighter → eraser; thin → medium → thick).
+      // Colours are the list below them.
       const kinds: ['brush' | 'highlighter' | 'eraser', string, string][] = [['brush', 'Marker', GLYPH.marker], ['highlighter', 'Highlighter', GLYPH.highlighter], ['eraser', 'Eraser · E', GLYPH.eraser]];
-      // three of a kind sit in one row across the panel's two columns
-      const g3 = () => { const g = h('div', { class: 'cx-tg3' }); trayEl.append(g); return g; };
-      const gk = g3();
-      for (const [k, label, g] of kinds) gk.append(icon(label, g, penKind === k, () => { penKind = k; armPen(); render(); }, 'cx-ti cx-glyph'));
-      trayEl.append(h('span', { class: 'cx-tdiv' }, h('i')));
+      const ki = kinds.findIndex(k => k[0] === penKind), [, klabel, kglyph] = kinds[ki];
       const kind = penKind === 'highlighter' ? 'highlighter' : 'brush';
       const off = penKind === 'eraser';
-      const gs = g3();
-      SIZE_NAMES.forEach((n, i) => gs.append(icon(`${n} stroke`, ICON.squiggle(i), !off && size[kind] === i, () => { size[kind] = i; armPen(); render(); }, 'cx-ti' + (off ? ' off' : ''))));
-      trayEl.append(h('span', { class: 'cx-tdiv' }, h('i')));
+      headEl.append(
+        icon(`${klabel} · tap for the next`, kglyph, false, () => { penKind = kinds[(ki + 1) % kinds.length][0]; armPen(); render(); }, 'cx-ti cx-glyph'),
+        icon(`${SIZE_NAMES[size[kind]]} stroke · tap for the next`, ICON.squiggle(size[kind]), false, () => { size[kind] = (size[kind] + 1) % SIZE_NAMES.length; armPen(); render(); }, 'cx-ti' + (off ? ' off' : '')),
+        rule(),
+      );
       const pal = kind === 'highlighter' ? HILITE : MARKER;
       const cur = kind === 'highlighter' ? hilite : ink;
       for (const [name, c] of pal) {
@@ -140,16 +141,17 @@ export async function mountToolbar(rootEl: any) {
         trayEl.append(sw);
       }
     } else if (id === 'shape') {
-      trayEl.classList.add('cx-tray-shape');
-      trayEl.append(h('button', { class: 'cx-fillbtn', 'aria-label': filled ? 'Filled shapes' : 'Outline shapes', html: (filled ? ICON.fillSolid : ICON.fill) + ICON.chevron,
-        onclick: () => { filled = !filled; armShape(); render(); } }), h('span', { class: 'cx-tdiv' }, h('i')));
-      const C: [string, string, string][] = [['elbow', 'Elbow connector', ICON.elbow], ['curve', 'Curved connector', ICON.curve], ['arrow', 'Arrow', ICON.arrow], ['line', 'Line', ICON.line]];
-      for (const [n, label, ic] of C) trayEl.append(icon(label, ic, shape.kind === 'connector' && shape.name === n, () => { shape = { kind: 'connector', name: n }; armShape(); render(); }));
-      const S: [string, string, string][] = [['rect', 'Square', ICON.rect], ['ellipse', 'Ellipse', ICON.ellipse], ['diamond', 'Diamond', ICON.diamond], ['triangle', 'Triangle', ICON.triangle], ['triangleDown', 'Triangle down', ICON.triangleDown], ['roundedRect', 'Rounded', ICON.rounded]];
-      for (const [n, label, ic] of S) trayEl.append(icon(label, ic, shape.kind === 'shape' && shape.name === n, () => { shape = { kind: 'shape', name: n }; armShape(); render(); }));
+      // the ones reached for most come first; outline / filled is a setting, at the end
+      const T: ['shape' | 'connector', string, string, string][] = [
+        ['shape', 'rect', 'Square', ICON.rect], ['shape', 'ellipse', 'Ellipse', ICON.ellipse], ['connector', 'arrow', 'Arrow', ICON.arrow],
+        ['connector', 'elbow', 'Elbow connector', ICON.elbow], ['shape', 'diamond', 'Diamond', ICON.diamond],
+        ['connector', 'line', 'Line', ICON.line], ['connector', 'curve', 'Curved connector', ICON.curve], ['shape', 'triangle', 'Triangle', ICON.triangle],
+        ['shape', 'triangleDown', 'Triangle down', ICON.triangleDown], ['shape', 'roundedRect', 'Rounded', ICON.rounded],
+      ];
+      for (const [k, n, label, ic] of T) trayEl.append(icon(label, ic, shape.kind === k && shape.name === n, () => { shape = { kind: k, name: n }; armShape(); render(); }));
+      trayEl.append(rule(), icon(filled ? 'Filled shapes' : 'Outline shapes', filled ? ICON.fillSolid : ICON.fill, false, () => { filled = !filled; armShape(); render(); }));
     } else if (id === 'stamp') {
       // FigJam-style stamps: pick one, then click the board to stamp it (stays armed until Esc).
-      trayEl.classList.add('cx-tray-stamp');
       for (const st of STAMPS) trayEl.append(h('button', { class: 'cx-stamp' + (st === stamp ? ' on' : ''), 'aria-label': st.name, onclick: () => { stamp = st; placing = 'stamp'; setTool('default'); render(); } }, h('img', { src: st.url, alt: '' })));
     } else if (id === 'more') {
       trayEl.classList.add('cx-tray-more');
@@ -171,7 +173,11 @@ export async function mountToolbar(rootEl: any) {
       );
     }
     placeTray();
-    trayEl.scrollTop = keep; fades();
+    if (fresh) {   // opened: bring what is chosen into view
+      const on = trayEl.querySelector('.on, [aria-pressed="true"]') as El | null;
+      trayEl.scrollTop = on ? Math.max(0, on.offsetTop - (trayEl.clientHeight - on.offsetHeight) / 2) : 0;
+    } else trayEl.scrollTop = keep;
+    fades();
     paint();
   }
   const render = () => openTray(tray);
@@ -187,8 +193,14 @@ export async function mountToolbar(rootEl: any) {
     const vp = gfx.viewport; const c = vp.center;
     vp.setZoom(Math.max(0.1, Math.min(6, vp.zoom * k)), { x: c.x, y: c.y } as any, false);
   }
-  // The panel is centred on the bar (CSS) and never taller than it: what does not fit is reached by rolling.
-  function placeTray() { trayEl.style.maxHeight = `${Math.min(bar.offsetHeight, innerHeight - 24)}px`; }
+  // The panel is centred on the bar (CSS). A list shows five things (three under the pen's two cells) and a sliver
+  // of the next, so it is plain there is more; the rest is reached by rolling.
+  const CELL = 38;
+  function placeTray() {
+    if (tray === 'more') { trayEl.style.maxHeight = `${innerHeight - 24}px`; return; }
+    const rows = tray === 'pen' ? 3 : 5, n = trayEl.children.length;
+    trayEl.style.maxHeight = n > rows ? `${rows * CELL + 6 + 16}px` : '';
+  }
 
   // ── tools ────────────────────────────────────────────────────────────
   function armPen() {

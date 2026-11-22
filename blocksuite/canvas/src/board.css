@@ -44,22 +44,32 @@ edgeless-toolbar-widget { display: none !important; }
 .cx-s[data-id='sticky'] { touch-action: none; transition: transform .16s cubic-bezier(.2,.8,.2,1); }
 .cx-s[data-id='sticky'].pulling { transform: scale(.9); }
 
-/* panels beside the bar */
+/* panels beside the bar: one column, as wide as the bar */
 .cx-traybox {
   position: absolute; left: calc(100% + 8px); top: 50%; transform: translateY(-50%);
   background: #fff; border-radius: 13px; overflow: hidden;
   box-shadow: 0 4px 12px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.08), 0 0 .5px rgba(0,0,0,.18);
 }
 .cx-traybox[hidden] { display: none; }
-.cx-traybox::before, .cx-traybox::after { content: ''; position: absolute; left: 0; right: 0; height: 44px; pointer-events: none; opacity: 0; transition: opacity .18s ease; z-index: 1; }
-.cx-traybox::before { top: 0; background: linear-gradient(to bottom, #fff 8%, rgba(255,255,255,0)); }
-.cx-traybox::after { bottom: 0; background: linear-gradient(to top, #fff 8%, rgba(255,255,255,0)); }
-.cx-traybox.more-up::before, .cx-traybox.more-down::after { opacity: 1; }
+.cx-trayhead { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 6px 0; }
+.cx-trayhead:empty { display: none; }
+.cx-trayhead + .cx-trayscroll .cx-tray { padding-top: 0; }
+.cx-trayhead:empty + .cx-trayscroll .cx-tray { padding-top: 6px; }
+.cx-trayscroll { position: relative; }
+/* where there is more, the list melts into the surface: a white veil over a slight blur. No bar, no dots. */
+.cx-trayscroll::before, .cx-trayscroll::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 30px; pointer-events: none; opacity: 0; transition: opacity .18s ease; z-index: 1;
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+}
+.cx-trayscroll::before { top: 0; background: linear-gradient(to bottom, rgba(255,255,255,.96) 10%, rgba(255,255,255,0)); -webkit-mask-image: linear-gradient(to bottom, #000 35%, transparent); mask-image: linear-gradient(to bottom, #000 35%, transparent); }
+.cx-trayscroll::after { bottom: 0; background: linear-gradient(to top, rgba(255,255,255,.96) 10%, rgba(255,255,255,0)); -webkit-mask-image: linear-gradient(to top, #000 35%, transparent); mask-image: linear-gradient(to top, #000 35%, transparent); }
+.cx-trayscroll.more-up::before, .cx-trayscroll.more-down::after { opacity: 1; }
 .cx-tray {
-  display: grid; grid-template-columns: repeat(2, 36px); gap: 2px; padding: 6px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px;
   overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none;
 }
 .cx-tray::-webkit-scrollbar { display: none; }
+.cx-tray > *, .cx-trayhead > * { flex: none; }
 .cx-sw { width: 36px; height: 36px; display: grid; place-items: center; }
 .cx-sw .sel { stroke: transparent; transition: stroke .12s ease; }
 .cx-sw:hover .sel { stroke: #ececec; }
@@ -68,25 +78,19 @@ edgeless-toolbar-widget { display: none !important; }
 .cx-ti { width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; color: #757575; }
 .cx-ti:hover { background: #f5f5f5; }
 .cx-ti.on { background: #f0f0f0; }
-.cx-tg3 { grid-column: 1 / -1; display: flex; justify-content: space-between; }
-.cx-tg3 .cx-ti { width: 24px; height: 34px; border-radius: 7px; }
-.cx-tg3 .cx-ti svg { width: 21px; height: 21px; }
-.cx-tdiv { grid-column: 1 / -1; height: 9px; display: grid; align-items: center; }
-.cx-tdiv i { display: block; height: 1px; margin: 0 6px; background: #e6e6e6; }
+.cx-tdiv { width: 36px; height: 9px; display: grid; align-items: center; }
+.cx-tdiv i { display: block; height: 1px; margin: 0 8px; background: #e6e6e6; }
 .cx-ti.off, .cx-sw.off { opacity: .3; pointer-events: none; }
-.cx-glyph { align-items: end; overflow: hidden; }
-.cx-glyph svg { margin-bottom: -2px; }
-.cx-glyph.on { border: 0; background: #f0f0f0; }
+/* the small drawn pens sit in the middle of their cell, so the cell reads as one even square */
+.cx-glyph svg { width: 24px; height: 24px; display: block; }
 .cx-stamp { width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; }
 .cx-stamp img { width: 28px; height: 28px; display: block; pointer-events: none; }
 .cx-stamp:hover { background: #f5f5f5; }
 .cx-stamp.on { background: #f0f0f0; }
-.cx-fillbtn { grid-column: 1 / -1; display: flex !important; align-items: center; justify-content: center; height: 36px; border-radius: 9px; color: #757575; }
-.cx-fillbtn:hover { background: #f5f5f5; }
-.cx-fillbtn svg:last-child { width: 14px; height: 14px; }
 
 /* "+": what is used less, as a short list with names (there are no hover labels to explain a bare icon) */
-.cx-tray-more { display: flex; flex-direction: column; gap: 1px; padding: 6px; min-width: 172px; }
+.cx-tray-more { align-items: stretch; gap: 1px; min-width: 172px; }
+.cx-tray-more .cx-tdiv { width: auto; }
 .cx-mi { display: flex !important; align-items: center; gap: 10px; height: 36px; padding: 0 12px 0 8px; border-radius: 9px; color: #3a3a3c; font: 500 13px/1 Inter, system-ui, sans-serif; white-space: nowrap; flex: none; }
 .cx-mi svg { width: 22px; height: 22px; color: #86868b; flex: none; }
 .cx-mi:hover, .cx-mi.on { background: #f5f5f5; }
@@ -259,9 +263,10 @@ affine-link-preview-details { display: none !important; }
 
 
 /* ── Side panel: one button top right; Document (the board as text) and Chat ── */
-.cx-pn-open { position: fixed; top: 14px; right: 14px; z-index: 70; width: 38px; height: 38px; border: 0; border-radius: 11px; background: #fff; color: #86868b;
-  display: grid; place-items: center; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.07), 0 0 .5px rgba(0,0,0,.18); }
-.cx-pn-open:hover { color: #1d1d1f; }
+.cx-pn-open { position: fixed; top: 12px; right: 12px; z-index: 70; width: 36px; height: 36px; border: 0; border-radius: 9px; background: transparent; color: #86868b;
+  display: grid; place-items: center; cursor: pointer; box-shadow: none; }
+.cx-pn-open:hover { color: #3a3a3c; background: rgba(0,0,0,.055); }
+.cx-pn-open:active { background: rgba(0,0,0,.09); }
 .cx-pn-open svg { width: 20px; height: 20px; }
 .cx-pn-open[hidden], .cx-pn[hidden], .cx-pn [hidden] { display: none !important; }
 .cx-pn { position: fixed; top: 8px; right: 8px; bottom: 8px; z-index: 70; width: var(--pnw, 440px); max-width: calc(100vw - 16px); display: flex; flex-direction: column;
