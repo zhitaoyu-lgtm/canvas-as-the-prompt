@@ -228,11 +228,11 @@ export async function mountToolbar(rootEl: any) {
       case 'hand': placing = null; setTool('pan', { panning: false }); mode = id; openTray(null); break;
       case 'text': placing = null; setTool('text'); mode = id; openTray(null); break;
       case 'frame': placing = null; setTool('frame'); mode = id; openTray(null); break;
-      case 'pen': mode = id; armPen(); openTray(tray === 'pen' ? null : 'pen'); break;
-      case 'sticky': mode = id; armSticky(); openTray(tray === 'sticky' ? null : 'sticky'); break;
-      case 'shape': mode = id; armShape(); openTray(tray === 'shape' ? null : 'shape'); break;
+      case 'pen': { const was = mode === id; mode = id; armPen(); openTray(was ? (tray === 'pen' ? null : 'pen') : null); break; }   // first press: the tool; again: its choices
+      case 'sticky': { const was = mode === id; mode = id; armSticky(); openTray(was ? (tray === 'sticky' ? null : 'sticky') : null); break; }   // first press: the tool; again: its choices
+      case 'shape': { const was = mode === id; mode = id; armShape(); openTray(was ? (tray === 'shape' ? null : 'shape') : null); break; }   // first press: the tool; again: its choices
       case 'more': openTray(tray === 'more' ? null : 'more'); break;
-      case 'stamp': mode = id; placing = 'stamp'; setTool('default'); openTray(tray === 'stamp' ? null : 'stamp'); break;
+      case 'stamp': { const was = mode === id; mode = id; placing = 'stamp'; setTool('default'); openTray(was ? (tray === 'stamp' ? null : 'stamp') : null); break; }
     }
     paint();
   }
