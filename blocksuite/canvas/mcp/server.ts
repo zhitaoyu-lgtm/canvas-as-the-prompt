@@ -149,7 +149,9 @@ async function picture(req: http.IncomingMessage, res: http.ServerResponse, u: U
 const UPDATES = process.env.CANVAS_UPDATE_URL || 'https://raw.githubusercontent.com/zhitaoyu-lgtm/canvas-as-the-prompt/desktop-app/';
 let updated: { version: string; restart: boolean } | null = null;
 async function selfUpdate() {
-  if (process.env.CANVAS_NO_UPDATE || !process.argv.includes('--app')) return;
+  // Claude Desktop may be the one running this server (as its connector) and holding the board's port: it
+  // updates too, so the app it serves is never left behind; only the app's own copy restarts itself.
+  if (process.env.CANVAS_NO_UPDATE) return;
   const crypto = await import('node:crypto');
   const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
   let local: any = { version: '0', files: {} };
@@ -347,7 +349,7 @@ mcp.tool('canvas_export',
 await boot();
 void selfUpdate();
 // keep checking while the app stays open, so an update reaches a window that was never closed
-if (process.argv.includes('--app')) setInterval(() => { if (!updated) void selfUpdate(); }, 10 * 60 * 1000);
+setInterval(() => { if (!updated || !updated.restart) void selfUpdate(); }, 10 * 60 * 1000);
 // `--app`: started by the desktop launcher, not by a chat app; serve the board only
 if (!process.argv.includes('--app')) {
   // a chat app started this copy: leave a line beside the program, so it is easy to tell whether that ever happened
