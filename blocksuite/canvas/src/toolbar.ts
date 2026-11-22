@@ -16,8 +16,11 @@ import { GLYPH, ICON } from './icons';
 import { STAMPS } from './stickers';
 import { isDark, setLook } from './theme';
 
-let appVersion = '';
-if (/^(127\.0\.0\.1|localhost)$/.test(location.hostname)) fetch('/__version', { cache: 'no-store' }).then(r => r.json()).then(j => { const v = String(j?.version ?? ''); appVersion = v.length >= 12 ? `${v.slice(4, 6)}/${v.slice(6, 8)} ${v.slice(8, 10)}:${v.slice(10, 12)}` : v; }).catch(() => {});
+declare const __BUILT__: string;
+// which copy this is: the time it was built, the same in the web preview and the desktop app (UTC, like the app's update names)
+const appVersion = (() => { const b = typeof __BUILT__ === 'string' ? __BUILT__ : ''; if (b.length < 12) return '';
+  const d = new Date(Date.UTC(+b.slice(0, 4), +b.slice(4, 6) - 1, +b.slice(6, 8), +b.slice(8, 10), +b.slice(10, 12))), p = (n: number) => String(n).padStart(2, '0');
+  return `build ${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`; })();   // in the viewer's own time
 
 // Palettes come from the shared design system, so hand-made and AI-made things share one hue set.
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
@@ -169,7 +172,7 @@ export async function mountToolbar(rootEl: any) {
         rule(),
         icon(isDark() ? 'Light board' : 'Dark board', ICON.look, false, () => { setLook(isDark() ? 'light' : 'dark', rootEl); render(); }),   // a test switch
       );
-      // which version this is (the desktop app says; the preview has none), small, at the foot of the panel
+      // which copy this is, small, at the foot of the panel
       if (appVersion) trayEl.append(h('div', { class: 'cx-ver' }, appVersion));
     }
     placeTray();

@@ -3,7 +3,9 @@ import { defineConfig } from 'vite';
 import wasm from 'vite-plugin-wasm';
 
 // Same build setup as the upstream BlockSuite playground, trimmed to one entry.
+const built = new Date().toISOString().replace(/\D/g, '').slice(0, 14);   // when this copy was built (UTC), shown in the + panel
 export default defineConfig({
+  define: { __BUILT__: JSON.stringify(built) },
   base: './',
   plugins: [wasm(), vanillaExtractPlugin()],
   esbuild: { target: 'es2018' },
