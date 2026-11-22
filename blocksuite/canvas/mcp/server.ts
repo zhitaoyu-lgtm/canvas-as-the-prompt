@@ -85,20 +85,46 @@ async function claude(req: http.IncomingMessage, res: http.ServerResponse, u: UR
 const UA = 'CanvasAsThePrompt/1.0 (thesis prototype; https://github.com/zhitaoyu-lgtm/canvas-as-the-prompt)';
 const ownPage = (req: http.IncomingMessage) => { const o = String(req.headers.origin || req.headers.referer || ''); return /^https?:\/\/(127\.0\.0\.1|localhost):\d+/.test(o) && req.headers['x-canvas'] === 'picture'; };
 const strip = (v: any) => String(v ?? '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+// Picture archives title drawings in many languages and rank photos first; so several searches are made (the
+// words as given; the subject with the kind of drawing in other languages) and drawings of the asked kind come first.
+const KINDS: [RegExp, string[]][] = [
+  [/\b(cross[- ]?)?sections?\b|剖面|断面|cutaway/i, ['section', 'sección', 'schnitt', 'coupe', 'sezione', 'cross-section']],
+  [/\bfloor ?plans?\b|\bground ?plans?\b|\bplans?\b|平面/i, ['plan', 'plano', 'grundriss', 'pianta', 'floor plan']],
+  [/\belevations?\b|立面/i, ['elevation', 'alzado', 'ansicht', 'prospetto']],
+  [/\bdetails?\b|节点|细部/i, ['detail', 'detalle']],
+  [/\baxonometr\w*|\bisometr\w*|轴测/i, ['axonometric', 'isometric']],
+];
+const FILLER = /\b(drawing|drawings|photo|photos|picture|image|of|the|a|an|cross|line|architectural|diagram|view)\b/gi;
+async function commons(q: string): Promise<any[]> {
+  const api = 'https://commons.wikimedia.org/w/api.php?' + new URLSearchParams({ action: 'query', format: 'json', generator: 'search', gsrnamespace: '6', gsrlimit: '15', gsrsearch: q + ' filetype:bitmap',
+    prop: 'imageinfo', iiprop: 'url|size|mime|extmetadata', iiurlwidth: '1600', origin: '*' });
+  const r = await fetch(api, { headers: { 'user-agent': UA }, signal: AbortSignal.timeout(12000) });
+  const j: any = await r.json();
+  return (Object.values(j?.query?.pages ?? {}) as any[]).sort((a, b) => (a.index ?? 0) - (b.index ?? 0)).map(p => { const ii = p.imageinfo?.[0] ?? {}, m = ii.extmetadata ?? {}; return {
+    file: String(p.title || ''), title: strip(m.ObjectName?.value) || String(p.title || '').replace(/^File:/, '').replace(/\.[a-z0-9]+$/i, ''),
+    url: ii.thumburl || ii.url, page: ii.descriptionurl, w: ii.width, h: ii.height, mime: ii.mime,
+    author: strip(m.Artist?.value).slice(0, 80), licence: strip(m.LicenseShortName?.value), what: strip(m.ImageDescription?.value).slice(0, 300), cats: strip(m.Categories?.value).slice(0, 300) }; });
+}
 async function pictures(req: http.IncomingMessage, res: http.ServerResponse, u: URL) {
   if (!ownPage(req)) { res.writeHead(403).end(); return; }
   const q = (u.searchParams.get('q') || '').slice(0, 200).trim(); if (!q) { res.writeHead(400).end(); return; }
   try {
-    const api = 'https://commons.wikimedia.org/w/api.php?' + new URLSearchParams({ action: 'query', format: 'json', generator: 'search', gsrnamespace: '6', gsrlimit: '12', gsrsearch: q + ' filetype:bitmap',
-      prop: 'imageinfo', iiprop: 'url|size|mime|extmetadata', iiurlwidth: '1600', origin: '*' });
-    const r = await fetch(api, { headers: { 'user-agent': UA }, signal: AbortSignal.timeout(12000) });
-    const j: any = await r.json();
-    const pages = Object.values(j?.query?.pages ?? {}).sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0)) as any[];
-    const out = pages.map(p => { const ii = p.imageinfo?.[0] ?? {}, m = ii.extmetadata ?? {}; return {
-      title: strip(m.ObjectName?.value) || String(p.title || '').replace(/^File:/, '').replace(/\.[a-z0-9]+$/i, ''),
-      url: ii.thumburl || ii.url, page: ii.descriptionurl, w: ii.width, h: ii.height, mime: ii.mime,
-      author: strip(m.Artist?.value).slice(0, 80), licence: strip(m.LicenseShortName?.value), what: strip(m.ImageDescription?.value).slice(0, 200) }; })
-      .filter(c => c.url && /image\/(jpeg|png|gif|webp)/.test(c.mime || '') && (c.w || 0) >= 300 && (c.h || 0) >= 200);
+    const kind = KINDS.find(([re]) => re.test(q)), subject = q.replace(kind ? kind[0] : /$^/, ' ').replace(FILLER, ' ').replace(/\s+/g, ' ').trim();
+    const queries = [q, ...(kind ? kind[1].map(w => `${subject} ${w}`) : [subject])].filter((v, i, a) => v && a.indexOf(v) === i).slice(0, 6);
+    const lists = await Promise.all(queries.map(x => commons(x).catch(() => [])));
+    const seen = new Set<string>(), all: any[] = [];
+    lists.forEach((l, qi) => l.forEach((c, ri) => { if (!seen.has(c.file)) { seen.add(c.file); all.push({ ...c, rank: qi * 0.5 + ri * 0.15 }); } }));
+    const words = subject.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    const score = (c: any) => {
+      const t = `${c.file} ${c.title} ${c.what} ${c.cats}`.toLowerCase();
+      let s = -c.rank;
+      if (kind && kind[1].some(w => t.includes(w.toLowerCase()))) s += 6;              // a drawing of the kind asked for
+      if (kind && /photograph|photo\b|\bp\d{6,}|img_\d|dsc_?\d/i.test(t)) s -= 3;     // a snapshot, when a drawing was asked for
+      s += words.filter(w => t.includes(w)).length;
+      return s;
+    };
+    const out = all.filter(c => c.url && /image\/(jpeg|png|gif|webp)/.test(c.mime || '') && (c.w || 0) >= 300 && (c.h || 0) >= 200)
+      .map(c => ({ ...c, score: score(c) })).sort((a, b) => b.score - a.score).slice(0, 12);
     res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(out));
   } catch (e: any) { res.writeHead(502).end(String(e?.message || e)); }
 }

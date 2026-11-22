@@ -23,9 +23,20 @@ export async function findPicture(words: string): Promise<Found | null> {
   if (!LOCAL || !words.trim()) return null;
   let list: any[] = [];
   try { const r = await fetch('/__pictures?q=' + encodeURIComponent(words), { headers: H }); if (r.ok) list = await r.json(); } catch { return null; }
-  for (const c of list.slice(0, 5)) {
+  // a drawing was asked for: among the best few, take one that looks drawn (little colour) over a photo
+  const drawing = /section|plan|elevation|detail|axonometr|isometr|drawing|剖|平面|立面/i.test(words);
+  let first: Found | null = null;
+  for (const c of list.slice(0, drawing ? 5 : 2)) {
     const blob = await fetchPicture(c.url); if (!blob) continue;
-    try { const bmp = await createImageBitmap(blob); const out = { blob, w: bmp.width, h: bmp.height, title: c.title, page: c.page, author: c.author, licence: c.licence, source: 'Wikimedia Commons' }; bmp.close?.(); return out; } catch { /* not a picture after all */ }
+    try {
+      const bmp = await createImageBitmap(blob);
+      const out: Found = { blob, w: bmp.width, h: bmp.height, title: c.title, page: c.page, author: c.author, licence: c.licence, source: 'Wikimedia Commons' };
+      if (!drawing) { bmp.close?.(); return out; }
+      const cv = document.createElement('canvas'); cv.width = 64; cv.height = Math.max(1, Math.round(64 * bmp.height / bmp.width)); const x = cv.getContext('2d')!; x.drawImage(bmp, 0, 0, cv.width, cv.height); bmp.close?.();
+      const d = x.getImageData(0, 0, cv.width, cv.height).data; let sat = 0; for (let i = 0; i < d.length; i += 4) { const mx = Math.max(d[i], d[i + 1], d[i + 2]), mn = Math.min(d[i], d[i + 1], d[i + 2]); sat += mx ? (mx - mn) / mx : 0; }
+      if (sat / (d.length / 4) < 0.16) return out;   // drawn: line work on paper
+      first ??= out;
+    } catch { /* not a picture after all */ }
   }
-  return null;
+  return first;
 }
