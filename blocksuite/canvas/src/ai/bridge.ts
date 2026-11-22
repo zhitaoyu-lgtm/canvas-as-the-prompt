@@ -20,7 +20,7 @@ export function mountBridge(rootEl: any) {
 
   const connect = () => {
     try { ws = new WebSocket(url); } catch { return retry(); }
-    ws.onopen = () => { state.connected = true; wait = 1000; ws!.send(JSON.stringify({ hello: 'canvas', title: document.title })); };
+    ws.onopen = () => { state.connected = true; wait = 1000; void checkStale(); ws!.send(JSON.stringify({ hello: 'canvas', title: document.title })); };
     ws.onclose = () => { state.connected = false; retry(); };
     ws.onerror = () => { /* onclose follows */ };
     ws.onmessage = async (ev) => {
@@ -40,6 +40,14 @@ export function mountBridge(rootEl: any) {
     const x = document.createElement('button'); x.className = 'x'; x.textContent = '×'; x.onclick = () => t.remove(); t.append(x);
     document.body.append(t);
   };
+  // A window left open across an update still shows the old page: when the app's own page has changed since
+  // this one was loaded (checked on reconnect, on coming back to the window, and every few minutes), say so.
+  const mine = () => Array.from(document.scripts).map(x => (x.src.match(/assets\/index-[\w-]+\.js/) ?? [])[0]).find(Boolean);
+  const checkStale = async () => {
+    try { const t = await (await fetch('/?v=' + Date.now(), { cache: 'no-store' })).text(); const now = (t.match(/assets\/index-[\w-]+\.js/) ?? [])[0], had = mine();
+      if (now && had && now !== had) updatedToast({ restart: false }); } catch { /* the app is not answering just now */ }
+  };
+  addEventListener('focus', () => void checkStale()); setInterval(() => void checkStale(), 5 * 60_000);
   const retry = () => { setTimeout(connect, wait); wait = Math.min(wait * 2, 15000); };
   connect();
 
