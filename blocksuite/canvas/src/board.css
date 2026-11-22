@@ -677,8 +677,8 @@ affine-edgeless-note {
 .cx-rome-line { fill: none; stroke: #141414; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .cx-rome-hit { all: unset; position: absolute; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; pointer-events: auto; }
 /* a photo arriving: it opens from its left edge and settles */
-.cx-rome-pop { object-fit: cover; opacity: 0; clip-path: inset(0 100% 0 0); transform: translateX(-2%); transition: clip-path .6s cubic-bezier(.22,1,.36,1), opacity .25s ease, transform .6s cubic-bezier(.22,1,.36,1); user-select: none; }
-.cx-rome-pop.on { opacity: 1; clip-path: inset(0 0 0 0); transform: none; }
+.cx-rome-pop { object-fit: cover; opacity: 0; clip-path: inset(0 100% 0 0); transition: clip-path .6s cubic-bezier(.22,1,.36,1), opacity .25s ease; user-select: none; }
+.cx-rome-pop.on { opacity: 1; clip-path: inset(0 0 0 0); }
 .cx-rome-draw { display: block; }
 .cx-rome-think { transform-origin: 0 0; }
 .cx-rome-busy .cx-pend-box, .cx-rome-busy .cx-pend-dots { display: none !important; }

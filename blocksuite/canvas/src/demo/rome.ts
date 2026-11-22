@@ -86,10 +86,29 @@ export function mountRome(rootEl: any) {
   const follow = () => {
     const rr = rootEl.getBoundingClientRect(), z = gfx.viewport.zoom, [ox, oy] = gfx.viewport.toViewCoord(0, 0);
     const k = `${rr.left + ox},${rr.top + oy},${z}`;
-    if (k !== key) { key = k; world.style.transform = `translate(${rr.left + ox}px, ${rr.top + oy}px) scale(${z})`; }
+    if (k !== key) { if (key && !gliding) userMoved = Date.now(); key = k; world.style.transform = `translate(${rr.left + ox}px, ${rr.top + oy}px) scale(${z})`; }
     requestAnimationFrame(follow);
   };
   requestAnimationFrame(follow);
+
+  // The view goes to each new answer and puts it in the middle — unless the person is moving the view themselves.
+  let userMoved = 0, gliding = false, glide = 0;
+  addEventListener('wheel', () => { userMoved = Date.now(); glide++; }, { capture: true, passive: true });
+  function lookAt(b: Box) {
+    if (Date.now() - userMoved < 900) return;
+    const vp = gfx.viewport, rr = rootEl.getBoundingClientRect(), z0 = vp.zoom, c0: Pt = [vp.centerX, vp.centerY];
+    const fit = Math.min((rr.width * 0.7) / b.w, (rr.height * 0.7) / b.h), z1 = Math.max(fit * 0.5, Math.min(z0, fit)), c1: Pt = [b.x + b.w / 2, b.y + b.h / 2];
+    if (Math.abs(z1 - z0) < 0.002 && Math.hypot(c1[0] - c0[0], c1[1] - c0[1]) * z0 < 6) return;
+    const me = ++glide, t0 = performance.now(), ms = 620; gliding = true;
+    const step = (now: number) => {
+      if (me !== glide) return;   // they took the view, or a newer answer did
+      const t = Math.min(1, (now - t0) / ms), e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      // zoom changes evenly to the eye (by ratio), the centre moves with it
+      vp.setViewport(z0 * Math.pow(z1 / z0, e), [c0[0] + (c1[0] - c0[0]) * e, c0[1] + (c1[1] - c0[1]) * e], false);
+      if (t < 1) requestAnimationFrame(step); else setTimeout(() => { if (me === glide) gliding = false; }, 80);
+    };
+    requestAnimationFrame(step);
+  }
 
   // ── what is on the board ──
   const els = () => gfx.gfxElements as any[];
@@ -152,12 +171,11 @@ export function mountRome(rootEl: any) {
   // ── making things ──
   const blobOf = async (src: string) => { if (!src.startsWith('data:')) return (await fetch(src)).blob(); const [head, b64] = src.split(','); const bin = atob(b64), buf = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i); return new Blob([buf], { type: /data:([^;]+)/.exec(head)?.[1] ?? 'image/png' }); };
   async function picture(p: { src: string; name: string }, b: Box): Promise<string | undefined> {
-    const blob = await blobOf(p.src);
-    const ids = await addImages(std, [new File([blob], `${p.name}.${blob.type.includes('png') ? 'png' : 'jpg'}`, { type: blob.type })], { point: [b.x + b.w / 2, b.y + b.h / 2], shouldTransformPoint: false, maxWidth: b.w });
-    await wait(60);
-    for (const id of ids ?? []) { const m = store.getBlock(id)?.model; if (m) store.updateBlock(m, { xywh: `[${b.x},${b.y},${b.w},${b.h}]` }); }
-    try { gfx.selection.clear(); } catch { /* nothing selected */ }
-    return ids?.[0];
+    const blob = await blobOf(p.src), sourceId = await store.blobSync.set(blob);
+    const im = new Image(); im.src = p.src; await im.decode().catch(() => {});
+    // made in its place and at its size: nothing to jump from
+    const id = store.addBlock('affine:image', { sourceId, xywh: `[${b.x},${b.y},${b.w},${b.h}]`, width: im.naturalWidth || Math.round(b.w), height: im.naturalHeight || Math.round(b.h) } as any, surf.id);
+    return id as string;
   }
   const measure = document.createElement('canvas').getContext('2d')!;
   function label(text: string, x: number, y: number, size: number, color = '#8e8e93') {
@@ -202,21 +220,17 @@ export function mountRome(rootEl: any) {
       const ln = document.createElementNS(NS, 'path'); ln.setAttribute('d', `M ${m.from[0]} ${m.from[1]} L ${m.to[0]} ${m.to[1]}`); ln.classList.add('cx-rome-leader'); ln.style.strokeWidth = String(Math.max(0.5, 0.8 * u));
       const len = Math.hypot(m.to[0] - m.from[0], m.to[1] - m.from[1]); ln.style.strokeDasharray = String(len); ln.style.strokeDashoffset = String(len);
       svg.append(ln, dot); void (ln as any).getBoundingClientRect(); ln.style.strokeDashoffset = '0'; dot.classList.add('on');
-      const tx = document.createElement('div'); tx.className = 'cx-rome-note'; tx.textContent = m.text;
-      Object.assign(tx.style, { left: `${m.tx}px`, top: `${m.ty}px`, width: `${m.w}px`, height: `${m.h}px`, fontSize: `${size}px`, lineHeight: `${m.h}px`, textAlign: m.align });
-      world.append(tx); setTimeout(() => tx.classList.add('on'), 150); (m as any).node = tx;
-      await wait(170);
-    }
-    await wait(380);
-    for (const m of made) {
+      await wait(240);
       ids.push(surf.addElement({ type: 'connector', mode: 0, source: { position: m.from }, target: { position: m.to }, stroke: '#8e8e93', strokeWidth: Math.max(0.5, 0.8 * u), strokeStyle: 'solid', frontEndpointStyle: 'None', rearEndpointStyle: 'None' }));
       const t = new Y(); t.insert(0, m.text);
       ids.push(surf.addElement({ type: 'text', xywh: `[${m.tx},${m.ty},${m.w},${m.h}]`, text: t, fontSize: size, fontWeight: '400', color: '#6e6e73', fontFamily: 'blocksuite:surface:Inter', textAlign: m.align }));
+      requestAnimationFrame(() => { ln.remove(); dot.remove(); });
     }
+    await wait(200);
     for (const id of ids) S.used.add(id);
     // one thing from now on: the drawing, its name and its notes
     try { const all = [picId, ...extra.filter(Boolean) as string[], ...ids]; const g = surf.addElement({ type: 'group', children: Object.fromEntries(all.map(i => [i, true])), title: new Y('') }); S.used.add(g); } catch (e) { console.warn('[rome] group', e); }
-    setTimeout(() => { svg.remove(); for (const m of made) (m as any).node?.remove(); }, 140);
+    setTimeout(() => svg.remove(), 140);
   }
 
   /** a photo arrives: it slides out from the left edge of its place, then becomes a real picture on the board */
@@ -226,7 +240,7 @@ export function mountRome(rootEl: any) {
     world.append(img); void img.offsetWidth; img.classList.add('on');
     await wait(delay + 640);
     const id = await picture(p, b); label(p.label, b.x, b.y - text * 0.45, text);
-    setTimeout(() => img.remove(), 160);
+    setTimeout(() => img.remove(), 420);
     return id;
   }
 
@@ -304,7 +318,7 @@ export function mountRome(rootEl: any) {
     });
     ctx.clearRect(0, 0, cw, ch); ctx.drawImage(im, 0, 0, cw, ch);
     const id = await picture(p, b);
-    setTimeout(() => cv.remove(), 220);
+    setTimeout(() => cv.remove(), 450);
     return id;
   }
 
@@ -347,7 +361,7 @@ export function mountRome(rootEl: any) {
     line.setAttribute('d', `M ${dot.x + R - u} ${dot.y} L ${ax} ${dot.y}`); line.style.strokeWidth = String(Math.max(0.6, u));
     const len = Math.max(1, ax - dot.x - R + u); line.style.strokeDasharray = String(len); line.style.strokeDashoffset = String(len);
     let opened = false;
-    hit.onclick = async () => {
+    const open = async () => {
       if (opened) return; opened = true; hit.style.cursor = 'default'; hoverTo = 0;
       line.style.transition = 'stroke-dashoffset 460ms cubic-bezier(.22,1,.36,1)'; line.style.strokeDashoffset = '0';
       await wait(300);
@@ -355,9 +369,12 @@ export function mountRome(rootEl: any) {
       const text = 11.5 * u, A: Box = { x: ax, y: hb.y, w: hb.h * PIC.aerial.ratio, h: hb.h };
       const sh = (hb.h - gap - text * 1.9) / 2, bx = A.x + A.w + gap;
       const B: Box = { x: bx, y: hb.y, w: sh * PIC.photo2.ratio, h: sh }, C: Box = { x: bx, y: hb.y + hb.h - sh, w: sh * PIC.photo3.ratio, h: sh };
+      lookAt({ x: A.x, y: A.y, w: bx + Math.max(B.w, C.w) - A.x, h: A.h });
       const [a] = await Promise.all([arrive(PIC.aerial, A, 0, text), arrive(PIC.photo2, B, 140, text), arrive(PIC.photo3, C, 240, text)]);
       S.aerial = a; store.captureSync?.();
     };
+    hit.onclick = () => void open();
+    setTimeout(() => void open(), 650);
     // the drop belongs to its map: it follows it, and leaves with it
     const base = { hx: hb.x, hy: hb.y };
     const watch = setInterval(() => { const h = byId(host.id); if (!h) { alive = false; clearInterval(watch); svg.remove(); hit.remove(); return; } const b = boxOf(h), dx = b.x - base.hx, dy = b.y - base.hy; for (const n of [svg, hit] as any[]) n.style.translate = dx || dy ? `${dx}px ${dy}px` : ''; }, 120);
@@ -421,6 +438,7 @@ export function mountRome(rootEl: any) {
     // as wide as the building is in the photo, and straight below it
     const bx0 = hb.x + hb.w * EXT.aerial.x0, bx1 = hb.x + hb.w * EXT.aerial.x1, w = (bx1 - bx0) / (EXT.plan.x1 - EXT.plan.x0), h = w / PIC.plan.ratio;
     const b: Box = { x: bx0 - w * EXT.plan.x0, y: hb.y + hb.h + 64 * u, w, h };
+    lookAt({ x: b.x - 40 * u, y: b.y - 30 * u, w: b.w + 270 * u, h: b.h + 60 * u });
     S.plan = await draw(PIC.plan, b, 'plan', 3000); const l = label(PIC.plan.label, b.x, b.y - 5 * u, 11.5 * u);
     // two dashed lines carry the building's ends down from the photo to the drawing
     const ya = hb.y + hb.h * EXT.aerial.yc, yp = b.y + b.h / 2, g = [line([bx0, ya], [bx0, yp], { dash: true, color: GUIDE, w: Math.max(0.5, 0.8 * u) }), line([bx1, ya], [bx1, yp], { dash: true, color: GUIDE, w: Math.max(0.5, 0.8 * u) })];
@@ -437,6 +455,7 @@ export function mountRome(rootEl: any) {
     line([ax, y], [bx, y], { dash: true, w: Math.max(0.8, 1.2 * u) }); words('A', ax + 4 * u, y - 12 * u, 13 * u, '#1d1d1f', '600'); words('B', bx - 4 * u, y - 12 * u, 13 * u, '#1d1d1f', '600');
     const px0 = pb.x + pb.w * EXT.plan.x0, px1 = pb.x + pb.w * EXT.plan.x1, w = (px1 - px0) / (EXT.section.x1 - EXT.section.x0), h = w / PIC.section.ratio;
     const b0 = below(pb, w, h, 64 * u), b: Box = { ...b0, x: px0 - w * EXT.section.x0 };
+    lookAt({ x: b.x - 200 * u, y: b.y - 30 * u, w: b.w + 240 * u, h: b.h + 80 * u });
     S.section = await draw(PIC.section, b, 'section', 2700); const l = label(PIC.section.label, b.x, b.y - 5 * u, 11.5 * u);
     line([px0, y], [px0, b.y + b.h * 0.2], { dash: true, color: GUIDE, w: Math.max(0.5, 0.8 * u) }); line([px1, y], [px1, b.y + b.h * 0.2], { dash: true, color: GUIDE, w: Math.max(0.5, 0.8 * u) });
     await annotate(S.section, b, NOTES.section, u, [l]); store.captureSync?.();
@@ -453,6 +472,7 @@ export function mountRome(rootEl: any) {
     const b: Box = { x: sb.x + sb.w + 90 * u, y: sb.y + sb.h - h * 0.72, w, h };
     const from: Pt = [frame.box.x + frame.box.w, frame.box.y + frame.box.h / 2];
     line(from, [b.x - 10 * u, Math.max(b.y + 12 * u, Math.min(b.y + b.h - 12 * u, from[1]))], { arrows: 'end', w: Math.max(0.6, u) });
+    lookAt({ x: b.x - 30 * u, y: b.y - 30 * u, w: b.w + 250 * u, h: b.h + 70 * u });
     S.detail = await draw(PIC.detail, b, 'detail', 2500); const l = label(PIC.detail.label, b.x, b.y - 5 * u, 11.5 * u); await annotate(S.detail, b, NOTES.detail, u, [l]); store.captureSync?.();
   }
 
@@ -472,7 +492,7 @@ export function mountRome(rootEl: any) {
       const add = (/\s$/.test(yt.toString()) ? '' : ' ') + VALUE[which];
       await wait(500);
       for (const ch of add) { yt.insert(yt.length, ch); if (e.type === 'text') { measure.font = `${e.fontWeight ?? 400} ${e.fontSize ?? 16}px Inter, sans-serif`; const b = boxOf(e), w = Math.ceil(measure.measureText(yt.toString()).width) + 6; if (w > b.w) surf.updateElement(e.id, { xywh: `[${b.x},${b.y},${w},${b.h}]` }); } await wait(55); }
-      store.captureSync?.();
+      await wait(700); tidyMeasures(); store.captureSync?.(); return;
     }
   }
   /** written by hand: small strokes ending in an "=" (two short level strokes, one over the other) */
@@ -498,7 +518,7 @@ export function mountRome(rootEl: any) {
       S.filled++;
       const all = [...word, p, q].map(s => s.b), top = Math.min(...all.map(b => b.y)), bot = Math.max(...all.map(b => b.y + b.h));
       writing = true; await wait(450);
-      try { const made = await write(VALUE[which], eq.x + w * 1.55, top, Math.max(eq.h * 1.5, (bot - top) * 0.9), p.e.color, p.e.lineWidth ?? 4); if (nearest) S.used.add(nearest.e.id); S.fills.push({ which, line: nearest?.e.id, ids: [...word, p, q].map(s2 => s2.e.id as string).concat(made) }); } finally { writing = false; }
+      try { const made = await write(VALUE[which], eq.x + w * 1.55, top, Math.max(eq.h * 1.5, (bot - top) * 0.9), p.e.color, p.e.lineWidth ?? 4); if (nearest) S.used.add(nearest.e.id); S.fills.push({ which, line: nearest?.e.id, ids: [...word, p, q].map(s2 => s2.e.id as string).concat(made) }); await wait(750); tidyMeasures(); store.captureSync?.(); } finally { writing = false; }
       return;
     }
   }
