@@ -405,7 +405,7 @@ export function mountRome(rootEl: any) {
     const base = { hx: hb.x, hy: hb.y };
     clearDrop = () => { alive = false; clearInterval(watch); svg.remove(); hit.remove(); clearDrop = null; };
     let had = false;
-    const watch = setInterval(() => { const h = byId(host.id); if (S.aerial) had = true; if (!h || (had && !S.aerial)) { clearDrop?.(); return; } /* the dot goes with its map, and with its photos */ const b = boxOf(h), dx = b.x - base.hx, dy = b.y - base.hy; for (const n of [svg, hit] as any[]) n.style.translate = dx || dy ? `${dx}px ${dy}px` : ''; }, 120);
+    const watch = setInterval(() => { const h = byId(host.id); if (S.aerial) had = true; if (!h || (had && !S.aerial)) { clearDrop?.(); return; } /* the dot goes with its map, and with its photos */ const b = boxOf(h), dx = b.x - base.hx, dy = b.y - base.hy, k = b.w / hb.w; for (const n of [svg, hit] as any[]) { const ox = n === hit ? hb.x - parseFloat(hit.style.left) : hb.x, oy = n === hit ? hb.y - parseFloat(hit.style.top) : hb.y; n.style.transformOrigin = `${ox}px ${oy}px`; n.style.transform = dx || dy || Math.abs(k - 1) > 0.001 ? `translate(${dx}px, ${dy}px) scale(${k})` : ''; } }, 60);   /* moved and scaled with its map */
   }
 
   /** a free place for a drawing of this size: tried below, then right, of the thing it comes from */
