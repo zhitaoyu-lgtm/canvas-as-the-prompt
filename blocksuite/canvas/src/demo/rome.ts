@@ -168,13 +168,19 @@ export function mountRome(rootEl: any) {
   for (const k of ['map', 'aerial', 'plan', 'section', 'detail']) Object.defineProperty(S, k, { enumerable: true, get: () => { const id = P[k]; if (id && !gfx.getElementById(id)) { P[k] = undefined; keep(); } return P[k]; }, set: v => { P[k] = v; keep(); } });
   Object.defineProperty(S, 'u', { enumerable: true, get: () => P.u || 1, set: v => { P.u = v; keep(); } });
   let clearDrop: (() => void) | null = null;
+  // Only what is drawn from now on can start a step. Whatever was on the board when it opened (an old loop from
+  // last week, a line under someone's notes) is theirs and stays out of the film.
+  const old = new Set<string>(); let oldTaken = false;
+  const takeOld = () => { if (oldTaken) return; oldTaken = true; for (const e of els()) old.add(e.id); };
+  setTimeout(takeOld, 5000);
+  const spent = (id: string) => S.used.has(id) || old.has(id);
   const scenePics = () => [S.aerial ? S.map : undefined, S.aerial, S.plan, S.section, S.detail].filter(Boolean) as string[];   // the map is free again once its photos are gone
   /** the newest unused ring: on the given picture, or (with none given) on a picture that is not yet part of the film */
-  const latestRing = (onId?: string): Ring | null => { for (const e of [...els()].reverse()) { if (S.used.has(e.id)) continue; const r = ringOf(e); if (r && (onId ? r.host.id === onId : !scenePics().includes(r.host.id))) return r; } return null; };
+  const latestRing = (onId?: string): Ring | null => { for (const e of [...els()].reverse()) { if (spent(e.id)) continue; const r = ringOf(e); if (r && (onId ? r.host.id === onId : !scenePics().includes(r.host.id))) return r; } return null; };
   /** a straight line that crosses the plan from side to side (the cut) */
   const cutLine = (): { el: any; a: Pt; b: Pt } | null => {
     const plan = byId(S.plan); if (!plan) return null; const pb = boxOf(plan);
-    for (const e of [...els()].reverse()) { if (S.used.has(e.id)) continue; const s = straight(e); if (!s) continue; const [a, b] = s, m: Pt = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; if (inside(m, { x: pb.x + pb.w * 0.15, y: pb.y + pb.h * 0.15, w: pb.w * 0.7, h: pb.h * 0.7 }) && Math.hypot(b[0] - a[0], b[1] - a[1]) > Math.min(pb.w, pb.h) * 0.55) return { el: e, a, b }; }
+    for (const e of [...els()].reverse()) { if (spent(e.id)) continue; const s = straight(e); if (!s) continue; const [a, b] = s, m: Pt = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; if (inside(m, { x: pb.x + pb.w * 0.15, y: pb.y + pb.h * 0.15, w: pb.w * 0.7, h: pb.h * 0.7 }) && Math.hypot(b[0] - a[0], b[1] - a[1]) > Math.min(pb.w, pb.h) * 0.55) return { el: e, a, b }; }
     return null;
   };
 
@@ -453,7 +459,7 @@ export function mountRome(rootEl: any) {
   // ── 3 · the building on the photo → its plan, set under the photo so the two line up ──
   async function plan(ring: Ring) {
     const hb = boxOf(ring.host), rb = boxOf(ring.el), u = (S.u = hb.h / 410);
-    const scribbles = els().filter(e => isMark(e) && e.id !== ring.el.id && !S.used.has(e.id) && inside(mid(boxOf(e)), rb, 4)).map(e => e.id as string);
+    const scribbles = els().filter(e => isMark(e) && e.id !== ring.el.id && !spent(e.id) && inside(mid(boxOf(e)), rb, 4)).map(e => e.id as string);
     S.used.add(ring.el.id); for (const id of scribbles) S.used.add(id);
     const stop = think([rb.x - 22 * u, rb.y], u); await wait(1500); stop();
     tidyRing(ring, scribbles);
@@ -486,7 +492,7 @@ export function mountRome(rootEl: any) {
   async function detail(ring: Ring) {
     const sb = boxOf(ring.host), rb = boxOf(ring.el), u = S.u; S.used.add(ring.el.id);
     // an arrow they drew out of the frame has said what it had to say
-    const arrows = els().filter(e => !S.used.has(e.id) && e.id !== ring.el.id && straight(e) && (() => { const s2 = straight(e)!, near = (q: Pt) => inside(q, rb, Math.max(rb.w, rb.h) * 0.25); return near(s2[0]) !== near(s2[1]); })()).map(e => e.id as string);
+    const arrows = els().filter(e => !spent(e.id) && e.id !== ring.el.id && straight(e) && (() => { const s2 = straight(e)!, near = (q: Pt) => inside(q, rb, Math.max(rb.w, rb.h) * 0.25); return near(s2[0]) !== near(s2[1]); })()).map(e => e.id as string);
     for (const id of arrows) S.used.add(id);
     const stop = think([rb.x - 22 * u, rb.y], u); await wait(1500); stop();
     const frame = tidyRing(ring, arrows);
@@ -506,11 +512,11 @@ export function mountRome(rootEl: any) {
   async function fillTyped() {
     if (!S.plan || gfx.selection.editing) return;
     for (const e of els()) {
-      if (S.used.has(e.id)) continue;
+      if (spent(e.id)) continue;
       const yt = e.type === 'text' ? e.text : e.flavour === 'affine:edgeless-text' ? e.children?.[0]?.text?.yText ?? e.children?.[0]?.text : null; if (!yt?.insert) continue;
       const m = OPEN.exec(String(yt.toString?.() ?? '')); if (!m) continue; const which = whichOf(m[1]); if (!which) continue;
       S.used.add(e.id);
-      { const pb = boxOf(byId(S.plan)), m0 = mid(boxOf(e)); const ln = els().filter(x => !S.used.has(x.id)).map(x => ({ x, s: straight(x) })).filter(o => o.s && Math.hypot(o.s![1][0] - o.s![0][0], o.s![1][1] - o.s![0][1]) > Math.min(pb.w, pb.h) * 0.45 && !inside(mid(boxOf(o.x)), { x: pb.x + pb.w * 0.2, y: pb.y + pb.h * 0.2, w: pb.w * 0.6, h: pb.h * 0.6 })).sort((a, b) => Math.hypot(mid(boxOf(a.x))[0] - m0[0], mid(boxOf(a.x))[1] - m0[1]) - Math.hypot(mid(boxOf(b.x))[0] - m0[0], mid(boxOf(b.x))[1] - m0[1]))[0]; if (ln) S.used.add(ln.x.id); S.fills.push({ which, line: ln?.x.id, ids: [e.id] }); }
+      { const pb = boxOf(byId(S.plan)), m0 = mid(boxOf(e)); const ln = els().filter(x => !spent(x.id)).map(x => ({ x, s: straight(x) })).filter(o => o.s && Math.hypot(o.s![1][0] - o.s![0][0], o.s![1][1] - o.s![0][1]) > Math.min(pb.w, pb.h) * 0.45 && !inside(mid(boxOf(o.x)), { x: pb.x + pb.w * 0.2, y: pb.y + pb.h * 0.2, w: pb.w * 0.6, h: pb.h * 0.6 })).sort((a, b) => Math.hypot(mid(boxOf(a.x))[0] - m0[0], mid(boxOf(a.x))[1] - m0[1]) - Math.hypot(mid(boxOf(b.x))[0] - m0[0], mid(boxOf(b.x))[1] - m0[1]))[0]; if (ln) S.used.add(ln.x.id); S.fills.push({ which, line: ln?.x.id, ids: [e.id] }); }
       const add = (/\s$/.test(yt.toString()) ? '' : ' ') + VALUE[which];
       await wait(500);
       for (const ch of add) { yt.insert(yt.length, ch); if (e.type === 'text') { measure.font = `${e.fontWeight ?? 400} ${e.fontSize ?? 16}px Inter, sans-serif`; const b = boxOf(e), w = Math.ceil(measure.measureText(yt.toString()).width) + 6; if (w > b.w) surf.updateElement(e.id, { xywh: `[${b.x},${b.y},${w},${b.h}]` }); } await wait(55); }
@@ -522,7 +528,7 @@ export function mountRome(rootEl: any) {
   async function fillWritten() {
     if (!S.plan || S.busy || writing) return;
     const pb = boxOf(byId(S.plan)), small = Math.max(pb.w, pb.h) * 0.22;
-    const strokes = els().filter(e => e.type === 'brush' && !S.used.has(e.id)).map(e => ({ e, b: boxOf(e) })).filter(s => s.b.w < small && s.b.h < small);
+    const strokes = els().filter(e => e.type === 'brush' && !spent(e.id)).map(e => ({ e, b: boxOf(e) })).filter(s => s.b.w < small && s.b.h < small);
     const bars = strokes.filter(s => s.b.w > 6 && s.b.w >= s.b.h * 2.2);
     for (let i = bars.length - 1; i > 0; i--) for (let j = i - 1; j >= 0; j--) {
       const p = bars[i], q = bars[j], w = Math.max(p.b.w, q.b.w);
@@ -534,7 +540,7 @@ export function mountRome(rootEl: any) {
       if (!word.length) continue;
       for (const s of [p, q, ...word]) S.used.add(s.e.id);
       // which measure: the long straight line nearest the writing says (level = length, upright = width); else in order
-      const lines = els().filter(e => !S.used.has(e.id)).map(e => ({ e, s: straight(e) })).filter(x => x.s && Math.hypot(x.s![1][0] - x.s![0][0], x.s![1][1] - x.s![0][1]) > Math.min(pb.w, pb.h) * 0.45 && !inside(mid(boxOf(x.e)), { x: pb.x + pb.w * 0.2, y: pb.y + pb.h * 0.2, w: pb.w * 0.6, h: pb.h * 0.6 }));
+      const lines = els().filter(e => !spent(e.id)).map(e => ({ e, s: straight(e) })).filter(x => x.s && Math.hypot(x.s![1][0] - x.s![0][0], x.s![1][1] - x.s![0][1]) > Math.min(pb.w, pb.h) * 0.45 && !inside(mid(boxOf(x.e)), { x: pb.x + pb.w * 0.2, y: pb.y + pb.h * 0.2, w: pb.w * 0.6, h: pb.h * 0.6 }));
       const m0 = mid(eq), dist = (x: any) => Math.hypot(mid(boxOf(x.e))[0] - m0[0], mid(boxOf(x.e))[1] - m0[1]), nearest = lines.sort((a, b) => dist(a) - dist(b))[0];
       const which: keyof typeof VALUE = nearest ? (Math.abs(nearest.s![1][0] - nearest.s![0][0]) >= Math.abs(nearest.s![1][1] - nearest.s![0][1]) ? 'length' : 'width') : (['length', 'width', 'height'] as const)[S.filled % 3];
       S.filled++;
@@ -590,7 +596,7 @@ export function mountRome(rootEl: any) {
   // The mark is already half the question: when the pen lifts from a ring on a picture, a scribble inside it, or
   // a line across the plan, the prompt opens on it, ready for the words.
   let pointerDown = false, lastUp = 0, offered = '';
-  addEventListener('pointerdown', () => { pointerDown = true; }, true);
+  addEventListener('pointerdown', () => { takeOld(); pointerDown = true; }, true);
   addEventListener('pointerup', ev => {
     pointerDown = false; lastUp = Date.now();
     if ((ev.target as HTMLElement)?.closest?.('.cx-dock, .cx-ai-layer, .cx-rome-hit')) return;
