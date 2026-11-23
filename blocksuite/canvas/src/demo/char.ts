@@ -453,7 +453,13 @@ export function mountChar(rootEl: any) {
     if (lightWords) { const c = mid(fig), pts = outside.flatMap(ptsOf); const L: Pt = pts.length ? pts.sort((p, q) => q[1] < p[1] ? 1 : -1)[0] : [c[0] - fig.w, fig.y - fig.h]; return { op: 'light', subject, marks, light: L }; }
     if (lookWords) return outside.length ? { op: 'look', subject, marks, to: target(outside) } : null;
     // no words: a gesture explained in words before means what it meant then
-    if (!words.trim() && things.length && learnedHere('char:beside')) return { op: 'look', subject, marks, to: target(things), learned: true, gesture: 'char:beside' };
+    // (only for what was taught: a small drawing off the body — an apple, a dot — never long lines, which may be hair,
+    // a sketch of something else, or a gesture not yet understood)
+    const smallThings = things.filter(m => kind.get(m) === 'small');
+    // an apple is drawn round; a lamp's body is drawn with corners (a box, a cone, a diamond)
+    const roundness = (m: any) => { const p = ptsOf(m); if (p.length < 6) return 0; let A = 0, L = 0; for (let i = 0; i < p.length; i++) { const a = p[i], b = p[(i + 1) % p.length]; A += a[0] * b[1] - b[0] * a[1]; L += Math.hypot(b[0] - a[0], b[1] - a[1]); } return L ? (4 * Math.PI * Math.abs(A / 2)) / (L * L) : 0; };
+    const roundOnes = smallThings.filter(m => roundness(m) > 0.62);
+    if (!words.trim() && roundOnes.length && smallThings.length === things.length && !over.length && !lampFound && learnedHere('char:beside')) return { op: 'look', subject, marks, to: target(smallThings), learned: true, gesture: 'char:beside' };
     return null;
   }
 
@@ -466,11 +472,6 @@ export function mountChar(rootEl: any) {
     const d = document.createElement('div'); d.className = 'cx-sense-think cx-rome-think cx-char-think'; d.innerHTML = '<i></i><i></i><i></i><i></i>';
     d.style.left = `${at[0]}px`; d.style.top = `${at[1]}px`; d.style.transform = `scale(${Math.max(0.6, u)})`; layer()?.append(d);
     return () => { d.classList.add('out'); setTimeout(() => d.remove(), 300); };
-  }
-  function note(text: string, at: Pt, u: number) {
-    const d = document.createElement('div'); d.className = 'cx-char-note'; d.textContent = text;
-    Object.assign(d.style, { left: `${at[0]}px`, top: `${at[1]}px`, transform: `scale(${Math.max(0.6, u)})` }); layer()?.append(d);
-    setTimeout(() => { d.classList.add('out'); setTimeout(() => d.remove(), 500); }, 2600);
   }
   const blobFrom = async (src: string | HTMLCanvasElement): Promise<Blob> => {
     if (typeof src !== 'string') return new Promise(ok => src.toBlob(b => ok(b!), 'image/png'));
@@ -646,8 +647,6 @@ export function mountChar(rootEl: any) {
       else if (plan.op === 'eyes' && plan.tex) { const t = (await readImage(plan.tex))?.img; if (t) { const c = eyesIn(a, t); if (c) out = { src: c, w: sb.w, h: sb.h }; } }
     }
     const left = Math.max(0, (stageOut || shadow && film ? 2000 + Math.random() * 900 : 1100) - (Date.now() - t0)); await wait(left); stop();
-    // acting on something learned: say so for a moment, in the board's quiet grey ("as before")
-    if (plan.learned && plan.gesture) note(`As before: ${GESTURES[plan.gesture].means.replace(/ \(.*\)$/, '')}`, [region.x + region.w + 6 * u, region.y], u);
     if (!out) { say(plan.op === 'look' || plan.op === 'eyes' ? 'I could not find the eyes in this picture.' : 'Nothing to change here.', fig, u); return true; }
     // the change happens in place: the figure stays where it is and becomes the next picture
     const dx = (out as any).dx ?? 0, dy = (out as any).dy ?? 0;
@@ -678,10 +677,21 @@ export function mountChar(rootEl: any) {
       for (const i of oldShadow) { const e = byId(i); if (!e) continue; const b = boxOf(e), blob = await blobOfImage(e);
         if (blob) { const ov = await behind(URL.createObjectURL(blob), b, subject); ov.className = 'cx-char-fade'; Object.assign(ov.style, { left: `${b.x}px`, top: `${b.y}px`, width: `${b.w}px`, height: `${b.h}px` }); layer()?.append(ov); void ov.getBoundingClientRect(); requestAnimationFrame(() => ov.classList.add('out')); setTimeout(() => ov.remove(), 1000); }
         remove(i); }
-      shId = await reveal(shadow.src, { x: place.x + shadow.x, y: place.y + shadow.y, w: shadow.w, h: shadow.h }, 900, { mode: 'ground', fx, fy: 0.3 }, undefined, subject);
-      P.shadow[shId] = subject.id;
-      // under the figure, which itself is not touched
-      try { const sm = store.getBlock(shId)?.model, fm = store.getBlock(subject.id)?.model; if (sm && fm) store.transact(() => { sm.index = gfx.layer.getReorderedIndex(sm, 'back'); }); } catch { /* order as added */ }
+      // the shadow is put on the board at once, under the figure, and it is the shadow itself that fades in: no copy
+      // over it, so its darkness never doubles for a moment
+      void fx;
+      { const sbx = { x: place.x + shadow.x, y: place.y + shadow.y, w: shadow.w, h: shadow.h }, blob = await blobFrom(shadow.src), im = await imageOf(URL.createObjectURL(blob));
+        const sourceId = await store.blobSync.set(blob);
+        shId = store.addBlock('affine:image', { sourceId, xywh: `[${sbx.x},${sbx.y},${sbx.w},${sbx.h}]`, width: im.naturalWidth, height: im.naturalHeight } as any, surf.id) as string;
+        mine.add(shId);
+        try { const sm = store.getBlock(shId)?.model; if (sm) store.transact(() => { sm.index = gfx.layer.getReorderedIndex(sm, 'back'); }); } catch { /* order as added */ }
+        const t0 = performance.now(); let el: HTMLElement | null = null;
+        await new Promise<void>(done => { const step = (now: number) => {
+          el = el ?? (rootEl.querySelector?.(`[data-block-id="${shId}"]`) as HTMLElement | null) ?? (document.querySelector(`[data-block-id="${shId}"]`) as HTMLElement | null);
+          const t = Math.min(1, (now - t0) / 900); if (el) el.style.opacity = String(t * t * (3 - 2 * t));
+          if (t < 1) requestAnimationFrame(step); else { if (el) el.style.opacity = ''; done(); } }; requestAnimationFrame(step); });
+      }
+      P.shadow[shId!] = subject.id;
 
       try { const g = surf.addElement({ type: 'group', children: { [shId]: true, [subject.id]: true }, title: new (W.cxDev?.Y)('') }); mine.add(g); } catch { /* two things */ }
       void fadeAway(roundMarks());
@@ -727,6 +737,7 @@ export function mountChar(rootEl: any) {
     const plan = await planFor('');
     // a drawing of several strokes (hair, a lamp) gets a longer pause before it is taken as finished
     if (plan && (plan.op === 'hair' || plan.op === 'light') && (pointerDown || Date.now() - lastUp < 2200)) { offered = ''; return; }
+    if (plan && plan.learned && plan.op === 'look' && (pointerDown || Date.now() - lastUp < 3000)) { offered = ''; return; }
     if (plan && (plan.op === 'material' || plan.op === 'eyes' || plan.op === 'hair' || plan.op === 'light' || plan.learned) && (chainOf(plan.subject.id) || plan.op === 'material' || plan.op === 'eyes' || await isFilmStart(plan.subject))) {
       busy = true; try { await perform(plan); } finally { busy = false; document.body.classList.remove('cx-char-busy'); }
       return;
