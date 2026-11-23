@@ -86,7 +86,9 @@ export function mountRome(rootEl: any) {
   let rr0 = rootEl.getBoundingClientRect(); const remeasure = () => { rr0 = rootEl.getBoundingClientRect(); };
   addEventListener('resize', remeasure); try { new ResizeObserver(remeasure).observe(rootEl); } catch { /* resize event only */ }
   const sync = () => {
-    const rr = rr0, z = gfx.viewport.zoom, [ox, oy] = gfx.viewport.toViewCoord(0, 0);
+    // the board's own layers are placed by the plain zoom; toViewCoord also carries a hair of screen scale (for the
+    // pointer), which far from the origin grows into a visible offset — so the origin is worked out the board's way
+    const rr = rr0, vp = gfx.viewport, z = vp.zoom, ox = -vp.viewportX * z, oy = -vp.viewportY * z;
     const k = `${rr.left + ox},${rr.top + oy},${z}`;
     if (k !== key) { if (key && !gliding) userMoved = Date.now(); key = k; world.style.transform = `translate(${rr.left + ox}px, ${rr.top + oy}px) scale(${z})`; }
   };
