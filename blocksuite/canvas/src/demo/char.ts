@@ -481,7 +481,7 @@ export function mountChar(rootEl: any) {
   type Reveal = { mode: 'develop' | 'radial' | 'rise' | 'ground' | 'generate' | 'eyes'; fx?: number; fy?: number; spots?: Box[] };
   /** a new picture on the board, shown the way it came about: developed (a new look), spreading from where the
    *  arrow touched (a material), growing up from the head (hair), or spreading along the ground (a shadow) */
-  async function reveal(src: string | HTMLCanvasElement, b: Box, ms = 1100, how: Reveal = { mode: 'develop' }, midway?: () => void): Promise<string> {
+  async function reveal(src: string | HTMLCanvasElement, b: Box, ms = 1100, how: Reveal = { mode: 'develop' }, midway?: () => void, inFront?: any): Promise<string> {
     const blob = await blobFrom(src), url = URL.createObjectURL(blob), im = await imageOf(url);
     if (how.mode === 'generate') {
       // the new picture forms over the old one the way a generated image does: coarse and soft first, then finer
@@ -524,7 +524,7 @@ export function mountChar(rootEl: any) {
       mine.add(id); setTimeout(() => ov.remove(), 450);
       return id;
     }
-    const ov = document.createElement('img'); ov.src = url; ov.className = `cx-char-dev ${how.mode}`;
+    const ov: HTMLElement = inFront ? await behind(url, b, inFront) : Object.assign(document.createElement('img'), { src: url }); ov.className = `cx-char-dev ${how.mode}`;
     const fx = `${((how.fx ?? 0.5) * 100).toFixed(1)}%`, fy = `${((how.fy ?? 0.5) * 100).toFixed(1)}%`;
     Object.assign(ov.style, { left: `${b.x}px`, top: `${b.y}px`, width: `${b.w}px`, height: `${b.h}px`, transitionDuration: `${ms}ms`, transformOrigin: `${fx} ${fy}` });
     if (how.mode === 'radial') ov.style.clipPath = `circle(0% at ${fx} ${fy})`;
@@ -537,6 +537,12 @@ export function mountChar(rootEl: any) {
     const id = store.addBlock('affine:image', { sourceId, xywh: `[${b.x},${b.y},${b.w},${b.h}]`, width: im.naturalWidth, height: im.naturalHeight } as any, surf.id) as string;
     mine.add(id); setTimeout(() => ov.remove(), 450);
     return id;
+  }
+  /** a picture shown on the overlay as if it lay behind a figure: the figure's own shape is cut out of it */
+  async function behind(src: string, b: Box, fig: any): Promise<HTMLCanvasElement> {
+    const k = 2, c = canvasOf(b.w * k, b.h * k), x = c.getContext('2d')!, im = await imageOf(src); x.drawImage(im, 0, 0, c.width, c.height);
+    try { const fb = boxOf(fig), blob = await blobOfImage(fig); if (blob) { const fi = await imageOf(URL.createObjectURL(blob)); x.globalCompositeOperation = 'destination-out'; x.drawImage(fi, (fb.x - b.x) * k, (fb.y - b.y) * k, fb.w * k, fb.h * k); } } catch { /* shown whole */ }
+    return c;
   }
   const svgNS = 'http://www.w3.org/2000/svg';
   /** an SVG sheet in board units over a box, for lines that are shown only while something happens */
@@ -668,7 +674,11 @@ export function mountChar(rootEl: any) {
       if (oldGroup) { ungroup(oldGroup); }
       // the new shadow spreads from the feet, away from the lamp, while the old one goes
       const side = plan.light![0] - mid(fig)[0], fx = Math.abs(side) < fig.w * 0.45 ? 0.5 : side < 0 ? 0 : 1;
-      shId = await reveal(shadow.src, { x: place.x + shadow.x, y: place.y + shadow.y, w: shadow.w, h: shadow.h }, 1200, { mode: 'ground', fx, fy: 0.3 }, () => { for (const i of oldShadow) remove(i); });
+      // the old shadow fades out while the new one fades in, each where it is: nothing slides
+      for (const i of oldShadow) { const e = byId(i); if (!e) continue; const b = boxOf(e), blob = await blobOfImage(e);
+        if (blob) { const ov = await behind(URL.createObjectURL(blob), b, subject); ov.className = 'cx-char-fade'; Object.assign(ov.style, { left: `${b.x}px`, top: `${b.y}px`, width: `${b.w}px`, height: `${b.h}px` }); layer()?.append(ov); void ov.getBoundingClientRect(); requestAnimationFrame(() => ov.classList.add('out')); setTimeout(() => ov.remove(), 1000); }
+        remove(i); }
+      shId = await reveal(shadow.src, { x: place.x + shadow.x, y: place.y + shadow.y, w: shadow.w, h: shadow.h }, 900, { mode: 'ground', fx, fy: 0.3 }, undefined, subject);
       P.shadow[shId] = subject.id;
       // under the figure, which itself is not touched
       try { const sm = store.getBlock(shId)?.model, fm = store.getBlock(subject.id)?.model; if (sm && fm) store.transact(() => { sm.index = gfx.layer.getReorderedIndex(sm, 'back'); }); } catch { /* order as added */ }

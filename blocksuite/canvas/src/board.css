@@ -699,8 +699,11 @@ affine-edgeless-text { height: auto !important; }
 .cx-char-dev.radial.on { filter: none; }
 .cx-char-dev.rise { clip-path: inset(100% 0 0 0); transition-property: clip-path; }
 .cx-char-dev.rise.on { clip-path: inset(0 0 0 0); }
-.cx-char-dev.ground { opacity: 0; transform: scaleX(0); filter: blur(6px); transition-property: transform, opacity, filter; }
-.cx-char-dev.ground.on { opacity: 1; transform: none; filter: none; }
+.cx-char-dev.ground { opacity: 0; transition-property: opacity; transition-timing-function: ease; }
+.cx-char-dev.ground.on { opacity: 1; }
+/* an old shadow going: it only fades */
+.cx-char-fade { position: absolute; pointer-events: none; transition: opacity .9s ease; }
+.cx-char-fade.out { opacity: 0; }
 .cx-char-dev.eyesonly { opacity: 1; }
 /* one working sign at a time: while the scene works, the board's own sign stays away */
 body.cx-char-busy .cx-sense-think:not(.cx-char-think) { display: none !important; }
