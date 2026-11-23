@@ -224,22 +224,23 @@ function footShadow(fig: Box) {
  *  way a round thing seen from the side does, and tilts with the surface; the flat steps stay vector, the fleece
  *  steps are the photograph with the eyes lifted off and laid back on. */
 const EYES = [{ raw: () => eyeRRaw, at: [221, 245], c: [254, 293] as Pt, sprite: [218, 242] }, { raw: () => eyeLRaw, at: [116, 242], c: [137, 281.5] as Pt, sprite: [113, 239] }];
-const FACE: Record<number, { c: Pt; r: [number, number] }> = { 2: { c: [224, 262], r: [200, 175] }, 3: { c: [224, 275], r: [175, 150] }, 4: { c: [224, 280], r: [195, 165] }, 5: { c: [224, 280], r: [195, 165] } };
-function eyePose(stage: number, e: Pt, yaw: number, pitch: number) {
-  const f = FACE[stage] ?? FACE[3], u = Math.max(-0.95, Math.min(0.95, (e[0] - f.c[0]) / f.r[0])), v = Math.max(-0.95, Math.min(0.95, (e[1] - f.c[1]) / f.r[1]));
-  // the small round body turns its eyes less far before they would leave it
-  const k = stage === 2 ? 0.7 : 1, ph = Math.asin(u), th = Math.asin(v), ph2 = Math.max(-1.25, Math.min(1.25, ph + yaw * k)), th2 = Math.max(-1.2, Math.min(1.2, th + pitch * k));
-  return {
-    x: f.c[0] + f.r[0] * Math.sin(ph2), y: f.c[1] + f.r[1] * Math.sin(th2),
-    sx: Math.cos(ph2) / Math.cos(ph), sy: Math.cos(th2) / Math.cos(th),
-    rot: (Math.sin(ph2) * Math.sin(th2) - u * v) * 28,   // degrees: an eye high on the side leans with the surface
-  };
+// The face in the Figma frames is turned about 30° to the viewer's left: that is why the left eye is drawn
+// narrower (42) than the right (66). Taken as two equal eyes on a round head, centre x ≈ 285, radius ≈ 190, the
+// left eye sits 51° and the right 9° left of the head's middle. Looking somewhere turns them both by the same
+// angle: an eye coming round to the front widens, one going round to the side narrows.
+const HEAD = { cx: 285, cy: 262, R: 190, Ry: 170 };
+const EYE_LON = [-0.163, -0.892];   // right eye, left eye (radians from the head's middle)
+function eyePose(_stage: number, e: Pt, yaw: number, pitch: number) {
+  const i = e[0] > 200 ? 0 : 1, ph = EYE_LON[i], th = Math.asin(Math.max(-0.9, Math.min(0.9, (e[1] - HEAD.cy) / HEAD.Ry)));
+  const ph2 = Math.max(-1.3, Math.min(1.3, ph + yaw)), th2 = Math.max(-1.1, Math.min(1.1, th + pitch));
+  const x = e[0] + HEAD.R * (Math.sin(ph2) - Math.sin(ph)), y = e[1] + HEAD.Ry * (Math.sin(th2) - Math.sin(th));
+  return { x, y, sx: Math.cos(ph2) / Math.cos(ph), sy: Math.cos(th2) / Math.cos(th), rot: (Math.sin(ph2) * Math.sin(th2) - Math.sin(ph) * Math.sin(th)) * 22 };
 }
 async function filmWithEyes(stage: number, yaw: number, pitch: number): Promise<string | HTMLCanvasElement> {
   // the eyes stay well inside the body: a turn that would carry one over the edge is taken back as far as needed
   const BODYE: Record<number, { c: Pt; r: [number, number] }> = { 2: { c: [224, 258], r: [128, 116] }, 3: { c: [224, 280], r: [175, 140] }, 4: { c: [224, 285], r: [190, 155] }, 5: { c: [224, 285], r: [190, 155] } };
   const fits = (k: number) => EYES.every((e, i) => { const p = eyePose(stage, e.c, yaw * k, pitch * k), b = BODYE[stage] ?? BODYE[3], hw = (i === 0 ? 33 : 21) * p.sx + 8, hh = (i === 0 ? 48 : 39.5) * p.sy + 8;
-    const ex = Math.abs(p.x - b.c[0]) + hw, ey = Math.abs(p.y - b.c[1]) + hh; return (ex / b.r[0]) ** 2 + (ey / b.r[1]) ** 2 <= 1.15; });
+    const ex = Math.abs(p.x - b.c[0]) + hw, ey = Math.abs(p.y - b.c[1]) + hh; return (ex / b.r[0]) ** 2 + (ey / b.r[1]) ** 2 <= 0.9; });
   let lo = 0, hi = 1; if (!fits(1)) { for (let i = 0; i < 12; i++) { const m = (lo + hi) / 2; if (fits(m)) lo = m; else hi = m; } yaw *= lo; pitch *= lo; }
   if (stage <= 3) {
     const g = EYES.map(e => { const p = eyePose(stage, e.c, yaw, pitch);
@@ -257,8 +258,8 @@ async function filmWithEyes(stage: number, yaw: number, pitch: number): Promise<
 }
 /** how far the eyes turn to look at a point (frame units): toward it, as far as eyes in a face can */
 function eyeShift(to: Pt): [number, number] {
-  const cx = 204, cy = 290, dx = to[0] - cx, dy = to[1] - cy, d = Math.hypot(dx, dy) || 1, k = Math.min(1, d / 140);
-  return [(dx / d) * 0.32 * k, (dy / d) * 0.24 * k];
+  const cx = 204, cy = 290, dx = to[0] - cx, dy = to[1] - cy, d = Math.hypot(dx, dy) || 1, k = Math.min(1, d / 160);
+  return [(dx / d) * 0.6 * k, (dy / d) * 0.32 * k];
 }
 
 // ── the scene on the board ──────────────────────────────────────────────────────────────────────────────────────
