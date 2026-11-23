@@ -212,7 +212,7 @@ export function mountChar(rootEl: any) {
   };
 
   // what the scene has made, kept across reloads; a piece counts only while it is still on the board
-  type Info = { film?: number; lit?: boolean; from?: string };
+  type Info = { film?: number; lit?: boolean; from?: string; lamp?: string[] };
   const P: { chain: Record<string, Info>; tex: Record<string, 'fleece' | 'glass' | 'other'> } = (() => { try { return { chain: {}, tex: {}, ...JSON.parse(localStorage.getItem('cx:char') || '{}') }; } catch { return { chain: {}, tex: {} }; } })();
   const keep = () => { try { localStorage.setItem('cx:char', JSON.stringify(P)); } catch { /* not kept */ } };
   const chainOf = (id: string) => { const c = P.chain[id]; if (c && !byId(id)) { delete P.chain[id]; keep(); return undefined; } return c; };
@@ -233,13 +233,30 @@ export function mountChar(rootEl: any) {
   // is this the filmed figure (its first look), or one of the filmed materials? compared by shape, not by file
   const shapeSig = (a: Look) => { const s = 20, out = new Uint8Array(s * s); for (let j = 0; j < s; j++) for (let i = 0; i < s; i++) { const px = Math.floor(a.box.x + ((i + 0.5) / s) * a.box.w), py = Math.floor(a.box.y + ((j + 0.5) / s) * a.box.h); out[j * s + i] = a.mask[py * a.w + px] ? 1 : 0; } return { out, eyes: a.eyes.length }; };
   const colourSig = (img: HTMLImageElement) => { const c = canvasOf(12, 12), x = c.getContext('2d', { willReadFrequently: true })!; x.drawImage(img, 0, 0, 12, 12); return x.getImageData(0, 0, 12, 12).data; };
-  const filmStart = imageOf(s1Src).then(i => shapeSig(read(i)));
+  // every filmed picture, so the scene can be entered at any of them: a picture dragged in, or one brought back
+  // by undo, is recognised by its outline, where its eyes are and what they look like
   const filmTex = Promise.all([imageOf(fleeceSrc), imageOf(glassSrc)]).then(([f, g]) => ({ fleece: colourSig(f), glass: colourSig(g) }));
-  async function isFilmStart(e: any) {
-    const r = await readImage(e); if (!r) return false; const a = shapeSig(r.look), b = await filmStart;
-    let both = 0, any = 0; for (let i = 0; i < a.out.length; i++) { if (a.out[i] && b.out[i]) both++; if (a.out[i] || b.out[i]) any++; }
-    return a.eyes === 2 && r.look.body.every(c => c < 45) && any > 0 && both / any > 0.9 && Math.abs(r.look.box.w / r.look.box.h - 260.5 / 235.4) < 0.12;
+  type Sig = { out: Uint8Array; eyes: Pt[]; eyeLum: number; body: number };
+  const sigOf = (a: Look): Sig => {
+    const d = a.cv.getContext('2d')!.getImageData(0, 0, a.w, a.h).data; let lum = 0, n = 0;
+    for (const e of a.eyes) for (let i = 0; i < e.mask.length; i += 3) if (e.mask[i]) { lum += d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2]; n++; }
+    return { out: shapeSig(a).out, eyes: a.eyes.map(e => [(e.cx - a.box.x) / a.box.w, (e.cy - a.box.y) / a.box.h] as Pt).sort((p, q) => p[0] - q[0]), eyeLum: n ? lum / n / 3 : 0, body: (a.body[0] + a.body[1] + a.body[2]) / 3 };
+  };
+  const filmSigs = Promise.all(FILM.slice(1).map(src => imageOf(src).then(i => sigOf(read(i)))));
+  /** which filmed step a picture is (1–5), or 0 */
+  async function filmStageOf(e: any): Promise<number> {
+    const r = await readImage(e); if (!r || r.look.eyes.length < 2) return 0;
+    const a = sigOf(r.look), all = await filmSigs; let best = 0, bestScore = 0;
+    all.forEach((b, k) => {
+      let both = 0, any = 0; for (let i = 0; i < a.out.length; i++) { if (a.out[i] && b.out[i]) both++; if (a.out[i] || b.out[i]) any++; }
+      const iou = any ? both / any : 0; if (iou < 0.86 || Math.abs(a.body - b.body) > 40) return;
+      const eyeD = a.eyes.length === b.eyes.length ? a.eyes.reduce((v, p, i) => v + Math.hypot(p[0] - b.eyes[i][0], p[1] - b.eyes[i][1]), 0) / a.eyes.length : 1;
+      const score = iou - eyeD * 1.5 - Math.abs(a.eyeLum - b.eyeLum) / 255;
+      if (score > bestScore) { bestScore = score; best = k + 1; }
+    });
+    return best;
   }
+  const isFilmStart = async (e: any) => (await filmStageOf(e)) > 0;
   async function texKind(e: any): Promise<'fleece' | 'glass' | 'other'> {
     if (P.tex[e.id]) return P.tex[e.id];
     const r = await readImage(e); if (!r) return 'other';
@@ -331,7 +348,7 @@ export function mountChar(rootEl: any) {
   type Reveal = { mode: 'develop' | 'radial' | 'rise' | 'ground'; fx?: number; fy?: number };
   /** a new picture on the board, shown the way it came about: developed (a new look), spreading from where the
    *  arrow touched (a material), growing up from the head (hair), or spreading along the ground (a shadow) */
-  async function reveal(src: string | HTMLCanvasElement, b: Box, ms = 1100, how: Reveal = { mode: 'develop' }): Promise<string> {
+  async function reveal(src: string | HTMLCanvasElement, b: Box, ms = 1100, how: Reveal = { mode: 'develop' }, midway?: () => void): Promise<string> {
     const blob = await blobFrom(src), url = URL.createObjectURL(blob), im = await imageOf(url);
     const ov = document.createElement('img'); ov.src = url; ov.className = `cx-char-dev ${how.mode}`;
     const fx = `${((how.fx ?? 0.5) * 100).toFixed(1)}%`, fy = `${((how.fy ?? 0.5) * 100).toFixed(1)}%`;
@@ -340,6 +357,7 @@ export function mountChar(rootEl: any) {
     layer()?.append(ov);
     void ov.getBoundingClientRect(); ov.classList.add('on');
     if (how.mode === 'radial') ov.style.clipPath = `circle(150% at ${fx} ${fy})`;
+    if (midway) setTimeout(midway, ms * 0.35);
     await wait(ms);
     const sourceId = await store.blobSync.set(blob);
     const id = store.addBlock('affine:image', { sourceId, xywh: `[${b.x},${b.y},${b.w},${b.h}]`, width: im.naturalWidth, height: im.naturalHeight } as any, surf.id) as string;
@@ -387,98 +405,84 @@ export function mountChar(rootEl: any) {
     s2.sv.append(g, poly); s2.sv.classList.add('cx-char-beam'); void s2.sv.getBoundingClientRect(); s2.sv.classList.add('on');
     return s2;
   }
-  /** where the next picture of the strip goes: to the right of the figure (and its shadow), level with it */
-  function nextPlace(subject: any, w: number, h: number, figTop: number): Box {
-    const sb = boxOf(subject), grp = subject.group ? boxOf(subject.group) : sb, gap = Math.max(60, sb.w * 0.42);
-    let b: Box = { x: Math.max(sb.x + sb.w, grp.x + grp.w) + gap, y: figTop, w, h };
-    const busy = () => els().some(e => !isMark(e) && e.type !== 'group' && e.id !== subject.id && !(subject.group && e.group === subject.group) && (() => { const q = boxOf(e); return q.x < b.x + b.w && q.x + q.w > b.x && q.y < b.y + b.h && q.y + q.h > b.y; })());
-    for (let i = 0; i < 12 && busy(); i++) b = { ...b, y: b.y + h * 0.55 };
-    return b;
-  }
-  function arrow(a: Pt, z: Pt, u: number) {
-    const id = surf.addElement({ type: 'connector', mode: 0, source: { position: a }, target: { position: z }, stroke: '#1d1d1f', strokeWidth: Math.max(1, 1.6 * u), strokeStyle: 'solid', frontEndpointStyle: 'None', rearEndpointStyle: 'Arrow' }) as string;
-    mine.add(id); return id;
-  }
-
   let busy = false;
   async function perform(plan: Plan): Promise<boolean> {
     const { subject } = plan, r = await readImage(subject); if (!r) return false;
     for (const m of plan.marks) used.add(m.id);
-    const info = chainOf(subject.id) ?? (await isFilmStart(subject) ? { film: 1 } : {});
+    const info: Info = chainOf(subject.id) ?? await (async () => { const n = await filmStageOf(subject); return n ? { film: n } : {}; })();
     const sb = boxOf(subject), fig = figureBox(subject, r.look), u = sb.w / FRAME.w;
     const marksBox = plan.marks.length ? unionBox(plan.marks.map(boxOf)) : fig;
     const stop = think([marksBox.x - 22 * u, marksBox.y], u);
     const t0 = Date.now();
     // the filmed figure, at the step this act belongs to: the drawn picture
     const film = info.film, tex = plan.tex ? await texKind(plan.tex) : undefined;
-    if (film && tex === 'glass' && plan.op === 'material' && film === 4) plan.op = 'eyes';
-    if (film && tex === 'fleece' && plan.op === 'eyes' && film === 3) plan.op = 'material';
-    const filmNext = film === 1 && plan.op === 'look' ? 2 : film === 2 && plan.op === 'hair' ? 3 : film === 3 && plan.op === 'material' && tex === 'fleece' ? 4 : film === 4 && plan.op === 'eyes' && tex === 'glass' ? 5 : 0;
+    if (film && film < 5 && tex === 'glass' && plan.op === 'material') plan.op = 'eyes';   // in the film, glass is for the eyes
+    if (film && film < 4 && tex === 'fleece' && plan.op === 'eyes') plan.op = 'material';   // and fleece for the body
+    // steps need not come in order: an act goes to the filmed picture of its step when that step is ahead of the
+    // figure (the filmed pictures build on each other); an act the figure is already past is done on it directly
+    const stepOf: Record<string, number> = { look: 2, hair: 3, material: tex === 'fleece' ? 4 : 0, eyes: tex === 'glass' ? 5 : 0 };
+    const want = stepOf[plan.op] ?? 0, filmNext = film && want > film ? want : 0;
     let out: { src: string | HTMLCanvasElement; w: number; h: number; film?: number } | null = null;
     let shadow: { src: string | HTMLCanvasElement; x: number; y: number; w: number; h: number } | null = null;   // against the new picture's box
     // the frame the filmed pictures share, sized from this figure (its body is 260.5 of 448 at step 1)
     const frameScale = film ? fig.w / BODY[film][2] : 0, frameTop = film ? fig.y - BODY[film][1] * frameScale : 0, frameLeft = film ? fig.x - BODY[film][0] * frameScale : 0;
-    void frameLeft;
     if (filmNext) out = { src: FILM[filmNext], w: FRAME.w * frameScale, h: FRAME.h * frameScale, film: filmNext };
     else if (plan.op === 'light' && film && film >= 3) {
       const right = plan.light![0] < mid(fig)[0], s = right ? SHADOW.right : SHADOW.left, k = frameScale;
-      out = { src: FILM[Math.min(5, film)], w: FRAME.w * k, h: FRAME.h * k, film };
+      out = { src: FILM[Math.min(5, film)], w: FRAME.w * k, h: FRAME.h * k, film };   // the same picture: only the light changes
       shadow = { src: s.src, x: s.x * k, y: s.y * k, w: s.w * k, h: s.h * k };
     } else {
       const a = r.look, img = r.img, k = sb.w / a.w;
       if (plan.op === 'look') { const c = turnEyes(a, toPic(subject, a, plan.to!)); if (c) out = { src: c, w: sb.w, h: sb.h }; }
-      else if (plan.op === 'hair') { const h = addHair(a, plan.line!.map(p => toPic(subject, a, p))); out = { src: h.cv, w: h.cv.width * k, h: h.cv.height * k }; (out as any).dy = h.dy * k; }
-      else if (plan.op === 'material' && plan.tex) { const t = (await readImage(plan.tex))?.img; if (t) { const c = inMaterial(a, t); out = { src: c, w: c.width * k, h: c.height * k }; (out as any).dy = Math.round(a.box.w * 0.04) * k; } }
+      else if (plan.op === 'hair') { const h = addHair(a, plan.line!.map(p => toPic(subject, a, p))); out = { src: h.cv, w: h.cv.width * k, h: h.cv.height * k }; (out as any).dy = h.dy * k; (out as any).dx = h.dx * k; }
+      else if (plan.op === 'material' && plan.tex) { const t = (await readImage(plan.tex))?.img; if (t) { const c = inMaterial(a, t); out = { src: c, w: c.width * k, h: c.height * k }; (out as any).dy = (out as any).dx = Math.round(a.box.w * 0.04) * k; } }
       else if (plan.op === 'eyes' && plan.tex) { const t = (await readImage(plan.tex))?.img; if (t) { const c = eyesIn(a, t); if (c) out = { src: c, w: sb.w, h: sb.h }; } }
       else if (plan.op === 'light') { const s = castShadow(a, toPic(subject, a, plan.light!)); out = { src: img.src, w: sb.w, h: sb.h }; shadow = { src: s.cv, x: s.x * k, y: s.y * k, w: s.cv.width * k, h: s.cv.height * k }; }
     }
     const left = Math.max(0, (filmNext || shadow && film ? 1500 : 900) - (Date.now() - t0)); await wait(left); stop();
     if (!out) { say(plan.op === 'look' || plan.op === 'eyes' ? 'I could not find the eyes in this picture.' : 'Nothing to change here.', fig, u); return true; }
-    // placed to the right, the figure level with the one before
-    const dy = (out as any).dy ?? 0;
-    const top = filmNext || (shadow && film) ? frameTop : sb.y - dy;
-    const place = nextPlace(subject, out.w, out.h, top);
-    const fromP: Pt = [Math.max(sb.x + sb.w, subject.group ? boxOf(subject.group).x + boxOf(subject.group).w : 0) + 12 * u, mid(fig)[1]];
-    // the view goes to where the change happens, so it is seen as it happens
-    W.cxRome?.lookAt?.(unionBox([sb, place, ...(plan.tex ? [boxOf(plan.tex)] : []), ...(plan.light ? [{ x: plan.light[0], y: plan.light[1], w: 1, h: 1 }] : [])]));
+    // the change happens in place: the figure stays where it is and becomes the next picture
+    const dx = (out as any).dx ?? 0, dy = (out as any).dy ?? 0;
+    const place: Box = film ? { x: frameLeft, y: frameTop, w: out.w, h: out.h } : { x: sb.x - dx, y: sb.y - dy, w: out.w, h: out.h };
+    W.cxRome?.lookAt?.(unionBox([fig, ...(plan.tex ? [boxOf(plan.tex)] : []), ...(plan.light ? [{ x: plan.light[0], y: plan.light[1], w: 1, h: 1 }] : []), ...(plan.op === 'look' && plan.to ? [{ x: plan.to[0], y: plan.to[1], w: 1, h: 1 }] : [])]));
     await wait(450);
+    const remove = (id: string) => { try { const m = store.getBlock(id)?.model; if (m) { store.deleteBlock(m); return; } } catch { /* not a block */ } try { surf.deleteElement(id); } catch { /* gone */ } };
     // what was understood, shown on the figure first: where it looks, what flows in, where the light comes from
     const touched = plan.tex && plan.marks[0] ? (() => { const p = ptsOf(plan.marks[0]); const a2 = p[0], z2 = p[p.length - 1]; return near(a2, boxOf(subject), 4) ? a2 : z2; })() : null;
     if (plan.op === 'look' && plan.to && r.look.eyes.length) {
       const k = sb.w / r.look.w, e = r.look.eyes.reduce((q, x) => [q[0] + x.cx / r.look.eyes.length, q[1] + x.cy / r.look.eyes.length], [0, 0]);
-      const s2 = await drawLine([sb.x + e[0] * k, sb.y + e[1] * k], plan.to, u, 650, true, '#8e8e93'); await wait(250); s2.gone();
+      const s2 = await drawLine([sb.x + e[0] * k, sb.y + e[1] * k], plan.to, u, 650, true, '#8e8e93'); await wait(200); s2.gone();
     }
-    if (plan.tex && touched) await carry(URL.createObjectURL((await blobOfImage(plan.tex)) ?? new Blob()), boxOf(plan.tex), touched, 750);
+    if (plan.tex && touched) { await carry(URL.createObjectURL((await blobOfImage(plan.tex)) ?? new Blob()), boxOf(plan.tex), touched, 750); for (const m of plan.marks) remove(m.id); }
     let lit: ReturnType<typeof beam> | null = null;
     if (plan.op === 'light' && plan.light) { lit = beam(plan.light, fig); await wait(450); }
-    const ids: string[] = [];
-    const toP: Pt = [place.x - 12 * u, fromP[1]];
-    const line = await drawLine(fromP, toP, u, 420); ids.push(arrow(fromP, toP, u)); line.gone(60);
-    // the new picture, appearing the way the change happened
-    const rel = (p: Pt | null): Reveal => (p ? { mode: 'radial', fx: Math.min(1, Math.max(0, (p[0] - sb.x) / sb.w)), fy: Math.min(1, Math.max(0, (p[1] - sb.y) / sb.h)) } : { mode: 'develop' });
+    // the old shadow and the old lamp go when a new lamp lights the figure
+    const oldGroup = subject.group, oldShadow = oldGroup ? [...(oldGroup.childIds ?? Object.keys(oldGroup.children?.toJSON?.() ?? {}))].filter((i: string) => i !== subject.id) : [];
+    const oldLamp = plan.op === 'light' ? (info as any).lamp as string[] | undefined : undefined;
+    const rel = (p: Pt | null): Reveal => (p ? { mode: 'radial', fx: Math.min(1, Math.max(0, (p[0] - place.x) / place.w)), fy: Math.min(1, Math.max(0, (p[1] - place.y) / place.h)) } : { mode: 'develop' });
     const how: Reveal = plan.op === 'hair' ? { mode: 'rise' } : plan.tex ? rel(touched) : { mode: 'develop' };
-    let shId: string | undefined;
+    let id: string, shId: string | undefined;
     if (shadow) {
-      // the shadow spreads from the feet, away from the lamp
+      for (const m of oldLamp ?? []) remove(m);
+      if (oldGroup) { try { surf.removeElement?.(oldGroup.id) ?? surf.deleteElement(oldGroup.id); } catch { /* kept */ } }
+      // the new shadow spreads from the feet, away from the lamp, while the old one goes
       const away = plan.light![0] < mid(fig)[0], fx = away ? 0 : 1;
-      const [idS, idF] = await Promise.all([
-        (async () => { await wait(350); return reveal(shadow!.src, { x: place.x + shadow!.x, y: place.y + shadow!.y, w: shadow!.w, h: shadow!.h }, 1200, { mode: 'ground', fx, fy: 0.3 }); })(),
-        reveal(out.src, place, 700, { mode: 'develop' }),
-      ]);
-      shId = idS; lit?.gone(600);
-        if (shId) { try { const g = surf.addElement({ type: 'group', children: { [shId]: true, [idF]: true }, title: new (W.cxDev?.Y)('') }); mine.add(g); } catch { /* two things */ } }
-        return finish(idF);
-      }
-      const id = await reveal(out.src, place, filmNext ? 1300 : 1100, how);
-      return finish(id);
-      function finish(id: string) {
-      P.chain[id] = { from: subject.id, film: out!.film ?? (film && !filmNext && plan.op === 'light' ? film : undefined), lit: plan.op === 'light' || info.lit };
-      if (!P.chain[subject.id]) P.chain[subject.id] = info; if (plan.tex) P.tex[plan.tex.id] = tex ?? 'other'; keep();
-      store.captureSync?.();
-      W.cxRome?.lookAt?.(unionBox([place, ...(shadow ? [{ x: place.x + shadow.x, y: place.y + shadow.y, w: shadow.w, h: shadow.h }] : [])]));
-      void ids;
-      return true;
+      shId = await reveal(shadow.src, { x: place.x + shadow.x, y: place.y + shadow.y, w: shadow.w, h: shadow.h }, 1200, { mode: 'ground', fx, fy: 0.3 }, () => { for (const i of oldShadow) remove(i); });
+      // the figure itself does not change: it is put back in front of its shadow
+      id = await reveal(out.src, place, 0, { mode: 'develop' });
+      lit?.gone(600);
+      try { const g = surf.addElement({ type: 'group', children: { [shId]: true, [id]: true }, title: new (W.cxDev?.Y)('') }); mine.add(g); } catch { /* two things */ }
+    } else {
+      id = await reveal(out.src, place, filmNext ? 1300 : 1100, how);
+      if (plan.op === 'hair') for (const m of plan.marks) remove(m.id);   // the sketch has become the hair
+      // a shadow it had stays with it
+      if (oldShadow.length) { try { surf.removeElement?.(oldGroup.id) ?? surf.deleteElement(oldGroup.id); } catch { /* kept */ } try { const g = surf.addElement({ type: 'group', children: Object.fromEntries([...oldShadow, id].map(i => [i, true])), title: new (W.cxDev?.Y)('') }); mine.add(g); } catch { /* apart */ } }
     }
+    remove(subject.id);
+    P.chain[id] = { from: subject.id, film: out.film ?? (film && !filmNext && plan.op === 'light' ? film : undefined), lit: plan.op === 'light' || info.lit, ...(plan.op === 'light' ? { lamp: plan.marks.map(m => m.id) } : (info as any).lamp ? { lamp: (info as any).lamp } : {}) } as Info;
+    delete P.chain[subject.id]; if (plan.tex) P.tex[plan.tex.id] = tex ?? 'other'; keep();
+    store.captureSync?.();
+    return true;
   }
   function say(text: string, fig: Box, u: number) {
     const Y = W.cxDev?.Y; if (!Y) return; const t = new Y(); t.insert(0, text);
@@ -531,7 +535,7 @@ export function mountChar(rootEl: any) {
       return false;
     });
   };
-  const eyesOf = async (id: string) => { const e = byId(id), r = e && (await readImage(e)); if (!r) return []; const b = boxOf(e), k = b.w / r.look.w; return r.look.eyes.map(q => ({ x: b.x + q.box.x * k, y: b.y + q.box.y * k, w: q.box.w * k, h: q.box.h * k })); };
+  const eyesOf = async (id: string) => { const e = byId(id), r = e && (await readImage(e)); if (!r) return []; const b = boxOf(e), k = b.w / r.look.w; return r.look.eyes.map((q: any) => ({ x: b.x + q.box.x * k, y: b.y + q.box.y * k, w: q.box.w * k, h: q.box.h * k })); };
   W.cxChar = { run, owns, claims, state: P, perform, planFor, eyesOf };
   return run;
 }
