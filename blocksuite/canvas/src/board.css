@@ -739,18 +739,18 @@ body:has(.cx-pend-dots.on) .cx-sense-think { display: none !important; }
 .cx-axes-range { width: 110px; height: 24px; border: 0; outline: none; background: transparent; font: 500 12px Inter, -apple-system, sans-serif; color: #1d1d1f; }
 
 /* an answer the width of the stretch it is about: folded to its name, opened by a click on it */
-.cx-axes-card { position: absolute; pointer-events: auto; cursor: pointer; box-sizing: border-box; padding: calc(var(--u,1) * 9px) calc(var(--u,1) * 12px);
-  background: #fff; border-radius: calc(var(--u,1) * 10px); box-shadow: 0 0 0 calc(var(--u,1) * .6px) rgba(0,0,0,.12), 0 calc(var(--u,1) * 3px) calc(var(--u,1) * 12px) rgba(0,0,0,.06);
-  font-family: Inter, -apple-system, sans-serif; color: #1d1d1f; transition: opacity .35s ease, transform .35s cubic-bezier(.2,.8,.2,1); transform-origin: 50% 0; }
-.cx-axes-card.enter { opacity: 0; transform: translateY(calc(var(--u,1) * 6px)) scale(.98); }
-.cx-axes-card-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; column-gap: .6em; row-gap: .1em; }
-.cx-axes-card-head b { font-weight: 600; line-height: 1.3; }
-.cx-axes-card-head span { color: #8e8e93; font-variant-numeric: tabular-nums; font-size: .92em; }
-.cx-axes-card-body { max-height: 0; opacity: 0; overflow: hidden; transition: max-height .36s cubic-bezier(.2,.8,.2,1), opacity .25s ease; }
-.cx-axes-card.open .cx-axes-card-body { max-height: 40em; opacity: 1; }
-.cx-axes-card-body p { margin: .45em 0 0; line-height: 1.4; }
-.cx-axes-card-body p.q { margin-top: .75em; font-weight: 500; }
-.cx-axes-card-body p.dot { color: #3a3a3c; }
-.cx-axes-card-body p.then { color: #3a3a3c; margin-top: .6em; }
-.cx-axes-card-body p.src { margin-top: .8em; color: #aeaeb2; font-style: italic; font-size: .88em; }
-.cx-axes-card:hover { box-shadow: 0 0 0 calc(var(--u,1) * .6px) rgba(0,0,0,.18), 0 calc(var(--u,1) * 4px) calc(var(--u,1) * 14px) rgba(0,0,0,.08); }
+.cx-axes-card { position: absolute; pointer-events: auto; cursor: pointer; box-sizing: border-box; padding: calc(var(--u,1) * 14px) calc(var(--u,1) * 16px);
+  background: #fff; border-radius: calc(var(--u,1) * 12px); box-shadow: 0 0 0 calc(var(--u,1) * .6px) rgba(0,0,0,.12), 0 calc(var(--u,1) * 3px) calc(var(--u,1) * 12px) rgba(0,0,0,.06);
+  font-family: Inter, -apple-system, "PingFang SC", sans-serif; color: #1d1d1f; transform-origin: 50% 0;
+  /* its own steady layer, so its words are drawn once and stay as drawn */
+  will-change: transform; transform: translateZ(0); backface-visibility: hidden; -webkit-font-smoothing: antialiased; contain: layout paint; transition: opacity .35s ease; }
+.cx-axes-card.enter { opacity: 0; }
+.cx-axes-card-head b { display: block; font-weight: 600; line-height: 1.3; }
+.cx-axes-card-body { display: none; margin-top: .7em; padding-top: .7em; border-top: calc(var(--u,1) * 1px) solid rgba(0,0,0,.07); }
+.cx-axes-card.open .cx-axes-card-body { display: block; }
+.cx-axes-card-body p { margin: 0; line-height: 1.4; color: #3a3a3c; }
+.cx-axes-card-body p + p { margin-top: .55em; }
+
+.cx-axes-card:focus { outline: calc(var(--u,1) * 1.5px) solid #0c8ce9; outline-offset: 0; }
+.cx-axes-card:focus:not(:focus-visible) { outline: calc(var(--u,1) * 1.5px) solid #0c8ce9; }
+.cx-axes-menu { z-index: 60; }

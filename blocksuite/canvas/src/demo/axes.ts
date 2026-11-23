@@ -40,7 +40,7 @@ type Axis = {
   of?: string;                 // a second axis: the first one it crosses
   step?: number;               // a time axis' tick step
 };
-type Card = { id: string; axis: string; from: number; to: number; title: string; lines: string[]; source: string; open: boolean; y: number; up: boolean };
+type Card = { parts?: string[]; id: string; axis: string; from: number; to: number; title: string; lines: string[]; source: string; open: boolean; y: number; up: boolean };
 type State = { posters: Record<string, string>; axes: Axis[]; values: Record<string, Record<string, number>>; labels: Record<string, string>; cards: Card[]; items: Record<string, string[]> };
 
 export function mountAxes(rootEl: any) {
@@ -112,19 +112,20 @@ export function mountAxes(rootEl: any) {
     document.body.append(b); bar = b; barFor = at;
     const place = () => { if (!barFor || !bar) return; const rr = rootEl.getBoundingClientRect(), [x, y] = gfx.viewport.toViewCoord(barFor.x + barFor.w / 2, barFor.y + barFor.h); const w = bar.offsetWidth; bar.style.left = `${Math.max(12, Math.min(innerWidth - w - 12, rr.left + x - w / 2))}px`; bar.style.top = `${Math.min(innerHeight - 50, rr.top + y + 36)}px`; barRaf = requestAnimationFrame(place); };
     place();
+    ms = ms || 9000;
     if (ms) setTimeout(() => { if (bar === b) { b.classList.add('out'); setTimeout(() => b.remove(), 300); bar = null; } }, ms);
     return b;
   }
   const hush = () => { if (bar) { const b = bar; b.classList.add('out'); setTimeout(() => b.remove(), 300); bar = null; } };
 
   // ── reading lines and their names ──
-  type Drawn = { el: any; a: Pt; b: Pt; len: number; dir: 'h' | 'v'; label: string; ends: [string, string]; labels: string[] };
+  type Drawn = { el: any; a: Pt; b: Pt; len: number; dir: 'h' | 'v'; label: string; ends: [string, string]; labels: string[]; ink: [any[], any[]] };
   /** a line drawn with the mouse (a connector) or a straight pen stroke, long enough to carry a scale */
   function asLine(e: any): Drawn | null {
     if (e.type !== 'connector' && e.type !== 'brush') return null;
     const p = ptsOf(e); if (p.length < 2) return null;
     let a = p[0], b = p[p.length - 1]; const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    if (e.type === 'brush') { const L = p.reduce((v, q, i) => (i ? v + Math.hypot(q[0] - p[i - 1][0], q[1] - p[i - 1][1]) : 0), 0); if (!L || len / L < 0.9) return null; }
+    if (e.type === 'brush') { const L = p.reduce((v, q, i) => (i ? v + Math.hypot(q[0] - p[i - 1][0], q[1] - p[i - 1][1]) : 0), 0); if (!L || len / L < 0.8) return null; }   // a line drawn by hand wavers a little
     if (len < 160) return null;
     const dx = Math.abs(b[0] - a[0]), dy = Math.abs(b[1] - a[1]), dir: 'h' | 'v' = dx >= dy ? 'h' : 'v';
     if (Math.min(dx, dy) / Math.max(dx, dy) > 0.36) return null;   // a slanted line is not an axis
@@ -144,7 +145,26 @@ export function mountAxes(rootEl: any) {
     if (sN) labels.push(sN.t.id); if (eN) labels.push(eN.t.id);
     for (const n of named) { const q = along(n.c); if (q.s > -reach && q.s < len + reach && q.d < reach && !labels.includes(n.t.id)) labels.push(n.t.id); }
     const label = own || labels.map(id => textOf(byId(id)).trim()).find(Boolean) || '';
-    return { el: e, a, b, len, dir, label, ends: [startName, endNameS], labels };
+    // names written by hand: pen strokes gathered at an end (read later, by Claude, from a picture of them)
+    const inkAt = (p: Pt, other: Pt) => els().filter(k => k !== e && k.type === 'brush' && !mine.has(k.id)).filter(k => { const kb = boxOf(k), c = mid(kb); return Math.max(kb.w, kb.h) < len * 0.35 && Math.hypot(c[0] - p[0], c[1] - p[1]) < R * 1.2 && Math.hypot(c[0] - p[0], c[1] - p[1]) < Math.hypot(c[0] - other[0], c[1] - other[1]); });
+    // (an arrowhead drawn on the end touches it; writing stands beside it)
+    const tip = Math.max(16, len * 0.02), touches = (k: any, p: Pt) => ptsOf(k).some(q => Math.hypot(q[0] - p[0], q[1] - p[1]) < tip);
+    const rawA = inkAt(a, b), rawB = inkAt(b, a);
+    const ink: [any[], any[]] = [sN ? [] : rawA.filter(k => !touches(k, a)), eN ? [] : rawB.filter(k => !touches(k, b))];
+    for (const k of [...rawA, ...rawB]) labels.push(k.id);
+    return { el: e, a, b, len, dir, label, ends: [startName, endNameS], labels, ink };
+  }
+  /** words written with the pen, read from a picture of the strokes ('' when they cannot be read) */
+  async function readInk(strokes: any[]): Promise<string> {
+    if (!strokes.length) return '';
+    try {
+      const b = unionBox(strokes.map(boxOf)), pad = 24, k = Math.min(4, 520 / Math.max(b.w, b.h, 1)), c = document.createElement('canvas'); c.width = Math.round((b.w + pad * 2) * k); c.height = Math.round((b.h + pad * 2) * k);
+      const x = c.getContext('2d')!; x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.strokeStyle = '#111'; x.lineWidth = Math.max(2.5, 3 * k); x.lineCap = 'round'; x.lineJoin = 'round';
+      for (const st of strokes) { const p = ptsOf(st); x.beginPath(); p.forEach((q, i) => { const X = (q[0] - b.x + pad) * k, Y = (q[1] - b.y + pad) * k; i ? x.lineTo(X, Y) : x.moveTo(X, Y); }); x.stroke(); }
+      const blob: Blob = await new Promise(ok => c.toBlob(v => ok(v!), 'image/png'));
+      const r = await ask('You read handwriting from a whiteboard. Answer with the written word or short phrase only, nothing else. Ignore arrowheads and stray marks. If nothing is written, answer with an empty line.', 'What is written here?', blob);
+      return r.trim().replace(/^["“']|["”'.]$/g, '').split('\n')[0].slice(0, 40);
+    } catch { return ''; }
   }
   const timeWord = /time|timeline|year|date|decade|era|history|chronolog|时间|年代|年份|历史/i;
 
@@ -189,7 +209,7 @@ export function mountAxes(rootEl: any) {
   async function drawAxis(ax: Axis, ticksSide: 1 | -1 = 1) {
     const u = unitOf(ax), made: string[] = [];
     // the user's own line stays, faint, under the clean one: what was read can be checked against what was drawn
-    for (const id of ax.user) { const e = byId(id); if (!e) continue; try { if (e.type === 'connector') surf.updateElement(id, { stroke: FAINT, strokeStyle: 'dash' }); else if (e.type === 'brush') surf.updateElement(id, { color: FAINT }); else if (isText(e) && e.type === 'text') surf.updateElement(id, { color: MUTED }); } catch { /* left as drawn */ } }
+    for (const id of ax.user) { const el = domOf(id); if (el) el.style.opacity = '0.35'; }
     const ext = ax.dir === 'h' ? [ax.a[0] - 30 * u, ax.b[0] + 46 * u] : [ax.a[1] + 30 * u, ax.b[1] - 46 * u];
     const A: Pt = ax.dir === 'h' ? [ext[0], ax.a[1]] : [ax.a[0], ext[0]], B: Pt = ax.dir === 'h' ? [ext[1], ax.a[1]] : [ax.a[0], ext[1]];
     // drawn out from its start, the ticks following
@@ -211,6 +231,10 @@ export function mountAxes(rootEl: any) {
       if (ax.dir === 'v') { if (p1) made.push(words(p1, B[0] + 10 * u, B[1] + 14 * u, 12 * u, { color: '#6e6e73', align: 'left' })); if (p0) made.push(words(p0, A[0] + 10 * u, A[1] - 14 * u, 12 * u, { color: '#6e6e73', align: 'left' })); }
       else { if (p0) made.push(words(p0, A[0], A[1] + 20 * u, 12 * u, { color: '#6e6e73', align: 'left' })); if (p1) made.push(words(p1, B[0], B[1] + 20 * u, 12 * u, { color: '#6e6e73', align: 'right' })); }
     }
+    // the axis' own name, where the user had written it
+    if (ax.kind === 'time' && ax.name && !/^time$/i.test(ax.name)) made.push(words(ax.name, B[0], B[1] - 18 * u, 12 * u, { color: '#6e6e73', align: 'right' }));
+    // the draft it was read from is cleared: the clean axis has taken its place
+    for (const id of ax.user) remove(id);
     ax.made = made; return ax;
   }
 
@@ -366,6 +390,7 @@ export function mountAxes(rootEl: any) {
     // the first is the top); failing that, the request itself names the scale
     const clean = (t: string) => t.replace(/[-\s]*led$/i, '').trim();
     let [lowName, highName] = d.ends.map(clean);   // bottom end, top end
+    if (d.ink[0].length || d.ink[1].length) { const [l2, h2] = await Promise.all([lowName ? '' : readInk(d.ink[0]), highName ? '' : readInk(d.ink[1])]); lowName = lowName || clean(l2); highName = highName || clean(h2); }
     if (!lowName && !highName) { const m = /([\w\u4e00-\u9fa5]+)\s*(?:vs\.?|↔|<->|→|和|与|到|\/|,|，)\s*([\w\u4e00-\u9fa5]+)/i.exec(words2.replace(/纵轴|横轴|axis|vertical|按照|排列|sort|by/gi, ' ')); if (m) { highName = m[1]; lowName = m[2]; } }
     const filmed = items.every(e => posterOf(e.id));
     if (!lowName && !highName && !filmed && !words2.trim()) return false;   // nothing says what the line measures
@@ -399,13 +424,13 @@ export function mountAxes(rootEl: any) {
     if (filmed) {
       // (written for the film: the answer about the war years, general knowledge)
       from = Math.max(from, 1937); to = Math.min(Math.max(to, 1952), 1954);
-      card = { from: 1937, to: 1952, title: 'World War II era', lines: ['Why so few posters?', '• Paper and ink were rationed', '• The Bauhaus closed in 1933; its teachers emigrated', '• Posters became state propaganda, rarely kept as design', '→ The grid returns as Swiss style in the 1950s'], source: 'general knowledge' };
+      card = { from: 1937, to: 1952, title: 'World War II era', lines: ['Paper and ink rationed', 'Bauhaus closed, designers left', 'Posters became propaganda'], source: '' };
       events = [{ name: 'WWII 1939–45', from: 1939, to: 1945 }, { name: 'WWI 1914–18', from: 1914, to: 1918, weak: true }];
     } else {
       const ctx = items.slice(0, 40).map(e => `${Math.round(vals.get(e.id) ?? 0)}: ${(textOf(e) || posterOf(e.id)?.style || 'a picture').slice(0, 80)}`).join('\n');
-      const sys = 'Answer a question asked about a stretch of a time axis on a whiteboard. JSON only: {"title":"short name of the period","from":year,"to":year,"lines":["at most five short lines"],"source":"general knowledge" or where it is from,"events":[{"name":"short","from":year,"to":year}]}. Never invent quotations.';
+      const sys = 'Answer a question asked about a stretch of a time axis on a whiteboard. JSON only: {"title":"name of the period, at most four words","from":year,"to":year,"lines":["at most three reasons, each at most five words"],"events":[{"name":"at most three words","from":year,"to":year}]}. At most three events. Never invent quotations. Answer in the language of the question.';
       try { const r = await ask(sys, `Axis "${first.name}", ${first.min}–${first.max}. The user circled ${from}–${to} (${inside.length} things there) and asked: "${question}". Things on the axis:\n${ctx}`); const j = JSON.parse(/\{[\s\S]*\}/.exec(r)?.[0] ?? '{}');
-        card = { from: +j.from || from, to: +j.to || to, title: j.title || `${from}–${to}`, lines: j.lines ?? [], source: j.source || 'general knowledge' }; events = (j.events ?? []).slice(0, 3);
+        card = { from: +j.from || from, to: +j.to || to, title: j.title || `${from}–${to}`, lines: (j.lines ?? []).slice(0, 3), source: '' }; events = (j.events ?? []).slice(0, 3);
       } catch { card = { from, to, title: `${from}–${to}`, lines: ['Claude could not be reached to answer this.'], source: '' }; }
     }
     stop();
@@ -414,16 +439,24 @@ export function mountAxes(rootEl: any) {
     // the card: its edges on the two years, standing where the ring was, tied to the axis by two fine lines
     const x0 = at(first, card.from)[0], x1 = at(first, card.to)[0], up = rb.y + rb.h / 2 < first.a[1];
     const y = up ? Math.min(rb.y + rb.h * 0.25, first.a[1] - 120 * u) : Math.max(rb.y + rb.h * 0.25, first.a[1] + 70 * u);
-    const c: Card = { id: 'c' + Math.random().toString(36).slice(2, 8), axis: first.id, ...card, open: false, y, up };
+    const c: Card = { parts: [], id: 'c' + Math.random().toString(36).slice(2, 8), axis: first.id, ...card, open: false, y, up };
     P.cards.push(c); keep();
     const ties = [x0, x1].map(x => line([x, up ? y + 34 * u : y], [x, first.a[1] + (up ? -2 : 2) * u], { color: MUTED, w: 0.8 * u, dash: true }));
-    (c as any).ties = ties;
+    c.parts = [...ties];
     renderCard(c, true);
     // the events, under the axis, from start to end
-    for (const ev of events) {
-      const a = at(first, ev.from)[0], b = at(first, ev.to)[0], yy = first.a[1] + (ev.weak ? 62 : 44) * u, col = ev.weak ? FAINT : MUTED;
-      line([a, yy], [b, yy], { color: col, w: 1.1 * u, arrows: 'both' });
-      words(ev.name, (a + b) / 2, yy + 13 * u, 11 * u, { color: ev.weak ? '#aeaeb2' : '#6e6e73' });
+    // each on its own level when they would run into one another: arrow and name together, the levels stepping down
+    const taken: { row: number; x0: number; x1: number }[] = [];
+    for (const ev of [...events].sort((p, q) => (p.weak ? 1 : 0) - (q.weak ? 1 : 0) || p.from - q.from)) {
+      const a = at(first, ev.from)[0], b = at(first, ev.to)[0], col = ev.weak ? FAINT : MUTED;
+      measure.font = `400 ${11 * u}px Inter, sans-serif`; const tw = measure.measureText(ev.name).width + 10 * u, cxm = (a + b) / 2, e0 = Math.min(a, cxm - tw / 2) - 8 * u, e1 = Math.max(b, cxm + tw / 2) + 8 * u;
+      let row = 0; while (taken.some(t => t.row === row && e0 < t.x1 && e1 > t.x0)) row++;
+      taken.push({ row, x0: e0, x1: e1 });
+      const yy = first.a[1] + (44 + row * 34) * u;
+      c.parts!.push(line([a, yy], [b, yy], { color: col, w: 1.1 * u, arrows: 'both' }));
+      c.parts!.push(words(ev.name, cxm, yy + 13 * u, 11 * u, { color: ev.weak ? '#aeaeb2' : '#6e6e73' }));
+      // a lower level is tied back to its years by fine dashed lines (these may cross what is above)
+      if (row > 0) { c.parts!.push(line([a, first.a[1] + 30 * u], [a, yy], { color: FAINT, w: 0.7 * u, dash: true }), line([b, first.a[1] + 30 * u], [b, yy], { color: FAINT, w: 0.7 * u, dash: true })); }
       await wait(160);
     }
     store.captureSync?.();
@@ -431,6 +464,11 @@ export function mountAxes(rootEl: any) {
     return true;
   }
   const cardEls = new Map<string, HTMLElement>();
+  function removeCard(c: Card) {
+    cardEls.get(c.id)?.remove(); cardEls.delete(c.id);
+    for (const i of c.parts ?? []) remove(i);
+    P.cards = P.cards.filter(k => k.id !== c.id); keep(); store.captureSync?.();
+  }
   function renderCard(c: Card, fresh = false) {
     const ax = P.axes.find(a => a.id === c.axis); const L = layer(); if (!ax || !L) return;
     const u = unitOf(ax), x0 = at(ax, c.from)[0], x1 = at(ax, c.to)[0];
@@ -438,16 +476,24 @@ export function mountAxes(rootEl: any) {
     if (!d) {
       d = document.createElement('div'); d.className = 'cx-axes-card'; cardEls.set(c.id, d); L.append(d);
       d.addEventListener('pointerdown', e => e.stopPropagation());
-      d.addEventListener('click', e => { e.stopPropagation(); c.open = !c.open; keep(); d!.classList.toggle('open', c.open); });
+      d.tabIndex = 0;
+      // a click opens or folds it and selects it (blue outline); Delete or Backspace, or right click → Delete, removes
+      // it with its ties and event marks
+      d.addEventListener('click', e => { e.stopPropagation(); c.open = !c.open; keep(); d!.classList.toggle('open', c.open); d!.focus(); try { gfx.selection.set({ elements: [] }); } catch { /* none */ } });
+      d.addEventListener('keydown', e => { if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); e.stopPropagation(); removeCard(c); } else if (e.key === 'Escape') d!.blur(); });
+      d.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); d!.focus();
+        document.querySelector('.cx-axes-menu')?.remove();
+        const m = document.createElement('div'); m.className = 'cx-spot-menu cx-axes-menu'; m.style.left = `${e.clientX}px`; m.style.top = `${e.clientY}px`;
+        const b = document.createElement('button'); b.className = 'cx-spot-item'; b.innerHTML = '<span>Delete</span><i>⌫</i>'; b.onclick = ev => { ev.stopPropagation(); m.remove(); removeCard(c); }; m.append(b); document.body.append(m);
+        const off = (ev: Event) => { if (!(ev.target as HTMLElement).closest?.('.cx-axes-menu')) { m.remove(); removeEventListener('pointerdown', off, true); } }; addEventListener('pointerdown', off, true); });
     }
     d.innerHTML = '';
     const head = document.createElement('div'); head.className = 'cx-axes-card-head';
-    head.innerHTML = '<b></b><span></span>'; (head.querySelector('b') as HTMLElement).textContent = c.title; (head.querySelector('span') as HTMLElement).textContent = `${c.from}–${c.to}`;
+    head.innerHTML = '<b></b>'; (head.querySelector('b') as HTMLElement).textContent = c.title;
     const body = document.createElement('div'); body.className = 'cx-axes-card-body';
-    for (const l of c.lines) { const p = document.createElement('p'); p.textContent = l; if (/^[•→]/.test(l)) p.className = l.startsWith('→') ? 'then' : 'dot'; else p.className = 'q'; body.append(p); }
-    if (c.source) { const s = document.createElement('p'); s.className = 'src'; s.textContent = c.source; body.append(s); }
+    for (const l of c.lines.filter(l2 => !/^why|\?$|^→/i.test(l2.trim())).slice(0, 3)) { const p = document.createElement('p'); p.textContent = l.replace(/^[•\-–]\s*/, ''); body.append(p); }
     d.append(head, body); d.classList.toggle('open', c.open);
-    const fs = Math.max(6, Math.min(12.5 * u, (x1 - x0) / 15)), uu = fs / 12.5;
+    const fs = Math.max(6, Math.min(12.5 * u, (x1 - x0) / 13)), uu = fs / 12.5;
     Object.assign(d.style, { left: `${x0}px`, top: `${c.y}px`, width: `${x1 - x0}px`, fontSize: `${fs}px`, '--u': String(uu) } as any);
     if (fresh) { d.classList.add('enter'); requestAnimationFrame(() => requestAnimationFrame(() => d!.classList.remove('enter'))); }
   }
@@ -489,7 +535,8 @@ export function mountAxes(rootEl: any) {
   }
 
   // ── a line across a sorted axis is read by itself, once it is named at its ends ──
-  let pointerDown = false, lastUp = 0; const seen = new Set<string>();
+  let pointerDown = false, lastUp = 0, lastKey = 0; const seen = new Set<string>();
+  addEventListener('keydown', () => { lastKey = Date.now(); }, true);
   addEventListener('pointerdown', () => { pointerDown = true; }, true);
   addEventListener('pointerup', () => { pointerDown = false; lastUp = Date.now(); }, true);
   let working = false;
@@ -502,8 +549,11 @@ export function mountAxes(rootEl: any) {
       const d = asLine(e); if (!d || d.dir !== 'v') continue;
       const top = Math.min(d.a[1], d.b[1]), bot = Math.max(d.a[1], d.b[1]), x = (d.a[0] + d.b[0]) / 2;
       if (!(top < first.a[1] && bot > first.a[1] && x > first.a[0] - 400 && x < first.b[0] + 400)) continue;
-      if (!d.ends[0] && !d.ends[1]) continue;   // named at its ends first: then it is clear what the two halves are
-      if (Date.now() - lastUp < 2600) return;   // a moment for the second name
+      // only when BOTH ends are named (typed or written by hand): one name alone may be half-way through writing.
+      // With one name or none, it waits to be asked.
+      const named2 = (i: 0 | 1) => !!d.ends[i] || d.ink[i].length > 0;
+      if (!named2(0) || !named2(1)) continue;
+      if (Date.now() - lastUp < (d.ink[0].length || d.ink[1].length ? 3200 : 2400) || Date.now() - lastKey < 2400) return;   // a moment after the last stroke or key
       seen.add(e.id); working = true;
       try { await secondAxis(d, first); } finally { working = false; }
       return;
