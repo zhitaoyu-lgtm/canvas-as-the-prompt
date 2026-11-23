@@ -53,7 +53,7 @@ export function mountAxes(rootEl: any) {
   const near = (p: Pt, b: Box, pad = 0) => p[0] > b.x - pad && p[0] < b.x + b.w + pad && p[1] > b.y - pad && p[1] < b.y + b.h + pad;
   const unionBox = (bs: Box[]): Box => { const x0 = Math.min(...bs.map(b => b.x)), y0 = Math.min(...bs.map(b => b.y)), x1 = Math.max(...bs.map(b => b.x + b.w)), y1 = Math.max(...bs.map(b => b.y + b.h)); return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }; };
   const deep = (m: any): string => { try { const own = m?.text?.toString?.() ?? m?.props?.text?.toString?.() ?? ''; return [own, ...((m?.children ?? []) as any[]).map(deep)].filter(Boolean).join(' '); } catch { return ''; } };
-  const textOf = (e: any): string => { if (e?.flavour === 'affine:note') return deep(e); try { const t = e.text ?? e.props?.text; if (!t) return ''; if (typeof t === 'string') return t; if (t.toString) return String(t.toString()); if (t.yText) return String(t.yText.toString()); } catch { /* none */ } return ''; };
+  const textOf = (e: any): string => { if (e?.flavour && e.flavour !== 'affine:image') { const t = deep(e).trim(); if (t) return t; } try { const t = e.text ?? e.props?.text; if (!t) return ''; if (typeof t === 'string') return t; if (t.toString) return String(t.toString()); if (t.yText) return String(t.yText.toString()); } catch { /* none */ } return ''; };
   const ptsOf = (e: any): Pt[] => {
     const b = boxOf(e);
     if (e.type === 'connector') { const p = (e.absolutePath ?? e.path ?? []) as any[]; if (p.length >= 2) return p.map((q: any) => [q[0] ?? q.x, q[1] ?? q.y] as Pt); return [[b.x, b.y], [b.x + b.w, b.y + b.h]]; }
@@ -67,6 +67,7 @@ export function mountAxes(rootEl: any) {
   const live = () => { P.axes = P.axes.filter(a => byId(a.id)); return P.axes; };
   const mine = new Set<string>();
   for (const a of P.axes) for (const i of a.made) mine.add(i);
+  for (const i of Object.values(P.labels)) mine.add(i);
 
   // ── the world layer (board units), shared with the other scenes ──
   const layer = () => document.querySelector('.cx-rome') as HTMLElement | null;
@@ -132,19 +133,18 @@ export function mountAxes(rootEl: any) {
     if (dir === 'v' && a[1] < b[1]) [a, b] = [b, a];
     // its names: the line's own label, words along it, words at its ends
     const own = textOf(e).trim(), reach = Math.max(70, len * 0.12);
-    const named = els().filter(t => isText(t) && textOf(t).trim()).map(t => ({ t, c: mid(boxOf(t)), s: textOf(t).trim() }));
+    const named = els().filter(t => isText(t) && !mine.has(t.id) && textOf(t).trim()).map(t => ({ t, c: mid(boxOf(t)), b: boxOf(t), s: textOf(t).trim() }));
     const along = (c: Pt) => { const ux = (b[0] - a[0]) / len, uy = (b[1] - a[1]) / len, rx = c[0] - a[0], ry = c[1] - a[1], s = rx * ux + ry * uy, d = Math.abs(rx * uy - ry * ux); return { s, d }; };
     const labels: string[] = [];
-    let startName = '', endName = '';
-    for (const n of named) {
-      const q = along(n.c);
-      if (q.s > -reach && q.s < len + reach && q.d < reach) {
-        labels.push(n.t.id);
-        if (q.s < len * 0.15) startName = startName || n.s; else if (q.s > len * 0.85) endName = endName || n.s;
-      }
-    }
+    // the words nearest each end name that end (anywhere round it, within about a fifth of the line)
+    const R = Math.max(110, len * 0.22), distTo = (n: { b: Box }, p: Pt) => Math.hypot(Math.max(n.b.x - p[0], 0, p[0] - n.b.x - n.b.w), Math.max(n.b.y - p[1], 0, p[1] - n.b.y - n.b.h));
+    const endName = (p: Pt, other: Pt) => named.filter(n => distTo(n, p) < R && distTo(n, p) < distTo(n, other)).sort((m, n) => distTo(m, p) - distTo(n, p))[0];
+    const sN = endName(a, b), eN = endName(b, a);
+    const startName = sN?.s ?? '', endNameS = eN?.s ?? '';
+    if (sN) labels.push(sN.t.id); if (eN) labels.push(eN.t.id);
+    for (const n of named) { const q = along(n.c); if (q.s > -reach && q.s < len + reach && q.d < reach && !labels.includes(n.t.id)) labels.push(n.t.id); }
     const label = own || labels.map(id => textOf(byId(id)).trim()).find(Boolean) || '';
-    return { el: e, a, b, len, dir, label, ends: [startName, endName], labels };
+    return { el: e, a, b, len, dir, label, ends: [startName, endNameS], labels };
   }
   const timeWord = /time|timeline|year|date|decade|era|history|chronolog|时间|年代|年份|历史/i;
 
@@ -208,7 +208,7 @@ export function mountAxes(rootEl: any) {
       // a scale between two poles: a mark in the middle, the poles named at the ends
       const m = at(ax, (ax.min + ax.max) / 2); made.push(line(ax.dir === 'v' ? [m[0] - 6 * u, m[1]] : [m[0], m[1] - 6 * u], ax.dir === 'v' ? [m[0] + 6 * u, m[1]] : [m[0], m[1] + 6 * u], { color: MUTED, w: u }));
       const [p0, p1] = ax.poles;
-      if (ax.dir === 'v') { if (p1) made.push(words(`${p1}-led`, B[0] + 10 * u, B[1] + 14 * u, 12 * u, { color: '#6e6e73', align: 'left' })); if (p0) made.push(words(`${p0}-led`, A[0] + 10 * u, A[1] - 14 * u, 12 * u, { color: '#6e6e73', align: 'left' })); }
+      if (ax.dir === 'v') { if (p1) made.push(words(p1, B[0] + 10 * u, B[1] + 14 * u, 12 * u, { color: '#6e6e73', align: 'left' })); if (p0) made.push(words(p0, A[0] + 10 * u, A[1] - 14 * u, 12 * u, { color: '#6e6e73', align: 'left' })); }
       else { if (p0) made.push(words(p0, A[0], A[1] + 20 * u, 12 * u, { color: '#6e6e73', align: 'left' })); if (p1) made.push(words(p1, B[0], B[1] + 20 * u, 12 * u, { color: '#6e6e73', align: 'right' })); }
     }
     ax.made = made; return ax;
@@ -317,7 +317,8 @@ export function mountAxes(rootEl: any) {
   async function sortOnto(d: Drawn, items: any[], words2: string) {
     const region = unionBox([...items.map(boxOf), boxOf(d.el)]);
     const stop = think([region.x + region.w + 8, region.y]);
-    const kind: 'time' | 'scale' = timeWord.test(d.label + ' ' + words2) ? 'time' : 'scale';
+    const dated = items.filter(e => posterOf(e.id) || /\b(1[5-9]\d\d|20\d\d)\b/.test(textOf(e))).length;
+    const kind: 'time' | 'scale' = timeWord.test(d.label + ' ' + words2) || (!d.ends[0] && !d.ends[1] && dated >= items.length * 0.6) ? 'time' : 'scale';
     let ax: Axis;
     if (kind === 'time') {
       const vals = await valuesFor(items, { kind, name: d.label || 'time', poles: ['', ''] }, 'x');
@@ -356,21 +357,28 @@ export function mountAxes(rootEl: any) {
   }
 
   // ── R5 · a line across the axis, named at its ends: a second dimension, no words needed ──
-  async function secondAxis(d: Drawn, first: Axis) {
+  async function secondAxis(d: Drawn, first: Axis, words2 = '') {
     const items = (P.items[first.id] ?? []).map(byId).filter(Boolean);
     if (!items.length) return false;
+    seen.add(d.el.id);
     const u = unitOf(first), x = (d.a[0] + d.b[0]) / 2;
-    const [lowName, highName] = d.ends;   // bottom end, top end
+    // its two ends: the words written there; failing that, two things named in the request ("A vs B", "A 和 B":
+    // the first is the top); failing that, the request itself names the scale
+    const clean = (t: string) => t.replace(/[-\s]*led$/i, '').trim();
+    let [lowName, highName] = d.ends.map(clean);   // bottom end, top end
+    if (!lowName && !highName) { const m = /([\w\u4e00-\u9fa5]+)\s*(?:vs\.?|↔|<->|→|和|与|到|\/|,|，)\s*([\w\u4e00-\u9fa5]+)/i.exec(words2.replace(/纵轴|横轴|axis|vertical|按照|排列|sort|by/gi, ' ')); if (m) { highName = m[1]; lowName = m[2]; } }
+    const filmed = items.every(e => posterOf(e.id));
+    if (!lowName && !highName && !filmed && !words2.trim()) return false;   // nothing says what the line measures
     const stop = think([x + 14 * u, Math.min(d.a[1], d.b[1])]);
     await wait(1200); stop();
     const top = Math.min(d.a[1], d.b[1]), bot = Math.max(d.a[1], d.b[1]);
-    const ax: Axis = { id: '', kind: 'scale', dir: 'v', a: [x, bot], b: [x, top], min: 0, max: 1, name: `${highName || 'up'}/${lowName || 'down'}`, poles: [lowName || 'down', highName || 'up'], user: [d.el.id, ...d.labels], made: [], of: first.id };
+    const ax: Axis = { id: '', kind: 'scale', dir: 'v', a: [x, bot], b: [x, top], min: 0, max: 1, name: lowName || highName ? `${highName || 'more'} / ${lowName || 'less'}` : (filmed ? 'type / image' : words2.trim()), poles: [lowName || (filmed ? 'image' : 'less'), highName || (filmed ? 'type' : 'more')], user: [d.el.id, ...d.labels], made: [], of: first.id };
     // the year labels go up to the first axis' far side, so the lower half is free for things
     await drawAxis(ax);
     P.axes.push(ax); keep();
     const placed = await layOut(first, ax, items);
     store.captureSync?.();
-    say(`No prompt · read as a 2nd axis: ${ax.poles[1]}-led ↑  ${ax.poles[0]}-led ↓`, placed, [{ label: 'Keep', dark: true, run: hush }], 0);
+    say(`${words2.trim() ? 'Read' : 'No prompt · read'} as a 2nd axis: ${ax.poles[1]} ↑  ${ax.poles[0]} ↓`, placed, [{ label: 'Keep', dark: true, run: hush }], 0);
     lookAt(placed);
     return true;
   }
@@ -463,13 +471,20 @@ export function mountAxes(rootEl: any) {
     if (ring && firstAx && /\?|why|what|how|when|为什么|什么|怎么/i.test(w)) {
       const rb = boxOf(ring); if (rb.x < firstAx.b[0] && rb.x + rb.w > firstAx.a[0] && Math.abs(mid(rb)[1] - firstAx.a[1]) < Math.max(rb.h, 600)) return explainStretch(ring, w, firstAx);
     }
-    // a named line and things to sort onto it
-    const lines = sel.map(asLine).filter(Boolean) as Drawn[];
-    const things = sel.filter(e => !lines.some(l => l.el === e || l.labels.includes(e.id)) && !mine.has(e.id) && e.type !== 'group' && e.flavour !== 'affine:frame' && e.type !== 'connector' && e.type !== 'brush' && (!isText(e) || textOf(e).trim().length > 2));
-    if (lines.length && things.length >= 2 && (/sort|order|arrange|place|put|lay|timeline|onto|along|axis|排|分类|整理|放/i.test(w) || !w)) {
-      const d = lines.sort((a, b) => b.len - a.len)[0];
-      if (d.dir === 'h') return sortOnto(d, things, w);
+    // lines the user drew (never the scene's own clean axes)
+    const lines = sel.filter(e => !mine.has(e.id)).map(asLine).filter(Boolean) as Drawn[];
+    const crosses = (l: Drawn, ax: Axis) => { const top = Math.min(l.a[1], l.b[1]), bot = Math.max(l.a[1], l.b[1]), x = (l.a[0] + l.b[0]) / 2; return l.dir === 'v' && top < ax.a[1] && bot > ax.a[1] && x > ax.a[0] - 600 && x < ax.b[0] + 600; };
+    // a line across an axis that is already sorted: a second dimension — whether it was selected, or the request
+    // speaks of an axis and such a line is on the board
+    if (firstAx && (P.items[firstAx.id] ?? []).length && !live().some(a => a.of === firstAx.id)) {
+      let cross = lines.find(l => crosses(l, firstAx));
+      if (!cross && /axis|vertical|dimension|纵轴|竖轴|y\s*轴|轴|维度/i.test(w)) cross = els().filter(e => !mine.has(e.id) && !firstAx.user.includes(e.id)).map(asLine).find(l => l && crosses(l, firstAx)) ?? undefined;
+      if (cross) return secondAxis(cross, firstAx, w);
     }
+    // a line and things to sort onto it
+    const things = sel.filter(e => !lines.some(l => l.el === e || l.labels.includes(e.id)) && !mine.has(e.id) && e.type !== 'group' && e.flavour !== 'affine:frame' && e.type !== 'connector' && e.type !== 'brush' && (!isText(e) || textOf(e).trim().length > 2));
+    const flat = lines.filter(l => l.dir === 'h').sort((a2, b2) => b2.len - a2.len)[0];
+    if (flat && things.length >= 2) return sortOnto(flat, things, w);
     return false;
   }
 
