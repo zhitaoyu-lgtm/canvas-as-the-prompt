@@ -20,6 +20,8 @@
 import POSTERS from '../assets/demo/posters/posters.json';
 import { ask } from '../ai/model';
 
+// (tests may stand in for Claude through window.__cxTestAsk; the app itself never sets it)
+const askM = (sys: string, user: string, pic?: Blob | Blob[] | null) => ((window as any).__cxTestAsk ? Promise.resolve((window as any).__cxTestAsk(sys, user)) : ask(sys, user, pic as any));
 type Box = { x: number; y: number; w: number; h: number };
 type Pt = [number, number];
 const W = window as any;
@@ -39,6 +41,7 @@ type Axis = {
   made: string[];              // what the scene drew for it
   of?: string;                 // a second axis: the first one it crosses
   step?: number;               // a time axis' tick step
+  poleIds?: [string, string];  // the words standing at its two ends (they can be edited: the axis is re-read from them)
 };
 type Card = { parts?: string[]; id: string; axis: string; from: number; to: number; title: string; lines: string[]; source: string; open: boolean; y: number; up: boolean };
 type State = { posters: Record<string, string>; axes: Axis[]; values: Record<string, Record<string, number>>; labels: Record<string, string>; cards: Card[]; items: Record<string, string[]> };
@@ -162,7 +165,7 @@ export function mountAxes(rootEl: any) {
       const x = c.getContext('2d')!; x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.strokeStyle = '#111'; x.lineWidth = Math.max(2.5, 3 * k); x.lineCap = 'round'; x.lineJoin = 'round';
       for (const st of strokes) { const p = ptsOf(st); x.beginPath(); p.forEach((q, i) => { const X = (q[0] - b.x + pad) * k, Y = (q[1] - b.y + pad) * k; i ? x.lineTo(X, Y) : x.moveTo(X, Y); }); x.stroke(); }
       const blob: Blob = await new Promise(ok => c.toBlob(v => ok(v!), 'image/png'));
-      const r = await ask('You read handwriting from a whiteboard. Answer with the written word or short phrase only, nothing else. Ignore arrowheads and stray marks. If nothing is written, answer with an empty line.', 'What is written here?', blob);
+      const r = await askM('You read handwriting from a whiteboard. Answer with the written word or short phrase only, nothing else. Ignore arrowheads and stray marks. If nothing is written, answer with an empty line.', 'What is written here?', blob);
       return r.trim().replace(/^["“']|["”'.]$/g, '').split('\n')[0].slice(0, 40);
     } catch { return ''; }
   }
@@ -170,27 +173,45 @@ export function mountAxes(rootEl: any) {
 
   // ── where a thing sits on an axis ──
   const posterOf = (id: string): Poster | undefined => { const k = P.posters[id]; return k ? PDATA.find(p => p.key === k) : undefined; };
+  /** What the axis measures, as a key: a thing's place is remembered per meaning, so a renamed axis is judged afresh. */
+  const meaning = (ax: { kind: 'time' | 'scale'; name: string; poles: [string, string] }) => (ax.kind === 'time' ? 'time' : `${ax.poles[0].toLowerCase()}→${ax.poles[1].toLowerCase()}`);
+  const isTypeImage = (ax: { poles: [string, string] }) => { const j = ax.poles.join(' ').toLowerCase(); return /type|text|letter|文字|字体/.test(j) && /image|picture|illustration|图/.test(j); };
+  /** a thing in words, for Claude: its own text, or what the scene knows of it */
+  const describe = (e: any) => { const p = posterOf(e.id); if (p) return `poster · ${p.style} · ${p.year}`; return (textOf(e) || e.props?.caption || '').replace(/\s+/g, ' ').slice(0, 160); };
+  /** pictures with no words go to Claude as one numbered sheet */
+  async function sheetOf(list: any[]): Promise<Blob | null> {
+    const pics = list.map((e, i) => ({ e, i })).filter(q => q.e.flavour === 'affine:image' && !describe(q.e)).slice(0, 30); if (!pics.length) return null;
+    try {
+      const cell = 150, cols = Math.min(6, pics.length), rowsN = Math.ceil(pics.length / cols), c = document.createElement('canvas'); c.width = cols * cell; c.height = rowsN * (cell + 22);
+      const x = c.getContext('2d')!; x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111'; x.font = '600 15px sans-serif';
+      for (let k = 0; k < pics.length; k++) { const blob = await store.blobSync.get(pics[k].e.props?.sourceId ?? pics[k].e.sourceId); if (!blob) continue; const bm = await createImageBitmap(blob), sc = Math.min((cell - 8) / bm.width, (cell - 8) / bm.height), cx = (k % cols) * cell, cy = Math.floor(k / cols) * (cell + 22);
+        x.drawImage(bm, cx + (cell - bm.width * sc) / 2, cy + 22 + (cell - bm.height * sc) / 2, bm.width * sc, bm.height * sc); x.fillText(`#${pics[k].i + 1}`, cx + 6, cy + 16); }
+      return await new Promise(ok => c.toBlob(v => ok(v), 'image/png'));
+    } catch { return null; }
+  }
+  let judgeFailed = false;   // Claude was needed and could not be reached, or did not answer for these
   async function valuesFor(items: any[], ax: { kind: 'time' | 'scale'; name: string; poles: [string, string] }, ord: 'x' | 'y'): Promise<Map<string, number>> {
-    const out = new Map<string, number>(), rest: any[] = [];
+    const out = new Map<string, number>(), rest: any[] = [], key = `${ord}:${meaning(ax)}`; judgeFailed = false;
+    const film = ax.kind === 'time' || isTypeImage(ax), typeHigh = /type|text|letter|文字|字体/i.test(ax.poles[1]);
     for (const e of items) {
       const p = posterOf(e.id);
-      if (p) { out.set(e.id, ax.kind === 'time' ? p.year : p.type); continue; }
-      const known = P.values[e.id]?.[`${ord}:${ax.name}`]; if (known !== undefined) { out.set(e.id, known); continue; }
-      const t = textOf(e) || (e.props?.caption ?? '');
-      const yr = ax.kind === 'time' ? /\b(1[5-9]\d\d|20\d\d)\b/.exec(t) : null;
+      // (written for the film: the posters' years, and how far each is type or image — only for those two questions)
+      if (p && film) { out.set(e.id, ax.kind === 'time' ? p.year : typeHigh ? p.type : 1 - p.type); continue; }
+      const known = P.values[e.id]?.[key]; if (known !== undefined) { out.set(e.id, known); continue; }
+      const yr = ax.kind === 'time' ? /\b(1[5-9]\d\d|20\d\d)\b/.exec(describe(e)) : null;
       if (yr) { out.set(e.id, +yr[1]); continue; }
       rest.push(e);
     }
     if (rest.length) {
-      // Claude places what the board cannot: each thing's words, the axis and its two ends
-      const list = rest.map((e, i) => `${i + 1}. ${(textOf(e) || e.props?.caption || '(a picture)').replace(/\s+/g, ' ').slice(0, 160)}`).join('\n');
-      const sys = 'You place things on an axis the user drew on a whiteboard. Answer with JSON only: {"values":[number,...]} in the order given.';
+      // Claude judges what the board cannot: each thing in words (or in a numbered sheet of pictures), the axis, its ends
+      const list = rest.map((e, i) => `${i + 1}. ${describe(e) || `(picture #${i + 1} in the sheet)`}`).join('\n');
+      const sys = 'You place things on an axis the user drew on a whiteboard. Use what you know about each thing. Answer with JSON only: {"values":[number,...]}, one number per thing, in the order given.';
       const user = ax.kind === 'time'
         ? `Axis: time ("${ax.name}"). For each thing give the year it belongs to (a number). Things:\n${list}`
-        : `Axis "${ax.name}" from "${ax.poles[0] || 'low'}" (0) to "${ax.poles[1] || 'high'}" (1). For each thing give where it sits, a number from 0 to 1. Things:\n${list}`;
-      try { const r = await ask(sys, user); const j = JSON.parse(/\{[\s\S]*\}/.exec(r)?.[0] ?? '{}'); (j.values ?? []).forEach((v: number, i: number) => { if (rest[i] && Number.isFinite(+v)) out.set(rest[i].id, +v); }); } catch { /* left where they are */ }
+        : `The axis runs from "${ax.poles[0] || 'low'}" (0) to "${ax.poles[1] || 'high'}" (1). For each thing give where it sits: a number from 0 to 1. If the two ends are categories (it either is or is not), answer 0 or 1; 0.5 only when it truly cannot be told. Things:\n${list}`;
+      try { const r = await askM(sys, user, await sheetOf(rest)); const j = JSON.parse(/\{[\s\S]*\}/.exec(r)?.[0] ?? '{}'); (j.values ?? []).forEach((v: number, i: number) => { if (rest[i] && Number.isFinite(+v)) out.set(rest[i].id, +v); }); if (!(j.values ?? []).length) judgeFailed = true; } catch { judgeFailed = true; }
     }
-    for (const [id, v] of out) { (P.values[id] ??= {})[`${ord}:${ax.name}`] = v; }
+    for (const [id, v] of out) { (P.values[id] ??= {})[key] = v; }
     keep();
     return out;
   }
@@ -227,15 +248,41 @@ export function mountAxes(rootEl: any) {
     } else {
       // a scale between two poles: a mark in the middle, the poles named at the ends
       const m = at(ax, (ax.min + ax.max) / 2); made.push(line(ax.dir === 'v' ? [m[0] - 6 * u, m[1]] : [m[0], m[1] - 6 * u], ax.dir === 'v' ? [m[0] + 6 * u, m[1]] : [m[0], m[1] + 6 * u], { color: MUTED, w: u }));
-      const [p0, p1] = ax.poles;
-      if (ax.dir === 'v') { if (p1) made.push(words(p1, B[0] + 10 * u, B[1] + 14 * u, 12 * u, { color: '#6e6e73', align: 'left' })); if (p0) made.push(words(p0, A[0] + 10 * u, A[1] - 14 * u, 12 * u, { color: '#6e6e73', align: 'left' })); }
-      else { if (p0) made.push(words(p0, A[0], A[1] + 20 * u, 12 * u, { color: '#6e6e73', align: 'left' })); if (p1) made.push(words(p1, B[0], B[1] + 20 * u, 12 * u, { color: '#6e6e73', align: 'right' })); }
     }
     // the axis' own name, where the user had written it
     if (ax.kind === 'time' && ax.name && !/^time$/i.test(ax.name)) made.push(words(ax.name, B[0], B[1] - 18 * u, 12 * u, { color: '#6e6e73', align: 'right' }));
     // the draft it was read from is cleared: the clean axis has taken its place
     for (const id of ax.user) remove(id);
-    ax.made = made; return ax;
+    ax.made = made; nameEnds(ax); return ax;
+  }
+
+  /** the two ends of the drawn axis line (start, end) */
+  const endsOf = (ax: Axis): [Pt, Pt] => { const u = unitOf(ax); return ax.dir === 'h' ? [[ax.a[0] - 30 * u, ax.a[1]], [ax.b[0] + 46 * u, ax.a[1]]] : [[ax.a[0], ax.a[1] + 30 * u], [ax.a[0], ax.b[1] - 46 * u]]; };
+  /** the names at a scale's two ends, written (again) from what the axis now means */
+  function nameEnds(ax: Axis) {
+    if (ax.kind !== 'scale') return;
+    for (const i of ax.poleIds ?? []) if (i) { remove(i); ax.made = ax.made.filter(m => m !== i); }
+    const u = unitOf(ax), [A, B] = endsOf(ax), [p0, p1] = ax.poles;
+    const ids: [string, string] = ax.dir === 'v'
+      ? [p0 ? words(p0, A[0] + 10 * u, A[1] - 14 * u, 12 * u, { color: '#6e6e73', align: 'left' }) : '', p1 ? words(p1, B[0] + 10 * u, B[1] + 14 * u, 12 * u, { color: '#6e6e73', align: 'left' }) : '']
+      : [p0 ? words(p0, A[0], A[1] + 20 * u, 12 * u, { color: '#6e6e73', align: 'left' }) : '', p1 ? words(p1, B[0], B[1] + 20 * u, 12 * u, { color: '#6e6e73', align: 'right' }) : ''];
+    ax.poleIds = ids; ax.made.push(...ids.filter(Boolean)); keep();
+  }
+  /** Read the axis' ends again from the board: its own end-words as they now read (the user may have rewritten them),
+   *  or new words the user put at an end. True when the meaning changed. */
+  function rereadEnds(ax: Axis): boolean {
+    if (ax.kind !== 'scale') return false;
+    const [A, B] = endsOf(ax), R = Math.max(120, Math.hypot(B[0] - A[0], B[1] - A[1]) * 0.2), before = meaning(ax);
+    const fresh = (p: Pt, other: Pt) => els().filter(t => isText(t) && !mine.has(t.id) && textOf(t).trim()).map(t => ({ t, d: Math.hypot(mid(boxOf(t))[0] - p[0], mid(boxOf(t))[1] - p[1]), o: Math.hypot(mid(boxOf(t))[0] - other[0], mid(boxOf(t))[1] - other[1]) })).filter(q => q.d < R && q.d < q.o).sort((m, n) => m.d - n.d)[0]?.t;
+    const next: [string, string] = [...ax.poles] as [string, string];
+    ([[A, B, 0], [B, A, 1]] as [Pt, Pt, 0 | 1][]).forEach(([p, o, i]) => {
+      const added = fresh(p, o), own = ax.poleIds?.[i] ? byId(ax.poleIds[i]) : null;
+      if (added) { next[i] = textOf(added).trim().replace(/[-\s]*led$/i, ''); remove(added.id); }
+      else if (own && textOf(own).trim()) next[i] = textOf(own).trim();
+    });
+    ax.poles = next; ax.name = `${next[1]} / ${next[0]}`;
+    const changed = meaning(ax) !== before; if (changed) nameEnds(ax); keep();
+    return changed;
   }
 
   // ── laying things out on the axes ──
@@ -289,7 +336,11 @@ export function mountAxes(rootEl: any) {
   async function layOut(first: Axis, second: Axis | null, items: any[]) {
     const u = unitOf(first), axisY = first.a[1];
     const xs = await valuesFor(items, first, 'x');
+    if (judgeFailed && xs.size < items.length * 0.5) { say(`Claude could not be reached to place these on “${first.name}” — nothing was moved`, { x: first.a[0], y: axisY, w: first.b[0] - first.a[0], h: 30 }, [], 6000); return null; }
     const ys = second ? await valuesFor(items, second, 'y') : null;
+    if (second && (judgeFailed || !ys || ys.size < items.length * 0.5)) { say(`Claude could not be reached to judge “${second.poles[1]} / ${second.poles[0]}” — nothing was moved`, { x: first.a[0], y: axisY, w: first.b[0] - first.a[0], h: 30 }, [], 6000); return null; }
+    // two kinds only (it is, or it is not): the rows nearest the axis fill first, on either side
+    const twoKinds = !!ys && new Set([...ys.values()].map(v => Math.round(v * 4) / 4)).size <= 3 && [...ys.values()].every(v => v < 0.2 || v > 0.8 || Math.abs(v - 0.5) < 0.05);
     // one height for all, small enough that a crowded decade stands in a few tidy rows
     const span = first.b[0] - first.a[0], perStep = span / Math.max(1, Math.min(14, (first.max - first.min) / (first.step ?? 10)));
     const H = Math.max(64 * u, Math.min(perStep * 0.62, 200 * u)), lab = 18 * u, gap = 10 * u, rowH = H + lab + gap;
@@ -297,7 +348,7 @@ export function mountAxes(rootEl: any) {
     const things = items.filter(e => xs.has(e.id)).map(e => {
       const b = boxOf(e), img = e.flavour === 'affine:image', k = img ? H / b.h : Math.min(1, H / Math.max(b.w, b.h)), w = b.w * k;
       let side: 1 | -1 = -1, row = 0;
-      if (second && ys) { const v = (ys.get(e.id) ?? 0.5) - (second.min + second.max) / 2, s2 = (second.max - second.min) || 1; side = v >= 0 ? -1 : 1; row = Math.min(maxRows - 1, Math.floor(Math.abs(v / s2) * 2 * maxRows)); }
+      if (second && ys) { const v = (ys.get(e.id) ?? 0.5) - (second.min + second.max) / 2, s2 = (second.max - second.min) || 1; side = v >= 0 ? -1 : 1; row = twoKinds ? 0 : Math.min(maxRows - 1, Math.floor(Math.abs(v / s2) * 2 * maxRows)); }
       return { id: e.id, x: at(first, xs.get(e.id)!)[0], w, h: b.h * k, row, side };
     });
     const spots = rows(things, axisY, rowH, gap, band, maxRows);
@@ -361,7 +412,7 @@ export function mountAxes(rootEl: any) {
     const b0 = unionBox([{ x: ax.a[0], y: ax.a[1], w: ax.b[0] - ax.a[0], h: 30 }]);
     say(readAs, b0, [{ label: 'Keep', dark: true, run: hush }, ...(ax.kind === 'time' ? [{ label: 'Adjust range', run: () => adjust(ax, items) }] : [])]);
     await wait(1300);
-    const placed = await layOut(ax, null, items);
+    const placed = await layOut(ax, null, items); if (!placed) return true;
     store.captureSync?.();
     say(`${items.length} ${items.every(e => posterOf(e.id)) ? 'posters' : 'things'} placed by ${ax.kind === 'time' ? 'year' : ax.name}`, placed, [{ label: 'Keep', dark: true, run: hush }, ...(ax.kind === 'time' ? [{ label: 'Adjust range', run: () => adjust(ax, items) }] : [])]);
     lookAt(placed);
@@ -401,11 +452,56 @@ export function mountAxes(rootEl: any) {
     // the year labels go up to the first axis' far side, so the lower half is free for things
     await drawAxis(ax);
     P.axes.push(ax); keep();
-    const placed = await layOut(first, ax, items);
+    const placed = await layOut(first, ax, items); if (!placed) return true;
     store.captureSync?.();
     say(`${words2.trim() ? 'Read' : 'No prompt · read'} as a 2nd axis: ${ax.poles[1]} ↑  ${ax.poles[0]} ↓`, placed, [{ label: 'Keep', dark: true, run: hush }], 0);
     lookAt(placed);
     return true;
+  }
+
+  // ── sorting again: the board is read as it now stands, then the request ──
+  // Order of evidence: (1) the words now standing at an axis' ends (rewritten, or new ones put there);
+  // (2) two things named in the request ("A and B", "A vs B", "A 和 B"); (3) Claude, asked what the request means given
+  // the axes on the board. Then every thing is judged afresh for the new meaning and moved.
+  async function resort(first: Axis, words2: string): Promise<boolean> {
+    const items = (P.items[first.id] ?? []).map(byId).filter(Boolean) as any[]; if (items.length < 2) return false;
+    let second = live().find(a => a.of === first.id) ?? null;
+    const u = unitOf(first), region = unionBox(items.map(boxOf)), stop = think([region.x + region.w + 8, region.y]);
+    const setEnds = (ax: Axis, low: string, high: string) => { ax.kind = 'scale'; ax.poles = [low, high]; ax.name = `${high} / ${low}`; nameEnds(ax); };
+    const makeSecond = async (low: string, high: string) => {
+      // no line was drawn for it: the scene draws the second axis itself, at the start of the first
+      const x = first.a[0] - 90 * u, H = 4 * (Math.max(64 * u, 120 * u) + 28 * u) + 120 * u;
+      const ax: Axis = { id: '', kind: 'scale', dir: 'v', a: [x, first.a[1] + H], b: [x, first.a[1] - H], min: 0, max: 1, name: `${high} / ${low}`, poles: [low, high], user: [], made: [], of: first.id };
+      await drawAxis(ax); P.axes.push(ax); keep(); return ax;
+    };
+    try {
+      let changed = (second ? rereadEnds(second) : false) || (first.kind === 'scale' ? rereadEnds(first) : false);
+      if (!changed && words2.trim()) {
+        const horiz = /横轴|x\s*轴|horizontal|x[- ]axis/i.test(words2);
+        const m = /([\w\u4e00-\u9fa5-]{2,})\s*(?:vs\.?|versus|↔|<->|and|or|和|与|跟|还是|\/|,|，|、)\s*([\w\u4e00-\u9fa5-]{2,})/i.exec(words2.replace(/按照?|根据|分类|排列|排序|重新|标准|新的|来|sort|classify|arrange|group|them|these|posters?|by|into|the|海报|把|帮我|请/gi, ' '));
+        // Claude reads the request against the axes on the board; if it cannot be reached, two things named in the
+        // request ("A 和 B", "A vs B") are taken as the two ends, the first one uppermost
+        const tidy = (t: string) => t.replace(/(来)?(分|排)$/, '').trim();
+        let plan: { target: 'x' | 'y'; kind: 'time' | 'scale'; low: string; high: string } | null = null;
+        try {
+          const state = `x axis: ${first.kind === 'time' ? `time, ${first.min}–${first.max}` : `scale "${first.poles[0]}" → "${first.poles[1]}"`}. y axis: ${second ? `scale, lower end "${second.poles[0]}", upper end "${second.poles[1]}"` : 'none yet'}.`;
+          const r = await askM('You read a request made on a whiteboard where things are already laid out on axes. JSON only: {"act":"sort"|"none","target":"x"|"y","kind":"time"|"scale","low":"…","high":"…"}. x is the horizontal axis; y the vertical one (for y, "high" is the upper end). Give the two ends as short labels in the user\'s language. If the request names no criteria of its own ("the new standard", "again"), repeat the labels now on the board. act is "none" when the request is not about sorting, classifying or arranging.', `${state}\nRequest: "${words2}"`);
+          const j = JSON.parse(/\{[\s\S]*\}/.exec(r)?.[0] ?? '{}'); if (j.act === 'none') return false;
+          if (j.low && j.high) plan = { target: j.target === 'x' ? 'x' : 'y', kind: j.kind === 'time' ? 'time' : 'scale', low: String(j.low), high: String(j.high) };
+        } catch { if (m) plan = { target: horiz ? 'x' : 'y', kind: 'scale', high: tidy(m[1]), low: tidy(m[2]) }; }
+        if (plan) {
+          if (plan.target === 'y') { if (second) setEnds(second, plan.low, plan.high); else second = await makeSecond(plan.low, plan.high); }
+          else if (plan.kind === 'scale') { for (const i of first.made) remove(i); first.kind = 'scale'; first.min = 0; first.max = 1; first.step = undefined; first.poles = [plan.low, plan.high]; first.name = `${plan.low} → ${plan.high}`; first.user = []; const oldId = first.id; await drawAxis(first); P.items[first.id] = P.items[oldId]; if (second) second.of = first.id; for (const c of P.cards) if (c.axis === oldId) c.axis = first.id; for (const i of Object.values(P.labels)) remove(i); P.labels = {}; keep(); }
+          changed = true;
+        }
+      }
+      stop();
+      const placed = await layOut(first, second, items); if (!placed) return true;
+      store.captureSync?.();
+      say(second ? `Sorted again · ${second.poles[1]} ↑  ${second.poles[0]} ↓` : `Sorted again by ${first.name}`, placed, [{ label: 'Keep', dark: true, run: hush }]);
+      lookAt(placed);
+      return true;
+    } finally { stop(); }
   }
 
   // ── R6–R8 · a ring round a stretch of the axis, and a question: a card as wide as the stretch ──
@@ -429,7 +525,7 @@ export function mountAxes(rootEl: any) {
     } else {
       const ctx = items.slice(0, 40).map(e => `${Math.round(vals.get(e.id) ?? 0)}: ${(textOf(e) || posterOf(e.id)?.style || 'a picture').slice(0, 80)}`).join('\n');
       const sys = 'Answer a question asked about a stretch of a time axis on a whiteboard. JSON only: {"title":"name of the period, at most four words","from":year,"to":year,"lines":["at most three reasons, each at most five words"],"events":[{"name":"at most three words","from":year,"to":year}]}. At most three events. Never invent quotations. Answer in the language of the question.';
-      try { const r = await ask(sys, `Axis "${first.name}", ${first.min}–${first.max}. The user circled ${from}–${to} (${inside.length} things there) and asked: "${question}". Things on the axis:\n${ctx}`); const j = JSON.parse(/\{[\s\S]*\}/.exec(r)?.[0] ?? '{}');
+      try { const r = await askM(sys, `Axis "${first.name}", ${first.min}–${first.max}. The user circled ${from}–${to} (${inside.length} things there) and asked: "${question}". Things on the axis:\n${ctx}`); const j = JSON.parse(/\{[\s\S]*\}/.exec(r)?.[0] ?? '{}');
         card = { from: +j.from || from, to: +j.to || to, title: j.title || `${from}–${to}`, lines: (j.lines ?? []).slice(0, 3), source: '' }; events = (j.events ?? []).slice(0, 3);
       } catch { card = { from, to, title: `${from}–${to}`, lines: ['Claude could not be reached to answer this.'], source: '' }; }
     }
@@ -527,6 +623,9 @@ export function mountAxes(rootEl: any) {
       if (!cross && /axis|vertical|dimension|纵轴|竖轴|y\s*轴|轴|维度/i.test(w)) cross = els().filter(e => !mine.has(e.id) && !firstAx.user.includes(e.id)).map(asLine).find(l => l && crosses(l, firstAx)) ?? undefined;
       if (cross) return secondAxis(cross, firstAx, w);
     }
+    // a request about things that already stand on an axis (no new line to sort onto): the board is read again
+    { const on = firstAx ? new Set(P.items[firstAx.id] ?? []) : new Set<string>(), hits = sel.filter(e => on.has(e.id)).length, newLine = lines.find(l => l.dir === 'h' && !firstAx?.user.includes(l.el.id));
+      if (firstAx && hits >= 2 && hits >= on.size * 0.3 && !newLine) return resort(firstAx, w); }
     // a line and things to sort onto it
     const things = sel.filter(e => !lines.some(l => l.el === e || l.labels.includes(e.id)) && !mine.has(e.id) && e.type !== 'group' && e.flavour !== 'affine:frame' && e.type !== 'connector' && e.type !== 'brush' && (!isText(e) || textOf(e).trim().length > 2));
     const flat = lines.filter(l => l.dir === 'h').sort((a2, b2) => b2.len - a2.len)[0];
@@ -543,6 +642,13 @@ export function mountAxes(rootEl: any) {
   setInterval(async () => {
     if (working || pointerDown || Date.now() - lastUp < 1600 || gfx.selection.editing) return;
     const first = live().find(a => !a.of && a.dir === 'h' && (P.items[a.id] ?? []).length); if (!first) return;
+    // the words at an axis' end were rewritten (or new ones put there): the standard changed, so it is sorted again,
+    // without being asked — once the writing has stopped
+    for (const ax of live().filter(a => a.kind === 'scale' && (a === first || a.of === first.id))) {
+      const now = (ax.poleIds ?? []).map(i => (i && byId(i) ? textOf(byId(i)).trim() : null));
+      const rewritten = now.some((t, i) => t !== null && t !== '' && t !== ax.poles[i]);
+      if (rewritten && Date.now() - lastKey > 2200 && Date.now() - lastUp > 1200) { working = true; try { await resort(first, ''); } finally { working = false; } return; }
+    }
     if (live().some(a => a.of === first.id)) return;
     for (const e of els()) {
       if (seen.has(e.id) || mine.has(e.id) || first.user.includes(e.id)) continue;
