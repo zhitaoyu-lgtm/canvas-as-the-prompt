@@ -25,7 +25,7 @@ type Pt = [number, number];
 const W = window as any;
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 const POSTER_SRC: Record<string, string> = Object.fromEntries(Object.entries((import.meta as any).glob('../assets/demo/posters/*.webp', { eager: true, import: 'default' })).map(([p, u]) => [p.split('/').pop()!.replace('.webp', ''), u as string]));
-type Poster = { key: string; style: string; year: number; type: number; w: number; h: number };
+type Poster = { key: string; style: string; year: number; type: number; w: number; h: number; pile: { x: number; y: number; w: number; h: number; rot: number } };
 const PDATA = POSTERS as Poster[];
 
 type Axis = {
@@ -215,26 +215,6 @@ export function mountAxes(rootEl: any) {
   }
 
   // ── laying things out on the axes ──
-  /** a pile with no overlaps: each thing as near its place as it can be, pushed away from the axis when taken */
-  function settle(things: { id: string; x: number; want: number; w: number; h: number; side: 1 | -1 }[], axisY: number, gap: number, band: [number, number], maxShift = Infinity) {
-    const placed: Box[] = [], out = new Map<string, Box>();
-    // nearest to the axis first, so the ones that matter most for reading the scale sit closest to it; a crowded
-    // spot spreads sideways a little before it piles up (the year under each one says where it truly belongs)
-    for (const t of [...things].sort((p, q) => Math.abs(p.want) - Math.abs(q.want) || p.x - q.x)) {
-      const base = t.side < 0 ? axisY - band[0] - t.h - t.want : axisY + band[1] + t.want;
-      let best: Box | null = null, bestCost = Infinity;
-      for (const off of [0, -0.55, 0.55, -1.1, 1.1, -1.65, 1.65]) {
-        if (Math.abs(off * (t.w + gap)) > maxShift) continue;   // never so far that it seems to belong elsewhere on the scale
-        const x = t.x + off * (t.w + gap);
-        const hit = (y2: number) => placed.some(b => x - t.w / 2 < b.x + b.w + gap && x + t.w / 2 + gap > b.x && y2 < b.y + b.h + gap && y2 + t.h + gap > b.y);
-        let y = base, tries = 0; while (hit(y) && tries++ < 200) y += t.side < 0 ? -(gap + 6) : gap + 6;
-        const cost = Math.abs(y - base) + Math.abs(off) * (t.w + gap) * 0.9;
-        if (cost < bestCost) { bestCost = cost; best = { x: x - t.w / 2, y, w: t.w, h: t.h }; }
-      }
-      placed.push(best!); out.set(t.id, best!);
-    }
-    return out;
-  }
   /** move things to their places: each fades where it was and fades in where it goes, one after another in order */
   async function moveAll(moves: { id: string; to: Box; label?: string; labelAt?: Pt; size?: number }[], order: (a: string) => number) {
     const sorted = [...moves].sort((p, q) => order(p.id) - order(q.id));
@@ -259,56 +239,77 @@ export function mountAxes(rootEl: any) {
     keep();
   }
 
+  /** neat rows along the axis: everything one height, standing in rows parallel to it, at most a few rows deep.
+   *  Each thing stands at its value; when its spot in a row is taken it goes to the next row out, and only when all
+   *  rows are taken there does it move sideways, as little as it can. */
+  function rows(things: { id: string; x: number; w: number; row: number; side: 1 | -1 }[], axisY: number, rowH: number, gap: number, band: [number, number], maxRows: number) {
+    const taken: { side: number; row: number; x0: number; x1: number }[] = [], out = new Map<string, { x: number; y: number; row: number }>();
+    const free = (side: number, row: number, x0: number, x1: number) => !taken.some(t => t.side === side && t.row === row && x0 < t.x1 + gap && x1 + gap > t.x0);
+    for (const t of [...things].sort((p, q) => p.row - q.row || p.x - q.x)) {
+      let pick: { row: number; x: number } | null = null;
+      // its own row, then the rows further out, then the rows nearer in
+      const order = [...Array(maxRows).keys()].map(r => (t.row + r) % maxRows);
+      for (const r of order) if (free(t.side, r, t.x - t.w / 2, t.x + t.w / 2)) { pick = { row: r, x: t.x }; break; }
+      if (!pick) {
+        let best = Infinity;
+        for (let r = 0; r < maxRows; r++) for (const dir of [1, -1]) for (let dx = 0; dx < 4000; dx += 4) {
+          const x = t.x + dir * dx; if (free(t.side, r, x - t.w / 2, x + t.w / 2)) { const cost = dx + Math.abs(r - t.row) * 10; if (cost < best) { best = cost; pick = { row: r, x }; } break; }
+        }
+      }
+      const p = pick!; taken.push({ side: t.side, row: p.row, x0: p.x - t.w / 2, x1: p.x + t.w / 2 });
+      const y = t.side < 0 ? axisY - band[0] - (p.row + 1) * rowH : axisY + band[1] + p.row * rowH;
+      out.set(t.id, { x: p.x, y, row: p.row });
+    }
+    return out;
+  }
   async function layOut(first: Axis, second: Axis | null, items: any[]) {
     const u = unitOf(first), axisY = first.a[1];
     const xs = await valuesFor(items, first, 'x');
     const ys = second ? await valuesFor(items, second, 'y') : null;
-    // the size things take on the axis: about a step of the scale tall, pictures keep their shape
+    // one height for all, small enough that a crowded decade stands in a few tidy rows
     const span = first.b[0] - first.a[0], perStep = span / Math.max(1, Math.min(14, (first.max - first.min) / (first.step ?? 10)));
-    const H = Math.max(80 * u, Math.min(perStep * 1.45, 260 * u));
-    const lab = 18 * u, gap = 8 * u, band: [number, number] = second ? [16 * u, 86 * u] : [16 * u, 40 * u];
+    const H = Math.max(64 * u, Math.min(perStep * 0.62, 200 * u)), lab = 18 * u, gap = 10 * u, rowH = H + lab + gap;
+    const band: [number, number] = second ? [14 * u, 86 * u] : [14 * u, 40 * u], maxRows = second ? 4 : 4;
     const things = items.filter(e => xs.has(e.id)).map(e => {
-      const b = boxOf(e), img = e.flavour === 'affine:image', k = img ? H / b.h : Math.min(1, (H * 1.1) / Math.max(b.w, b.h));
-      const w = b.w * k, h = b.h * k + lab, x = at(first, xs.get(e.id)!)[0];
-      let side: 1 | -1 = -1, want = 0;
-      if (second && ys) { const v = (ys.get(e.id) ?? 0.5) - (second.min + second.max) / 2, s = (second.max - second.min) || 1; side = v >= 0 ? -1 : 1; want = Math.abs(v / s) * 2 * H * 1.2; }
-      return { id: e.id, x, want, w, h, side, img };
+      const b = boxOf(e), img = e.flavour === 'affine:image', k = img ? H / b.h : Math.min(1, H / Math.max(b.w, b.h)), w = b.w * k;
+      let side: 1 | -1 = -1, row = 0;
+      if (second && ys) { const v = (ys.get(e.id) ?? 0.5) - (second.min + second.max) / 2, s2 = (second.max - second.min) || 1; side = v >= 0 ? -1 : 1; row = Math.min(maxRows - 1, Math.floor(Math.abs(v / s2) * 2 * maxRows)); }
+      return { id: e.id, x: at(first, xs.get(e.id)!)[0], w, h: b.h * k, row, side };
     });
-    const spots = settle(things, axisY, gap, band, perStep * 0.45);
-    const moves = things.map(t => { const b = spots.get(t.id)!, inner = { x: b.x, y: b.y, w: b.w, h: b.h - lab };
+    const spots = rows(things, axisY, rowH, gap, band, maxRows);
+    const boxes: Box[] = [];
+    const moves = things.map(t => { const s2 = spots.get(t.id)!, inner = { x: s2.x - t.w / 2, y: s2.y + (H - t.h), w: t.w, h: t.h };
+      boxes.push({ x: inner.x, y: s2.y, w: t.w, h: rowH });
       const yearOf = posterOf(t.id)?.year ?? Math.round(xs.get(t.id)!);
-      return { id: t.id, to: inner, label: first.kind === 'time' ? String(yearOf) : undefined, labelAt: [b.x + b.w / 2, inner.y + inner.h + lab / 2 + 1 * u] as Pt, size: 11 * u }; });
+      return { id: t.id, to: inner, label: first.kind === 'time' ? String(yearOf) : undefined, labelAt: [s2.x, s2.y + H + lab / 2 + 2 * u] as Pt, size: 11 * u }; });
     await moveAll(moves, id => xs.get(id) ?? 0);
     P.items[first.id] = items.map(e => e.id); keep();
-    return unionBox([...spots.values(), { x: first.a[0], y: axisY - 10, w: span, h: 20 }]);
+    return unionBox([...boxes, { x: first.a[0], y: axisY - 10, w: span, h: 20 }]);
   }
 
   // ── R0 · find pictures (the filmed posters) and pile them where asked ──
   async function gatherPosters(atPt: Pt) {
     const stop = think([atPt[0] + 12, atPt[1] - 12]);
-    await wait(1800 + Math.random() * 600);
-    // five sizes, a little turned, packed close round the spot asked at: one pile, not a grid
-    const tiers = [150, 175, 200, 230, 265], rnd = (i: number) => { const s = Math.sin(i * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); };
-    const order = PDATA.map((p, i) => ({ p, r: rnd(i) })).sort((a, b) => a.r - b.r).map(q => q.p);
-    const placed: Box[] = [], gap = 14, spots: { p: Poster; b: Box; rot: number }[] = [];
-    order.forEach((p, i) => {
-      const h = tiers[Math.floor(rnd(i + 7) * tiers.length)], w = (p.w / p.h) * h;
-      for (let k = 0; k < 4000; k++) {
-        const a = k * 0.37, r = 6 * Math.sqrt(k) * 3.2, x = atPt[0] + Math.cos(a) * r * 1.25 - w / 2, y = atPt[1] + Math.sin(a) * r - h / 2;
-        if (!placed.some(b => x < b.x + b.w + gap && x + w + gap > b.x && y < b.y + b.h + gap && y + h + gap > b.y)) { const b = { x, y, w, h }; placed.push(b); spots.push({ p, b, rot: (rnd(i + 3) - 0.5) * 7 }); break; }
-      }
-    });
+    // all the pictures are fetched first, so they arrive together; the pile is laid out as in the Figma storyboard
+    // (S3-R1): five sizes, each a degree or two off straight, packed into one loose block round the spot
+    const blobs = await Promise.all(PDATA.map(p => fetch(POSTER_SRC[p.key]).then(r => r.blob()).catch(() => null)));
+    await wait(1200 + Math.random() * 500);
+    const k = 3.4, xs = PDATA.map(p => p.pile.x), ys = PDATA.map(p => p.pile.y), xe = PDATA.map(p => p.pile.x + p.pile.w), ye = PDATA.map(p => p.pile.y + p.pile.h);
+    const cx = (Math.min(...xs) + Math.max(...xe)) / 2, cy = (Math.min(...ys) + Math.max(...ye)) / 2;
+    const spots = PDATA.map((p, i) => ({ p, blob: blobs[i], b: { x: atPt[0] + (p.pile.x - cx) * k, y: atPt[1] + (p.pile.y - cy) * k, w: p.pile.w * k, h: p.pile.h * k } as Box, rot: p.pile.rot })).filter(s2 => s2.blob);
     stop();
-    lookAt(unionBox(placed));
-    for (const s of spots) {
-      const blob = await (await fetch(POSTER_SRC[s.p.key])).blob(), sourceId = await store.blobSync.set(blob);
-      const id = store.addBlock('affine:image', { sourceId, xywh: `[${s.b.x},${s.b.y},${s.b.w},${s.b.h}]`, width: s.p.w, height: s.p.h, rotate: s.rot } as any, surf.id) as string;
-      P.posters[id] = s.p.key;
+    const all = unionBox(spots.map(s2 => s2.b)); lookAt(all);
+    const ids: string[] = [];
+    for (const s2 of spots) {
+      const sourceId = await store.blobSync.set(s2.blob!);
+      const id = store.addBlock('affine:image', { sourceId, xywh: `[${s2.b.x},${s2.b.y},${s2.b.w},${s2.b.h}]`, width: s2.p.w, height: s2.p.h, rotate: s2.rot } as any, surf.id) as string;
+      P.posters[id] = s2.p.key; ids.push(id);
       const el = domOf(id); if (el) el.style.opacity = '0';
-      void fadeEl(id, 0, 1, 420); await wait(38);
+      void fadeEl(id, 0, 1, 420); await wait(26);
     }
     keep(); store.captureSync?.();
-    say(`Added ${spots.length} posters from Pinterest`, unionBox(placed), [], 3600);
+    const yrs = spots.map(s2 => s2.p.year);
+    say(`${spots.length} posters added from Pinterest · ${Math.min(...yrs)} → ${Math.max(...yrs)}`, all, [], 3800);
     return true;
   }
 
@@ -451,7 +452,7 @@ export function mountAxes(rootEl: any) {
     const w = words2.trim();
     const sel = ids.map(byId).filter(Boolean) as any[];
     // pictures to be found, nowhere in particular selected: the filmed poster pile
-    if (!sel.length && /poster/i.test(w) && /find|get|gather|search|collect|show|lots|找|搜/i.test(w)) {
+    if (!sel.length && /poster|海报|招贴/i.test(w)) {
       const pt = W.cxAskAt as Pt | undefined, c: Pt = pt ?? [gfx.viewport.centerX, gfx.viewport.centerY];
       return gatherPosters(c);
     }
