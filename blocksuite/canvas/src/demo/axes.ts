@@ -227,16 +227,10 @@ export function mountAxes(rootEl: any) {
   }
   const unitOf = (ax: Axis) => Math.max(0.6, Math.hypot(ax.b[0] - ax.a[0], ax.b[1] - ax.a[1]) / 1300);
   const at = (ax: Axis, v: number): Pt => { const t = (v - ax.min) / (ax.max - ax.min || 1); return [ax.a[0] + (ax.b[0] - ax.a[0]) * t, ax.a[1] + (ax.b[1] - ax.a[1]) * t]; };
-  async function drawAxis(ax: Axis, ticksSide: 1 | -1 = 1) {
-    const u = unitOf(ax), made: string[] = [];
-    // the user's own line stays, faint, under the clean one: what was read can be checked against what was drawn
-    for (const id of ax.user) { const el = domOf(id); if (el) el.style.opacity = '0.35'; }
-    const ext = ax.dir === 'h' ? [ax.a[0] - 30 * u, ax.b[0] + 46 * u] : [ax.a[1] + 30 * u, ax.b[1] - 46 * u];
-    const A: Pt = ax.dir === 'h' ? [ext[0], ax.a[1]] : [ax.a[0], ext[0]], B: Pt = ax.dir === 'h' ? [ext[1], ax.a[1]] : [ax.a[0], ext[1]];
-    // drawn out from its start, the ticks following
-    const steps = 14; let last = '';
-    for (let k = 1; k <= steps; k++) { const t = k / steps, p: Pt = [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t]; if (last) remove(last); last = line(A, p, { color: INK, w: 1.6 * u, arrows: k === steps ? (ax.kind === 'time' ? 'end' : 'both') : 'none' }); await wait(22); }
-    ax.id = last; made.push(last);
+  /** the ticks and names that stand on an axis' line */
+  async function marks(ax: Axis, ticksSide: 1 | -1 = 1, slow = false) {
+    const u = unitOf(ax), made: string[] = [], [, B] = endsOf(ax);
+    const wait = (ms: number) => (slow ? new Promise<void>(r => setTimeout(r, ms)) : Promise.resolve());
     if (ax.kind === 'time') {
       const step = ax.step ?? (niceStep(ax.max - ax.min) < 10 ? niceStep(ax.max - ax.min) : 10), n = Math.round((ax.max - ax.min) / step);
       for (let v = ax.min; v <= ax.max + 1e-6; v += step) {
@@ -251,6 +245,36 @@ export function mountAxes(rootEl: any) {
     }
     // the axis' own name, where the user had written it
     if (ax.kind === 'time' && ax.name && !/^time$/i.test(ax.name)) made.push(words(ax.name, B[0], B[1] - 18 * u, 12 * u, { color: '#6e6e73', align: 'right' }));
+    return made;
+  }
+  /** The axis is where its line now is on the board, not where it was drawn: the user may have moved it or made it
+   *  larger since. Its line is read again; if it changed, its ticks and names are put back onto it. */
+  async function sync(ax: Axis) {
+    const e = byId(ax.id); if (!e) return false;
+    const p = ptsOf(e); if (p.length < 2) return false;
+    const xs = p.map(q => q[0]), ys = p.map(q => q[1]);
+    const L = ax.dir === 'h' ? Math.max(...xs) - Math.min(...xs) : Math.max(...ys) - Math.min(...ys); if (L < 60) return false;
+    const u = L / (1300 + 76) >= 0.6 ? L / (1300 + 76) : 0.6;
+    let a: Pt, b: Pt;
+    if (ax.dir === 'h') { const y = (ys[0] + ys[ys.length - 1]) / 2; a = [Math.min(...xs) + 30 * u, y]; b = [Math.max(...xs) - 46 * u, y]; }
+    else { const x = (xs[0] + xs[xs.length - 1]) / 2; a = [x, Math.max(...ys) - 30 * u]; b = [x, Math.min(...ys) + 46 * u]; }
+    const moved = Math.hypot(a[0] - ax.a[0], a[1] - ax.a[1]) + Math.hypot(b[0] - ax.b[0], b[1] - ax.b[1]);
+    if (moved < 3) return false;
+    for (const i of ax.made) if (i !== ax.id) remove(i);
+    ax.a = a; ax.b = b; ax.poleIds = undefined;
+    ax.made = [ax.id, ...(await marks(ax, 1))]; nameEnds(ax); keep();
+    return true;
+  }
+  async function drawAxis(ax: Axis, ticksSide: 1 | -1 = 1) {
+    const u = unitOf(ax), made: string[] = [];
+    // the user's own line stays, faint, under the clean one: what was read can be checked against what was drawn
+    for (const id of ax.user) { const el = domOf(id); if (el) el.style.opacity = '0.35'; }
+    const ext = ax.dir === 'h' ? [ax.a[0] - 30 * u, ax.b[0] + 46 * u] : [ax.a[1] + 30 * u, ax.b[1] - 46 * u];
+    const A: Pt = ax.dir === 'h' ? [ext[0], ax.a[1]] : [ax.a[0], ext[0]], B: Pt = ax.dir === 'h' ? [ext[1], ax.a[1]] : [ax.a[0], ext[1]];
+    // drawn out from its start, the ticks following
+    const steps = 14; let last = '';
+    for (let k = 1; k <= steps; k++) { const t = k / steps, p: Pt = [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t]; if (last) remove(last); last = line(A, p, { color: INK, w: 1.6 * u, arrows: k === steps ? (ax.kind === 'time' ? 'end' : 'both') : 'none' }); await wait(22); }
+    ax.id = last; made.push(last, ...(await marks(ax, ticksSide, true)));
     // the draft it was read from is cleared: the clean axis has taken its place
     for (const id of ax.user) remove(id);
     ax.made = made; nameEnds(ax); return ax;
@@ -334,6 +358,7 @@ export function mountAxes(rootEl: any) {
     return out;
   }
   async function layOut(first: Axis, second: Axis | null, items: any[]) {
+    await sync(first); if (second) await sync(second);
     const u = unitOf(first), axisY = first.a[1];
     const xs = await valuesFor(items, first, 'x');
     if (judgeFailed && xs.size < items.length * 0.5) { say(`Claude could not be reached to place these on “${first.name}” — nothing was moved`, { x: first.a[0], y: axisY, w: first.b[0] - first.a[0], h: 30 }, [], 6000); return null; }
@@ -629,6 +654,7 @@ export function mountAxes(rootEl: any) {
     if (!sel.length) return false;
     // a ring round a stretch of an axis, and a question
     const ring = sel.find(isRing);
+    for (const a of [...live()]) await sync(a);
     const firstAx = live().find(a => !a.of && a.dir === 'h');
     if (ring && firstAx && /\?|why|what|how|when|为什么|什么|怎么/i.test(w)) {
       const rb = boxOf(ring); if (rb.x < firstAx.b[0] && rb.x + rb.w > firstAx.a[0] && Math.abs(mid(rb)[1] - firstAx.a[1]) < Math.max(rb.h, 600)) return explainStretch(ring, w, firstAx);
