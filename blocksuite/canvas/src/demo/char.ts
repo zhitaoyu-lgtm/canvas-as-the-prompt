@@ -14,9 +14,9 @@
 // Which step runs is read from what was drawn and where; words are only needed where the drawing alone could mean
 // several things (an apple near the figure; the first lamp).
 
-import s1Src from '../assets/demo/char/s1.png';
-import s2Src from '../assets/demo/char/s2.png';
-import s3Src from '../assets/demo/char/s3.png';
+import s1Raw from '../assets/demo/char/s1.svg?raw';
+import s2Raw from '../assets/demo/char/s2.svg?raw';
+import s3Raw from '../assets/demo/char/s3.svg?raw';
 import s4Src from '../assets/demo/char/s4.webp';
 import s5Src from '../assets/demo/char/s5.webp';
 import sh6Src from '../assets/demo/char/shadow6.webp';
@@ -29,6 +29,9 @@ type Pt = [number, number];
 type Op = 'look' | 'hair' | 'material' | 'eyes' | 'light';
 const W = window as any;
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
+// the flat steps are vector pictures (sharp at any size); the fleece steps are photographs
+const svgUrl = (raw: string) => 'data:image/svg+xml;base64,' + btoa(raw);
+const s1Src = svgUrl(s1Raw), s2Src = svgUrl(s2Raw), s3Src = svgUrl(s3Raw);
 const FILM = [s1Src, s1Src, s2Src, s3Src, s4Src, s5Src];   // index = step (1..5)
 const FRAME = { w: 448, h: 460 };
 // where the figure sits in each filmed frame (frame units): every step shares the Figma frame, so frames line up
@@ -45,7 +48,7 @@ function canvasOf(w: number, h: number) { const c = document.createElement('canv
 
 /** a picture, read: where the figure is (against a clear or plain ground), its eyes (light shapes inside it), its colour */
 function read(img: HTMLImageElement | HTMLCanvasElement, max = 900): Look {
-  const iw = (img as any).naturalWidth ?? img.width, ih = (img as any).naturalHeight ?? img.height, k = Math.min(1, max / Math.max(iw, ih));
+  const iw = (img as any).naturalWidth ?? img.width, ih = (img as any).naturalHeight ?? img.height, k = Math.min(iw < 600 ? 2 : 1, max / Math.max(iw, ih));
   const w = Math.round(iw * k), h = Math.round(ih * k), cv = canvasOf(w, h), x = cv.getContext('2d', { willReadFrequently: true })!;
   x.drawImage(img, 0, 0, w, h);
   const d = x.getImageData(0, 0, w, h).data, n = w * h, mask = new Uint8Array(n);
@@ -270,7 +273,7 @@ export function mountChar(rootEl: any) {
   function subjectNear(at: Box): any | null {
     const c = mid(at), list = images().filter(i => !P.tex[i.id]);
     const d = (i: any) => { const b = boxOf(i); const dx = Math.max(b.x - c[0], 0, c[0] - b.x - b.w), dy = Math.max(b.y - c[1], 0, c[1] - b.y - b.h); return Math.hypot(dx, dy) / Math.max(1, Math.min(b.w, b.h)); };
-    const ranked = list.map(i => ({ i, d: d(i) - (chainOf(i.id) ? 0.6 : 0) })).filter(q => q.d < 1.6).sort((p, q) => p.d - q.d);
+    const ranked = list.map(i => ({ i, d: d(i) - (chainOf(i.id) ? 0.6 : 0) })).filter(q => q.d < 1.1).sort((p, q) => p.d - q.d);
     return ranked[0]?.i ?? null;
   }
   const unionBox = (bs: Box[]): Box => { const x0 = Math.min(...bs.map(b => b.x)), y0 = Math.min(...bs.map(b => b.y)), x1 = Math.max(...bs.map(b => b.x + b.w)), y1 = Math.max(...bs.map(b => b.y + b.h)); return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }; };
@@ -310,10 +313,13 @@ export function mountChar(rootEl: any) {
     const subject = pointed[0]?.i ?? subjectNear(all); if (!subject) return null;
     const r = await readImage(subject); if (!r) return null;
     const fig = figureBox(subject, r.look);
-    // hair: a line that stays over the head (most of it within the figure's width, around its top)
-    const over = marks.filter(m => { const b = boxOf(m), p = ptsOf(m); if (Math.max(b.w, b.h) < fig.w * 0.3 || !p.length) return false;
-      const inn = p.filter(q => q[0] > fig.x - fig.w * 0.12 && q[0] < fig.x + fig.w * 1.12 && q[1] > fig.y - fig.h * 0.7 && q[1] < fig.y + fig.h * 0.45).length;
-      return inn / p.length > 0.85 && b.y < fig.y + fig.h * 0.2; });
+    // hair: pen lines drawn around the head — over its top and, if they like, down its sides. Together they span
+    // most of the head's width, sit centred on it and reach above it; a lamp's lines come from one side instead
+    const around = marks.filter(m => { if (m.type !== 'brush' && m.type !== 'highlighter') return false; const b = boxOf(m);
+      return b.x > fig.x - fig.w * 0.6 && b.x + b.w < fig.x + fig.w * 1.6 && b.y > fig.y - fig.h * 1.1 && b.y + b.h < fig.y + fig.h * 1.05; });
+    const over = (() => { if (!around.length) return [];
+      const u2 = unionBox(around.map(boxOf)), cover = (Math.min(u2.x + u2.w, fig.x + fig.w) - Math.max(u2.x, fig.x)) / fig.w;
+      return cover > 0.55 && Math.abs(u2.x + u2.w / 2 - (fig.x + fig.w / 2)) < fig.w * 0.3 && u2.y < fig.y + fig.h * 0.12 ? around : []; })();
     const outside = marks.filter(m => { const b = boxOf(m); return !(b.x < fig.x + fig.w && b.x + b.w > fig.x && b.y < fig.y + fig.h && b.y + b.h > fig.y); });
     const lightWords = /light|lamp|torch|flashlight|shadow|影|光|灯|手电/i.test(words), lookWords = /look|gaze|stare|watch|toward|看|望|盯|注视/i.test(words), hairWords = /hair|头发|发/i.test(words);
     // a lamp: marks outside the figure, above its ground, the far ends giving where the light is
@@ -346,11 +352,36 @@ export function mountChar(rootEl: any) {
     const [head, b64] = src.split(','); const bin = atob(b64), buf = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
     return new Blob([buf], { type: /data:([^;]+)/.exec(head)?.[1] ?? 'image/png' });
   };
-  type Reveal = { mode: 'develop' | 'radial' | 'rise' | 'ground'; fx?: number; fy?: number };
+  type Reveal = { mode: 'develop' | 'radial' | 'rise' | 'ground' | 'generate'; fx?: number; fy?: number };
   /** a new picture on the board, shown the way it came about: developed (a new look), spreading from where the
    *  arrow touched (a material), growing up from the head (hair), or spreading along the ground (a shadow) */
   async function reveal(src: string | HTMLCanvasElement, b: Box, ms = 1100, how: Reveal = { mode: 'develop' }, midway?: () => void): Promise<string> {
     const blob = await blobFrom(src), url = URL.createObjectURL(blob), im = await imageOf(url);
+    if (how.mode === 'generate') {
+      // the new picture forms over the old one the way a generated image does: coarse and soft first, then finer
+      // and sharper until it is the picture itself
+      const k = Math.min(2, 900 / Math.max(b.w, b.h)), cv = document.createElement('canvas'); cv.width = Math.round(b.w * k); cv.height = Math.round(b.h * k);
+      cv.className = 'cx-char-gen'; Object.assign(cv.style, { left: `${b.x}px`, top: `${b.y}px`, width: `${b.w}px`, height: `${b.h}px` }); layer()?.append(cv);
+      const x = cv.getContext('2d')!, small = document.createElement('canvas'), sx = small.getContext('2d')!, t0 = performance.now();
+      await new Promise<void>(done => {
+        const frame = (now: number) => {
+          const t = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - t, 2.2);
+          const res = Math.max(4, Math.round(Math.pow(2, 2 + e * 8.5)));   // 4px wide → full size
+          small.width = Math.min(cv.width, res); small.height = Math.max(1, Math.round(small.width * cv.height / cv.width));
+          sx.clearRect(0, 0, small.width, small.height); sx.drawImage(im, 0, 0, small.width, small.height);
+          x.clearRect(0, 0, cv.width, cv.height); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+          x.filter = `blur(${((1 - e) * 10 * k).toFixed(1)}px)`; x.globalAlpha = Math.min(1, t * 2.2);
+          x.drawImage(small, 0, 0, cv.width, cv.height); x.filter = 'none'; x.globalAlpha = 1;
+          if (t < 1) requestAnimationFrame(frame); else done();
+        };
+        requestAnimationFrame(frame);
+      });
+      if (midway) midway();
+      const sourceId = await store.blobSync.set(blob);
+      const id = store.addBlock('affine:image', { sourceId, xywh: `[${b.x},${b.y},${b.w},${b.h}]`, width: im.naturalWidth, height: im.naturalHeight } as any, surf.id) as string;
+      mine.add(id); setTimeout(() => cv.remove(), 450);
+      return id;
+    }
     const ov = document.createElement('img'); ov.src = url; ov.className = `cx-char-dev ${how.mode}`;
     const fx = `${((how.fx ?? 0.5) * 100).toFixed(1)}%`, fy = `${((how.fy ?? 0.5) * 100).toFixed(1)}%`;
     Object.assign(ov.style, { left: `${b.x}px`, top: `${b.y}px`, width: `${b.w}px`, height: `${b.h}px`, transitionDuration: `${ms}ms`, transformOrigin: `${fx} ${fy}` });
@@ -425,6 +456,8 @@ export function mountChar(rootEl: any) {
     const info: Info = chainOf(subject.id) ?? await (async () => { const n = await filmStageOf(subject); return n ? { film: n } : {}; })();
     const sb = boxOf(subject), fig = figureBox(subject, r.look), u = sb.w / FRAME.w;
     const marksBox = plan.marks.length ? unionBox(plan.marks.map(boxOf)) : fig;
+    // the view goes to where the change will happen first, so the whole of it is seen
+    W.cxRome?.lookAt?.(unionBox([fig, ...(plan.tex ? [boxOf(plan.tex)] : []), ...(plan.light ? [{ x: plan.light[0], y: plan.light[1], w: 1, h: 1 }] : []), ...(plan.op === 'look' && plan.to ? [{ x: plan.to[0], y: plan.to[1], w: 1, h: 1 }] : [])]));
     const stop = think([marksBox.x - 22 * u, marksBox.y], u);
     const t0 = Date.now();
     // the filmed figure, at the step this act belongs to: the drawn picture
@@ -452,12 +485,11 @@ export function mountChar(rootEl: any) {
       else if (plan.op === 'eyes' && plan.tex) { const t = (await readImage(plan.tex))?.img; if (t) { const c = eyesIn(a, t); if (c) out = { src: c, w: sb.w, h: sb.h }; } }
       else if (plan.op === 'light') { const s = castShadow(a, toPic(subject, a, plan.light!)); out = { src: img.src, w: sb.w, h: sb.h }; shadow = { src: s.cv, x: s.x * k, y: s.y * k, w: s.cv.width * k, h: s.cv.height * k }; }
     }
-    const left = Math.max(0, (filmNext || shadow && film ? 1500 : 900) - (Date.now() - t0)); await wait(left); stop();
+    const left = Math.max(0, (filmNext || shadow && film ? 2000 + Math.random() * 900 : 1100) - (Date.now() - t0)); await wait(left); stop();
     if (!out) { say(plan.op === 'look' || plan.op === 'eyes' ? 'I could not find the eyes in this picture.' : 'Nothing to change here.', fig, u); return true; }
     // the change happens in place: the figure stays where it is and becomes the next picture
     const dx = (out as any).dx ?? 0, dy = (out as any).dy ?? 0;
     const place: Box = film ? { x: frameLeft, y: frameTop, w: out.w, h: out.h } : { x: sb.x - dx, y: sb.y - dy, w: out.w, h: out.h };
-    W.cxRome?.lookAt?.(unionBox([fig, ...(plan.tex ? [boxOf(plan.tex)] : []), ...(plan.light ? [{ x: plan.light[0], y: plan.light[1], w: 1, h: 1 }] : []), ...(plan.op === 'look' && plan.to ? [{ x: plan.to[0], y: plan.to[1], w: 1, h: 1 }] : [])]));
     await wait(450);
     const remove = (id: string) => { try { const m = store.getBlock(id)?.model; if (m) { store.deleteBlock(m); return; } } catch { /* not a block */ } try { surf.deleteElement(id); } catch { /* gone */ } };
     // what was understood, shown on the figure first: where it looks, what flows in, where the light comes from
@@ -473,7 +505,7 @@ export function mountChar(rootEl: any) {
     const oldGroup = subject.group, oldShadow = oldGroup ? [...(oldGroup.childIds ?? Object.keys(oldGroup.children?.toJSON?.() ?? {}))].filter((i: string) => i !== subject.id) : [];
     const oldLamp = plan.op === 'light' ? (info as any).lamp as string[] | undefined : undefined;
     const rel = (p: Pt | null): Reveal => (p ? { mode: 'radial', fx: Math.min(1, Math.max(0, (p[0] - place.x) / place.w)), fy: Math.min(1, Math.max(0, (p[1] - place.y) / place.h)) } : { mode: 'develop' });
-    const how: Reveal = plan.op === 'hair' ? { mode: 'rise' } : plan.tex ? rel(touched) : { mode: 'develop' };
+    const how: Reveal = plan.op === 'hair' ? { mode: 'rise' } : plan.tex ? rel(touched) : plan.op === 'look' ? { mode: 'generate' } : { mode: 'develop' };
     let id: string, shId: string | undefined;
     if (shadow) {
       for (const m of oldLamp ?? []) remove(m);
@@ -486,7 +518,7 @@ export function mountChar(rootEl: any) {
       lit?.gone(600);
       try { const g = surf.addElement({ type: 'group', children: { [shId]: true, [id]: true }, title: new (W.cxDev?.Y)('') }); mine.add(g); } catch { /* two things */ }
     } else {
-      id = await reveal(out.src, place, filmNext ? 1300 : 1100, how);
+      id = await reveal(out.src, place, how.mode === 'generate' ? 1900 : filmNext ? 1300 : 1100, how);
       // a shadow it had stays with it
       if (oldShadow.length) { try { surf.removeElement?.(oldGroup.id) ?? surf.deleteElement(oldGroup.id); } catch { /* kept */ } try { const g = surf.addElement({ type: 'group', children: Object.fromEntries([...oldShadow, id].map(i => [i, true])), title: new (W.cxDev?.Y)('') }); mine.add(g); } catch { /* apart */ } }
     }
@@ -517,9 +549,11 @@ export function mountChar(rootEl: any) {
   addEventListener('pointerup', ev => { pointerDown = false; lastUp = Date.now(); if ((ev.target as HTMLElement)?.closest?.('.cx-dock, .cx-ai-layer')) lastUp = 0; }, true);
   setInterval(async () => {
     if (busy || pointerDown || !lastUp || Date.now() - lastUp < 1300 || gfx.selection.editing) return;
-    const marks = els().filter(fresh); if (!marks.length) return;
-    const sig = marks.map(m => m.id).join(',') + ':' + els().length; if (sig === offered) return; offered = sig;
+    const marks = els().filter(fresh).filter(m => { const b = boxOf(m); return Math.max(b.w, b.h) > 8; }); if (!marks.length) return;   // a stray dot is nothing
+    const sig = marks.map(m => m.id).join(','); if (sig === offered) return; offered = sig;   // once per set of marks
     const plan = await planFor('');
+    // a drawing of several strokes (hair, a lamp) gets a longer pause before it is taken as finished
+    if (plan && (plan.op === 'hair' || plan.op === 'light') && (pointerDown || Date.now() - lastUp < 2200)) { offered = ''; return; }
     if (plan && (plan.op === 'material' || plan.op === 'eyes' || plan.op === 'hair' || plan.op === 'light') && (chainOf(plan.subject.id) || plan.op === 'material' || plan.op === 'eyes' || await isFilmStart(plan.subject))) {
       busy = true; try { await perform(plan); } finally { busy = false; }
       return;
@@ -527,7 +561,7 @@ export function mountChar(rootEl: any) {
     // marks beside a figure of this scene that need a word: the prompt opens on them
     const all = unionBox(marks.map(boxOf)), s = subjectNear(all);
     if (s && (chainOf(s.id) || await isFilmStart(s))) {
-      try { gfx.tool.setTool('default'); } catch { /* stays */ }
+      dispatchEvent(new Event('cx-tool-select'));
       gfx.selection.set({ elements: marks.map(m => m.id), editing: false });
       setTimeout(() => dispatchEvent(new Event('cx-ai-open')), 200);
     }

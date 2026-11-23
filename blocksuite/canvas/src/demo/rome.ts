@@ -606,7 +606,7 @@ export function mountRome(rootEl: any) {
       if (pointerDown || S.busy || gfx.selection.editing) return;
       const step = next(); if (!step || !step.select) return;
       const sig = step.select + ':' + els().length; if (sig === offered) return; offered = sig;   // once per mark (again after a scribble is added)
-      try { gfx.tool.setTool('default'); } catch { /* stays on the pen */ }
+      dispatchEvent(new Event('cx-tool-select'));
       gfx.selection.set({ elements: [step.select], editing: false });
       setTimeout(() => dispatchEvent(new Event('cx-ai-open')), 220);
     }, 420);

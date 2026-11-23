@@ -327,6 +327,8 @@ export async function mountToolbar(rootEl: any) {
   }
 
   function done() { placing = null; mode = 'select'; openTray(null); setTool('default'); paint(); }
+  // other parts of the app (the filmed scenes) hand the pointer back to selecting through this
+  addEventListener('cx-tool-select', () => done());
 
   function dataUrlFile(url: string, name: string) {
     const [head, b64] = url.split(',');
