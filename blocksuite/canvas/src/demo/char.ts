@@ -39,7 +39,8 @@ const FRAME = { w: 448, h: 460 };
 const BODY = [[94, 140, 260.5, 235.5], [94, 140, 260.5, 235.5], [94, 140, 260.5, 235.5], [37, 73, 374, 313], [17.5, 53, 412, 341.5], [17.5, 53, 412, 341.5]];                           // every filmed step is a picture of this shape
 // the filmed shadows, in the frame's units, against the frame's top-left
 // (rendered bounds of the Figma shadows against their frames: the shadow starts under the figure, so they touch)
-const SHADOW = { right: { src: sh6Src, x: 85.9, y: 274.5, w: 725.6, h: 123.3 }, left: { src: sh7Src, x: -418.5, y: 274.5, w: 744.3, h: 123.3 } };
+// (shortened in Figma to about the figure's own length, as a light at roughly 45° would cast it)
+const SHADOW = { right: { src: sh6Src, x: 69.84, y: 274.5, w: 633.19, h: 123.32 }, left: { src: sh7Src, x: -291.78, y: 274.5, w: 639.16, h: 123.32 } };
 
 // ── looking at pictures ──────────────────────────────────────────────────────────────────────────────────────────
 type Look = { w: number; h: number; cv: HTMLCanvasElement; mask: Uint8Array; box: Box; eyes: { mask: Uint8Array; box: Box; cx: number; cy: number }[]; body: [number, number, number] };
@@ -479,18 +480,7 @@ export function mountChar(rootEl: any) {
     const k = 0.18; ov.style.transform = `translate(${to[0] - from.x - (from.w * k) / 2}px, ${to[1] - from.y - (from.h * k) / 2}px) scale(${k})`; ov.style.opacity = '0.2';
     await wait(ms); ov.remove();
   }
-  /** the lamp's light, a soft wedge from the lamp across the figure, shown while its shadow is cast */
-  function beam(light: Pt, fig: Box) {
-    const far = light[0] < fig.x + fig.w / 2 ? fig.x + fig.w * 1.6 : fig.x - fig.w * 0.6;
-    const top: Pt = [far, fig.y - fig.h * 0.1], bot: Pt = [far, fig.y + fig.h * 1.05];
-    const s2 = sheet(unionBox([{ x: light[0], y: light[1], w: 1, h: 1 }, { x: top[0], y: top[1], w: 1, h: 1 }, { x: bot[0], y: bot[1], w: 1, h: 1 }]));
-    const g = document.createElementNS(svgNS, 'linearGradient'), id2 = `cxb${Math.random().toString(36).slice(2)}`; g.setAttribute('id', id2); g.setAttribute('gradientUnits', 'userSpaceOnUse');
-    g.setAttribute('x1', String(light[0])); g.setAttribute('y1', String(light[1])); g.setAttribute('x2', String(far)); g.setAttribute('y2', String((top[1] + bot[1]) / 2));
-    g.innerHTML = '<stop offset="0" stop-color="#ffe9a8" stop-opacity=".6"/><stop offset=".55" stop-color="#fff3cf" stop-opacity=".22"/><stop offset="1" stop-color="#fff8e6" stop-opacity="0"/>';
-    const poly = document.createElementNS(svgNS, 'polygon'); poly.setAttribute('points', [light, top, bot].map(q => q.join(',')).join(' ')); poly.setAttribute('fill', `url(#${id2})`);
-    s2.sv.append(g, poly); s2.sv.classList.add('cx-char-beam'); void s2.sv.getBoundingClientRect(); s2.sv.classList.add('on');
-    return s2;
-  }
+
   /** hand-drawn marks fade out, then go */
   async function fadeAway(ids: string[]) {
     const items = ids.map(byId).filter(Boolean).map((e: any) => ({ e, key: e.type === 'connector' || e.type === 'shape' ? 'stroke' : 'color', c0: String((e.type === 'connector' || e.type === 'shape' ? e.stroke : e.color) ?? '#1d1d1f') }));
@@ -568,8 +558,7 @@ export function mountChar(rootEl: any) {
       const s2 = await drawLine([sb.x + e[0] * k, sb.y + e[1] * k], plan.to, u, 650, true, '#8e8e93'); await wait(200); s2.gone();
     }
     if (plan.tex && touched) { await carry(URL.createObjectURL((await blobOfImage(plan.tex)) ?? new Blob()), boxOf(plan.tex), touched, 750); }
-    let lit: ReturnType<typeof beam> | null = null;
-    if (plan.op === 'light' && plan.light) { lit = beam(plan.light, fig); await wait(450); }
+    // (no drawn light beam: the shadow alone shows where the light comes from)
     // the old shadow and the old lamp go when a new lamp lights the figure
     const oldGroup = subject.group, oldShadow = oldGroup ? [...(oldGroup.childIds ?? Object.keys(oldGroup.children?.toJSON?.() ?? {}))].filter((i: string) => i !== subject.id) : [];
     const oldLamp = plan.op === 'light' ? (info as any).lamp as string[] | undefined : undefined;
@@ -586,7 +575,7 @@ export function mountChar(rootEl: any) {
       P.shadow[shId] = subject.id;
       // under the figure, which itself is not touched
       try { const sm = store.getBlock(shId)?.model, fm = store.getBlock(subject.id)?.model; if (sm && fm) store.transact(() => { sm.index = gfx.layer.getReorderedIndex(sm, 'back'); }); } catch { /* order as added */ }
-      lit?.gone(600);
+
       try { const g = surf.addElement({ type: 'group', children: { [shId]: true, [subject.id]: true }, title: new (W.cxDev?.Y)('') }); mine.add(g); } catch { /* two things */ }
       void fadeAway(roundMarks());
       P.chain[subject.id] = { ...info, lit: true, lamp: plan.marks.map(m => m.id) }; keep();
