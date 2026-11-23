@@ -170,6 +170,20 @@ export function mountRome(rootEl: any) {
   for (const k of ['map', 'aerial', 'plan', 'section', 'detail']) Object.defineProperty(S, k, { enumerable: true, get: () => { const id = P[k]; if (id && !gfx.getElementById(id)) { P[k] = undefined; keep(); } return P[k]; }, set: v => { P[k] = v; keep(); } });
   Object.defineProperty(S, 'u', { enumerable: true, get: () => P.u || 1, set: v => { P.u = v; keep(); } });
   let clearDrop: (() => void) | null = null;
+  // Which of the film's pictures a picture is, is read from the picture itself (its content), not from memory of
+  // having made it: a photo or a drawing that is on the board — made in an earlier session, copied, pasted — can be
+  // worked on from any step.
+  type Role = 'aerial' | 'photo' | 'plan' | 'section' | 'detail';
+  const ROLE: Record<string, Role> = { ...(P.src ?? {}) };
+  const roleOf = (e: any): Role | null => (e && e.flavour === 'affine:image' ? ROLE[e.sourceId ?? e.props?.sourceId ?? e.sourceId$?.value] ?? (e.id === P.aerial ? 'aerial' : e.id === P.plan ? 'plan' : e.id === P.section ? 'section' : e.id === P.detail ? 'detail' : null) : null);
+  const learnRoles = async () => {
+    for (const [k, role] of [['aerial', 'aerial'], ['photo2', 'photo'], ['photo3', 'photo'], ['plan', 'plan'], ['section', 'section'], ['detail', 'detail']] as [keyof typeof PIC, Role][]) {
+      if (Object.values(ROLE).filter(r => r === role).length >= (role === 'photo' ? 2 : 1)) continue;
+      try { ROLE[await store.blobSync.set(await blobOf(PIC[k].src))] = role; } catch { /* known once it is made */ }
+    }
+    P.src = ROLE; keep();
+  };
+  setTimeout(() => void learnRoles(), 2500);
   // Only what is drawn from now on can start a step. Whatever was on the board when it opened (an old loop from
   // last week, a line under someone's notes) is theirs and stays out of the film.
   const old = new Set<string>(); let oldTaken = false;
@@ -178,11 +192,12 @@ export function mountRome(rootEl: any) {
   const spent = (id: string) => S.used.has(id) || old.has(id);
   const scenePics = () => [S.aerial ? S.map : undefined, S.aerial, S.plan, S.section, S.detail].filter(Boolean) as string[];   // the map is free again once its photos are gone
   /** the newest unused ring: on the given picture, or (with none given) on a picture that is not yet part of the film */
-  const latestRing = (onId?: string): Ring | null => { for (const e of [...els()].reverse()) { if (spent(e.id)) continue; const r = ringOf(e); if (r && (onId ? r.host.id === onId : !scenePics().includes(r.host.id))) return r; } return null; };
+  const latestRing = (on?: Role): Ring | null => { for (const e of [...els()].reverse()) { if (spent(e.id)) continue; const r = ringOf(e); if (r && (on ? roleOf(r.host) === on : !roleOf(r.host) && !scenePics().includes(r.host.id))) return r; } return null; };
   /** a straight line that crosses the plan from side to side (the cut) */
-  const cutLine = (): { el: any; a: Pt; b: Pt } | null => {
-    const plan = byId(S.plan); if (!plan) return null; const pb = boxOf(plan);
-    for (const e of [...els()].reverse()) { if (spent(e.id)) continue; const s = straight(e); if (!s) continue; const [a, b] = s, m: Pt = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; if (inside(m, { x: pb.x + pb.w * 0.15, y: pb.y + pb.h * 0.15, w: pb.w * 0.7, h: pb.h * 0.7 }) && Math.hypot(b[0] - a[0], b[1] - a[1]) > Math.min(pb.w, pb.h) * 0.55) return { el: e, a, b }; }
+  const cutLine = (): { el: any; a: Pt; b: Pt; plan: any } | null => {
+    const plans = images().filter(i => roleOf(i) === 'plan'); if (!plans.length) return null;
+    for (const e of [...els()].reverse()) { if (spent(e.id)) continue; const s = straight(e); if (!s) continue; const [a, b] = s, m: Pt = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      for (const plan of plans) { const pb = boxOf(plan); if (inside(m, { x: pb.x + pb.w * 0.15, y: pb.y + pb.h * 0.15, w: pb.w * 0.7, h: pb.h * 0.7 }) && Math.hypot(b[0] - a[0], b[1] - a[1]) > Math.min(pb.w, pb.h) * 0.55) return { el: e, a, b, plan }; } }
     return null;
   };
 
@@ -192,6 +207,7 @@ export function mountRome(rootEl: any) {
   const shown = async (id?: string) => { const t0 = Date.now(); while (Date.now() - t0 < 3000) { const im = id ? (document.querySelector(`[data-block-id="${id}"] img`) as HTMLImageElement | null) : null; if (im?.complete && im.naturalWidth) break; await wait(50); } await wait(120); };
   async function picture(p: { src: string; name: string }, b: Box): Promise<string | undefined> {
     const blob = await blobOf(p.src), sourceId = await store.blobSync.set(blob);
+    { const k = (Object.keys(PIC) as (keyof typeof PIC)[]).find(q => PIC[q] === p); if (k) { ROLE[sourceId] = k === 'photo2' || k === 'photo3' ? 'photo' : (k as Role); P.src = ROLE; keep(); } }
     const im = new Image(); im.src = p.src; await im.decode().catch(() => {});
     // made in its place and at its size: nothing to jump from
     const id = store.addBlock('affine:image', { sourceId, xywh: `[${b.x},${b.y},${b.w},${b.h}]`, width: im.naturalWidth || Math.round(b.w), height: im.naturalHeight || Math.round(b.h) } as any, surf.id);
@@ -467,7 +483,10 @@ export function mountRome(rootEl: any) {
     tidyRing(ring, scribbles);
     // as wide as the building is in the photo, and straight below it
     const bx0 = hb.x + hb.w * EXT.aerial.x0, bx1 = hb.x + hb.w * EXT.aerial.x1, w = (bx1 - bx0) / (EXT.plan.x1 - EXT.plan.x0), h = w / PIC.plan.ratio;
-    const b: Box = { x: bx0 - w * EXT.plan.x0, y: hb.y + hb.h + 64 * u, w, h };
+    S.aerial = ring.host.id;
+    let b: Box = { x: bx0 - w * EXT.plan.x0, y: hb.y + hb.h + 64 * u, w, h };
+    // a drawing already stands there (asked for again): the new one goes below it
+    { const pics = images().map(boxOf); for (let i = 0; i < 80 && pics.some(o => b.x < o.x + o.w && b.x + b.w > o.x && b.y < o.y + o.h + 40 * u && b.y + b.h > o.y - 40 * u); i++) b = { ...b, y: b.y + 40 * u }; }
     lookAt({ x: b.x - 40 * u, y: b.y - 30 * u, w: b.w + 270 * u, h: b.h + 60 * u });
     S.plan = await draw(PIC.plan, b, 'plan', 5000); const l = label(PIC.plan.label, b.x, b.y - 5 * u, 11.5 * u);
     // two dashed lines carry the building's ends down from the photo to the drawing
@@ -475,8 +494,10 @@ export function mountRome(rootEl: any) {
     await annotate(S.plan, b, NOTES.plan, u, [l]); void g; store.captureSync?.();
   }
   // ── 5 · a line across the plan → the section, set under the plan it is cut from ──
-  async function section(cut: { el: any; a: Pt; b: Pt } | null) {
-    const pb = boxOf(byId(S.plan)), u = S.u; if (cut) S.used.add(cut.el.id);
+  async function section(cut: { el: any; a: Pt; b: Pt; plan?: any } | null) {
+    if (cut?.plan) S.plan = cut.plan.id; else if (!S.plan) S.plan = images().filter(i => roleOf(i) === 'plan').pop()?.id;
+    // the scale is the drawing's own: a plan reached directly (not by way of the photo) is measured from itself
+    const pb = boxOf(byId(S.plan)), u = (S.u = pb.w / 1.0133 / 410); if (cut) S.used.add(cut.el.id);
     const stop = think(cut ? [Math.min(cut.a[0], cut.b[0]) - 22 * u, Math.min(cut.a[1], cut.b[1]) - 10 * u] : [pb.x - 22 * u, pb.y], u); await wait(1500); stop();
     tidyMeasures();
     // their rough line becomes the cut A–B: dashed, level, a little past the building at both ends
@@ -492,14 +513,16 @@ export function mountRome(rootEl: any) {
   }
   // ── 6 · a frame on the section → that part, larger, to the right ──
   async function detail(ring: Ring) {
-    const sb = boxOf(ring.host), rb = boxOf(ring.el), u = S.u; S.used.add(ring.el.id);
+    S.section = ring.host.id;
+    const sb = boxOf(ring.host), rb = boxOf(ring.el), u = (S.u = sb.h / 138.6); S.used.add(ring.el.id);
     // an arrow they drew out of the frame has said what it had to say
     const arrows = els().filter(e => !spent(e.id) && e.id !== ring.el.id && straight(e) && (() => { const s2 = straight(e)!, near = (q: Pt) => inside(q, rb, Math.max(rb.w, rb.h) * 0.25); return near(s2[0]) !== near(s2[1]); })()).map(e => e.id as string);
     for (const id of arrows) S.used.add(id);
     const stop = think([rb.x - 22 * u, rb.y], u); await wait(1500); stop();
     const frame = tidyRing(ring, arrows);
     const h = Math.max(sb.h * 1.9, rb.h * 2), w = h * PIC.detail.ratio;
-    const b: Box = { x: sb.x + sb.w + 90 * u, y: sb.y + sb.h - h * 0.72, w, h };
+    let b: Box = { x: sb.x + sb.w + 90 * u, y: sb.y + sb.h - h * 0.72, w, h };
+    { const pics = images().map(boxOf); for (let i = 0; i < 80 && pics.some(o => b.x < o.x + o.w && b.x + b.w > o.x && b.y < o.y + o.h + 40 * u && b.y + b.h > o.y - 40 * u); i++) b = { ...b, y: b.y + 40 * u }; }   // a detail already stands there: the new one goes below it
     const from: Pt = [frame.box.x + frame.box.w, frame.box.y + frame.box.h / 2];
     line(from, [b.x - 10 * u, Math.max(b.y + 12 * u, Math.min(b.y + b.h - 12 * u, from[1]))], { arrows: 'end', w: Math.max(0.6, u) });
     lookAt({ x: b.x - 30 * u, y: b.y - 30 * u, w: b.w + 250 * u, h: b.h + 70 * u });
@@ -579,16 +602,17 @@ export function mountRome(rootEl: any) {
   // ── which step the user's last mark asks for ──
   type Step = { run: () => Promise<void>; select: string };
   function next(): Step | null {
-    const onSection = S.section && !S.detail ? latestRing(S.section) : null; if (onSection) return { run: () => detail(onSection), select: onSection.el.id };
-    const onAerial = S.aerial && !S.plan ? latestRing(S.aerial) : null; if (onAerial) return { run: () => plan(onAerial), select: onAerial.el.id };
-    const cut = S.plan && !S.section ? cutLine() : null; if (cut) return { run: () => section(cut), select: cut.el.id };
+    // each step is asked for by its own mark on its own picture, whatever else has or has not been made
+    const onSection = latestRing('section'); if (onSection) return { run: () => detail(onSection), select: onSection.el.id };
+    const onAerial = latestRing('aerial'); if (onAerial) return { run: () => plan(onAerial), select: onAerial.el.id };
+    const cut = cutLine(); if (cut) return { run: () => section(cut), select: cut.el.id };
     const first = latestRing(); if (first) return { run: () => identify(first), select: first.el.id };
     return null;
   }
   async function run(request = ''): Promise<boolean> {
     if (S.busy) return true;
     let step = next();
-    if (!step && S.plan && !S.section && /section|剖/i.test(request)) step = { run: () => section(null), select: '' };   // asked in words, no line drawn
+    if (!step && images().some(i => roleOf(i) === 'plan') && /section|剖/i.test(request)) step = { run: () => section(null), select: '' };   // asked in words, no line drawn
     if (!step) return false;
     S.busy = true; document.body.classList.add('cx-rome-busy'); try { gfx.selection.clear(); } catch { /* nothing selected */ }
     try { await step.run(); } catch (e) { console.warn('[rome]', e); } finally { S.busy = false; setTimeout(() => document.body.classList.remove('cx-rome-busy'), 500); }
@@ -626,7 +650,11 @@ export function mountRome(rootEl: any) {
     });
   };
 
-  W.cxRome = { owns, run, next, state: S, lookAt };
+  /** Context: a mark made on one of this scene's pictures (a photo, a drawing of the building) belongs to studying
+   *  the building. Readings from other contexts (a material dragged onto a figure, hair, a lamp) do not apply there. */
+  const inContext = (id: string) => { const e = byId(id); if (!e || !isMark(e)) return false; const m = mid(boxOf(e)); return images().some(i => (roleOf(i) || scenePics().includes(i.id)) && inside(m, boxOf(i), Math.min(boxOf(i).w, boxOf(i).h) * 0.05)); };
+  const claims = (id: string) => S.used.has(id) || !!roleOf(byId(id)) || scenePics().includes(id) || inContext(id);
+  W.cxRome = { owns, claims, run, next, state: S, lookAt, roleOf };
   /** A typed request goes to the film when the last mark fits one of its steps; false means "not mine". */
   return async (request: string): Promise<boolean> => run(request);
 }

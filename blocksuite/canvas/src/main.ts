@@ -120,7 +120,16 @@ async function main() {
   const assistant0 = createAssistant(rootEl);
   // a scripted scene for filming answers its own request ("What's this?" over a pen loop on a picture)
   const rome = mountRome(rootEl); const char = mountChar(rootEl); const axes = mountAxes(rootEl); watchText(rootEl); watchMode(); mountScaleStrokes(rootEl); mountLatency();
-  const assistant: typeof assistant0 = async (req, ids) => ((await axes(req, ids)) || (await char(req, ids)) || (await rome(req)) ? (false as any) : assistant0(req, ids));
+  // Context first: the scene whose things the request is about (what is selected stands on its pictures, or is its
+  // own) reads it first; the others only if it says "not mine". A gesture means different things in different work.
+  const assistant: typeof assistant0 = async (req, ids) => {
+    const W2 = window as any, set = new Set(ids ?? []);
+    const scenes = [{ k: 'cxAxes', run: () => axes(req, ids) }, { k: 'cxChar', run: () => char(req, ids) }, { k: 'cxRome', run: () => rome(req) }];
+    const mine = (k: string) => { try { return set.size && W2[k]?.owns?.(k === 'cxRome' ? set : [...set]) ? 1 : 0; } catch { return 0; } };
+    scenes.sort((p, q) => mine(q.k) - mine(p.k));
+    for (const s of scenes) if (await s.run()) return false as any;
+    return assistant0(req, ids);
+  };
   mountAiBar(rootEl, assistant);
   (window as any).cxAsk = (req: string) => assistant(req, (rootEl.gfx.selection.selectedElements as any[]).map(e => e.id));   // dev: ask without the bar
   mountInspector(rootEl);

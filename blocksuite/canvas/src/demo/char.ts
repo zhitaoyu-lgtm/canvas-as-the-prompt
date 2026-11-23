@@ -279,8 +279,8 @@ export function mountChar(rootEl: any) {
   const byId = (id?: string | null) => (id ? (gfx.getElementById(id) as any) : null);
   const mid = (b: Box): Pt => [b.x + b.w / 2, b.y + b.h / 2];
   const near = (p: Pt, b: Box, pad = 0) => p[0] > b.x - pad && p[0] < b.x + b.w + pad && p[1] > b.y - pad && p[1] < b.y + b.h + pad;
-  const isMark = (e: any) => e.type === 'brush' || e.type === 'highlighter' || e.type === 'shape' || e.type === 'connector';
-  const images = () => els().filter(e => e.flavour === 'affine:image' && !W.cxAxes?.claims?.(e.id));   // the sorting scene's pictures are its own
+  const isMark = (e: any) => (e.type === 'brush' || e.type === 'highlighter' || e.type === 'shape' || e.type === 'connector') && !W.cxRome?.claims?.(e.id);   // the Rome scene's own lines are not gestures
+  const images = () => els().filter(e => e.flavour === 'affine:image' && !W.cxAxes?.claims?.(e.id) && !W.cxRome?.claims?.(e.id));   // the other scenes' pictures are their own   // the sorting scene's pictures are its own
   const ptsOf = (e: any): Pt[] => {
     const b = boxOf(e);
     if (e.type === 'connector') { const p = (e.absolutePath ?? e.path ?? []) as any[]; if (p.length >= 2) return p.map((q: any) => [q[0] ?? q.x, q[1] ?? q.y] as Pt); return [[b.x, b.y], [b.x + b.w, b.y + b.h]]; }
