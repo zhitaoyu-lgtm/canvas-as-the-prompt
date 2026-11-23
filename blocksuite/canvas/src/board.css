@@ -691,3 +691,19 @@ affine-edgeless-note {
 affine-edgeless-text { height: auto !important; }
 
 .cx-ver { font: 400 9px/1.2 Inter, system-ui, sans-serif; color: #aeaeb2; text-align: center; padding: 4px 0 2px; letter-spacing: .02em; user-select: text; }
+/* the character scene: each new picture appears the way its change happened */
+.cx-char-dev { position: absolute; pointer-events: none; transition-timing-function: cubic-bezier(.2,.7,.2,1); }
+.cx-char-dev.develop { opacity: 0; filter: blur(14px) saturate(.6); transform: scale(.985); transition-property: opacity, filter, transform; }
+.cx-char-dev.develop.on { opacity: 1; filter: none; transform: none; }
+.cx-char-dev.radial { transition-property: clip-path, filter; filter: blur(3px); }
+.cx-char-dev.radial.on { filter: none; }
+.cx-char-dev.rise { clip-path: inset(100% 0 0 0); transition-property: clip-path; }
+.cx-char-dev.rise.on { clip-path: inset(0 0 0 0); }
+.cx-char-dev.ground { opacity: 0; transform: scaleX(0); filter: blur(6px); transition-property: transform, opacity, filter; }
+.cx-char-dev.ground.on { opacity: 1; transform: none; filter: none; }
+.cx-char-carry { position: absolute; pointer-events: none; transform-origin: 0 0; border-radius: 4px; transition-property: transform, opacity; transition-timing-function: cubic-bezier(.5,0,.3,1); }
+.cx-char-svg { position: absolute; pointer-events: none; transition: opacity .35s ease; }
+.cx-char-svg.out { opacity: 0; }
+.cx-char-beam { opacity: 0; transition: opacity .5s ease; }
+.cx-char-beam.on { opacity: 1; }
+.cx-char-beam.on.out { opacity: 0; transition-duration: .6s; }
