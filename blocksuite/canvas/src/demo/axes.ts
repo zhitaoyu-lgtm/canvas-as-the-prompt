@@ -43,7 +43,7 @@ type Axis = {
   step?: number;               // a time axis' tick step
   poleIds?: [string, string];  // the words standing at its two ends (they can be edited: the axis is re-read from them)
 };
-type Card = { parts?: string[]; id: string; axis: string; from: number; to: number; title: string; lines: string[]; source: string; open: boolean; y: number; up: boolean };
+type Card = { dx?: number; ties?: string[]; parts?: string[]; id: string; axis: string; from: number; to: number; title: string; lines: string[]; source: string; open: boolean; y: number; up: boolean };
 type State = { posters: Record<string, string>; axes: Axis[]; values: Record<string, Record<string, number>>; labels: Record<string, string>; cards: Card[]; items: Record<string, string[]> };
 
 export function mountAxes(rootEl: any) {
@@ -534,11 +534,12 @@ export function mountAxes(rootEl: any) {
     try { if (ring.type === 'brush') surf.updateElement(ring.id, { color: FAINT }); else if (ring.type === 'shape') surf.updateElement(ring.id, { strokeColor: FAINT }); else surf.updateElement(ring.id, { stroke: FAINT }); } catch { /* left */ }
     // the card: its edges on the two years, standing where the ring was, tied to the axis by two fine lines
     const x0 = at(first, card.from)[0], x1 = at(first, card.to)[0], up = rb.y + rb.h / 2 < first.a[1];
-    const y = up ? Math.min(rb.y + rb.h * 0.25, first.a[1] - 120 * u) : Math.max(rb.y + rb.h * 0.25, first.a[1] + 70 * u);
+    const y = up ? Math.min(rb.y + rb.h * 0.25, first.a[1] - 210 * u) : Math.max(rb.y + rb.h * 0.25, first.a[1] + 70 * u);
     const c: Card = { parts: [], id: 'c' + Math.random().toString(36).slice(2, 8), axis: first.id, ...card, open: false, y, up };
     P.cards.push(c); keep();
-    const ties = [x0, x1].map(x => line([x, up ? y + 34 * u : y], [x, first.a[1] + (up ? -2 : 2) * u], { color: MUTED, w: 0.8 * u, dash: true }));
-    c.parts = [...ties];
+    // two fine dashed lines from the pill down to the two years it spans
+    const ties = [x0, x1].map(x => line([(x0 + x1) / 2, up ? y + 27 * u : y], [x, first.a[1] + (up ? -2 : 2) * u], { color: MUTED, w: 0.8 * u, dash: true }));
+    c.parts = [...ties]; c.ties = [...ties];
     renderCard(c, true);
     // the events, under the axis, from start to end
     // each on its own level when they would run into one another: arrow and name together, the levels stepping down
@@ -568,14 +569,32 @@ export function mountAxes(rootEl: any) {
   function renderCard(c: Card, fresh = false) {
     const ax = P.axes.find(a => a.id === c.axis); const L = layer(); if (!ax || !L) return;
     const u = unitOf(ax), x0 = at(ax, c.from)[0], x1 = at(ax, c.to)[0];
+    const place = () => {
+      const el = cardEls.get(c.id); if (!el) return; const cx = (x0 + x1) / 2 + (c.dx ?? 0);
+      el.style.left = `${cx}px`; el.style.top = `${c.y}px`;
+      // the ties start under the pill when it is above the axis, over it when below
+      const above = c.y < ax.a[1], from: Pt = [cx, above ? c.y + 27 * u : c.y];
+      (c.ties ?? []).forEach(id => { try { if (byId(id)) surf.updateElement(id, { source: { position: from } }); } catch { /* tie gone */ } });
+    };
     let d = cardEls.get(c.id);
     if (!d) {
       d = document.createElement('div'); d.className = 'cx-axes-card'; cardEls.set(c.id, d); L.append(d);
-      d.addEventListener('pointerdown', e => e.stopPropagation());
+      // it can be dragged anywhere (its two dashed ties follow); a press without movement is a click
+      let moved = false;
+      d.addEventListener('pointerdown', e => {
+        e.stopPropagation(); if (e.button !== 0) return; moved = false;
+        const sx = e.clientX, sy = e.clientY, dx0 = c.dx ?? 0, y0 = c.y; d!.setPointerCapture(e.pointerId);
+        const move = (ev: PointerEvent) => {
+          const z = gfx.viewport.zoom, ddx = (ev.clientX - sx) / z, ddy = (ev.clientY - sy) / z; if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 4) return; moved = true;
+          c.dx = dx0 + ddx; c.y = y0 + ddy; place();
+        };
+        const up = () => { d!.removeEventListener('pointermove', move); d!.removeEventListener('pointerup', up); d!.removeEventListener('pointercancel', up); if (moved) { keep(); store.captureSync?.(); } };
+        d!.addEventListener('pointermove', move); d!.addEventListener('pointerup', up); d!.addEventListener('pointercancel', up);
+      });
       d.tabIndex = 0;
       // a click opens or folds it and selects it (blue outline); Delete or Backspace, or right click → Delete, removes
       // it with its ties and event marks
-      d.addEventListener('click', e => { e.stopPropagation(); c.open = !c.open; keep(); d!.classList.toggle('open', c.open); d!.focus(); try { gfx.selection.set({ elements: [] }); } catch { /* none */ } });
+      d.addEventListener('click', e => { e.stopPropagation(); if (moved) { moved = false; d!.focus(); return; } c.open = !c.open; keep(); d!.classList.toggle('open', c.open); d!.focus(); try { gfx.selection.set({ elements: [] }); } catch { /* none */ } });
       d.addEventListener('keydown', e => { if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); e.stopPropagation(); removeCard(c); } else if (e.key === 'Escape') d!.blur(); });
       d.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); d!.focus();
         document.querySelector('.cx-axes-menu')?.remove();
@@ -589,8 +608,9 @@ export function mountAxes(rootEl: any) {
     const body = document.createElement('div'); body.className = 'cx-axes-card-body';
     for (const l of c.lines.filter(l2 => !/^why|\?$|^→/i.test(l2.trim())).slice(0, 3)) { const p = document.createElement('p'); p.textContent = l.replace(/^[•\-–]\s*/, ''); body.append(p); }
     d.append(head, body); d.classList.toggle('open', c.open);
-    const fs = Math.max(6, Math.min(12.5 * u, (x1 - x0) / 13)), uu = fs / 12.5;
-    Object.assign(d.style, { left: `${x0}px`, top: `${c.y}px`, width: `${x1 - x0}px`, fontSize: `${fs}px`, '--u': String(uu) } as any);
+    // folded: a small pill hugging its name, centred over the stretch; opened: a card at least as wide as the stretch
+    Object.assign(d.style, { fontSize: `${12.5 * u}px`, '--u': String(u) } as any);
+    place();
     if (fresh) { d.classList.add('enter'); requestAnimationFrame(() => requestAnimationFrame(() => d!.classList.remove('enter'))); }
   }
   setTimeout(() => { for (const c of P.cards) renderCard(c); }, 1500);
