@@ -655,7 +655,15 @@ export function mountAxes(rootEl: any) {
     // a ring round a stretch of an axis, and a question
     const ring = sel.find(isRing);
     for (const a of [...live()]) await sync(a);
-    const firstAx = live().find(a => !a.of && a.dir === 'h');
+    // several sorted boards may stand on one canvas: the request is about the axis its selection belongs to — the one
+    // whose things are selected, else the one a selected line crosses, else the nearest
+    const firstAx = (() => {
+      const c = live().filter(a => !a.of && a.dir === 'h'); if (c.length < 2) return c[0];
+      const sb = unionBox(sel.map(boxOf)), m = mid(sb), ids2 = new Set(sel.map(e => e.id));
+      const score = (a: Axis) => { const on = (P.items[a.id] ?? []).filter(i => ids2.has(i)).length, own = a.made.filter(i => ids2.has(i)).length;
+        const d = Math.hypot(Math.max(a.a[0] - m[0], 0, m[0] - a.b[0]), a.a[1] - m[1]); return on * 1e6 + own * 1e5 - d; };
+      return c.sort((p, q) => score(q) - score(p))[0];
+    })();
     if (ring && firstAx && /\?|why|what|how|when|为什么|什么|怎么/i.test(w)) {
       const rb = boxOf(ring); if (rb.x < firstAx.b[0] && rb.x + rb.w > firstAx.a[0] && Math.abs(mid(rb)[1] - firstAx.a[1]) < Math.max(rb.h, 600)) return explainStretch(ring, w, firstAx);
     }
@@ -685,17 +693,16 @@ export function mountAxes(rootEl: any) {
   addEventListener('pointerdown', () => { pointerDown = true; }, true);
   addEventListener('pointerup', () => { pointerDown = false; lastUp = Date.now(); }, true);
   let working = false;
-  setInterval(async () => {
-    if (working || pointerDown || Date.now() - lastUp < 1600 || gfx.selection.editing) return;
-    const first = live().find(a => !a.of && a.dir === 'h' && (P.items[a.id] ?? []).length); if (!first) return;
+  /** one sorted axis is watched: true when something was done for it, or it is waiting for the hand to rest */
+  async function watchAxis(first: Axis): Promise<boolean> {
     // the words at an axis' end were rewritten (or new ones put there): the standard changed, so it is sorted again,
     // without being asked — once the writing has stopped
     for (const ax of live().filter(a => a.kind === 'scale' && (a === first || a.of === first.id))) {
       const now = (ax.poleIds ?? []).map(i => (i && byId(i) ? textOf(byId(i)).trim() : null));
       const rewritten = now.some((t, i) => t !== null && t !== '' && t !== ax.poles[i]);
-      if (rewritten && Date.now() - lastKey > 2200 && Date.now() - lastUp > 1200) { working = true; try { await resort(first, ''); } finally { working = false; } return; }
+      if (rewritten && Date.now() - lastKey > 2200 && Date.now() - lastUp > 1200) { working = true; try { await resort(first, ''); } finally { working = false; } return true; }
     }
-    if (live().some(a => a.of === first.id)) return;
+    if (live().some(a => a.of === first.id)) return false;
     for (const e of els()) {
       if (seen.has(e.id) || mine.has(e.id) || first.user.includes(e.id)) continue;
       const d = asLine(e); if (!d || d.dir !== 'v') continue;
@@ -705,19 +712,24 @@ export function mountAxes(rootEl: any) {
       // With one name or none, it waits to be asked.
       const named2 = (i: 0 | 1) => !!d.ends[i] || d.ink[i].length > 0;
       if (!named2(0) || !named2(1)) continue;
-      if (Date.now() - lastUp < (d.ink[0].length || d.ink[1].length ? 3200 : 2400) || Date.now() - lastKey < 2400) return;   // a moment after the last stroke or key
+      if (Date.now() - lastUp < (d.ink[0].length || d.ink[1].length ? 3200 : 2400) || Date.now() - lastKey < 2400) return true;   // a moment after the last stroke or key
       seen.add(e.id); working = true;
       try { await secondAxis(d, first); } finally { working = false; }
-      return;
+      return true;
     }
+    return false;
+  }
+  setInterval(async () => {
+    if (working || pointerDown || Date.now() - lastUp < 1600 || gfx.selection.editing) return;
+    for (const first of live().filter(a => !a.of && a.dir === 'h' && (P.items[a.id] ?? []).length)) if (await watchAxis(first)) return;
   }, 500);
 
   // what this scene answers: its own drawings, the posters, and — once a board is being sorted — whatever is drawn
   // about its axes (a line across one, the names at its ends, a ring on a stretch of it)
   const owns = (ids: Iterable<string>) => {
     const list = [...ids]; if (!list.length) return false;
-    const axes = live(), zone = axes.length ? unionBox(axes.map(a => ({ x: Math.min(a.a[0], a.b[0]) - 500, y: Math.min(a.a[1], a.b[1]) - 1400, w: Math.abs(a.b[0] - a.a[0]) + 1000, h: Math.abs(a.b[1] - a.a[1]) + 2800 }))) : null;
-    return list.every(i => { if (mine.has(i) || P.posters[i] || P.axes.some(a => a.user.includes(i))) return true; const e = byId(i); return !!(e && zone && (e.type === 'connector' || e.type === 'brush' || isText(e)) && near(mid(boxOf(e)), zone)); });
+    const zones = live().map(a => ({ x: Math.min(a.a[0], a.b[0]) - 500, y: Math.min(a.a[1], a.b[1]) - 1400, w: Math.abs(a.b[0] - a.a[0]) + 1000, h: Math.abs(a.b[1] - a.a[1]) + 2800 })), zone = zones.length;   // near one of the axes (not the ground between two boards)
+    return list.every(i => { if (mine.has(i) || P.posters[i] || P.axes.some(a => a.user.includes(i))) return true; const e = byId(i); return !!(e && zone && (e.type === 'connector' || e.type === 'brush' || isText(e)) && zones.some(z => near(mid(boxOf(e)), z))); });
   };
   const claims = (id: string) => !!P.posters[id] || mine.has(id);
   W.cxAxes = { run, state: P, owns, claims };
