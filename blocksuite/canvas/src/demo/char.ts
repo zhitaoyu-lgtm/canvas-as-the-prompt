@@ -283,7 +283,7 @@ export function mountChar(rootEl: any) {
   function subjectNear(at: Box): any | null {
     const c = mid(at), list = images().filter(i => !P.tex[i.id] && !P.shadow[i.id]);
     const d = (i: any) => { const b = boxOf(i); const dx = Math.max(b.x - c[0], 0, c[0] - b.x - b.w), dy = Math.max(b.y - c[1], 0, c[1] - b.y - b.h); return Math.hypot(dx, dy) / Math.max(1, Math.min(b.w, b.h)); };
-    const ranked = list.map(i => ({ i, d: d(i) - (chainOf(i.id) ? 0.6 : 0) })).filter(q => q.d < 1.1).sort((p, q) => p.d - q.d);
+    const ranked = list.map(i => ({ i, d: d(i) - (chainOf(i.id) ? 0.6 : 0) })).filter(q => q.d < 0.5).sort((p, q) => p.d - q.d);
     return ranked[0]?.i ?? null;
   }
   const unionBox = (bs: Box[]): Box => { const x0 = Math.min(...bs.map(b => b.x)), y0 = Math.min(...bs.map(b => b.y)), x1 = Math.max(...bs.map(b => b.x + b.w)), y1 = Math.max(...bs.map(b => b.y + b.h)); return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }; };
@@ -294,8 +294,13 @@ export function mountChar(rootEl: any) {
 
   type Plan = { op: Op; subject: any; marks: any[]; tex?: any; to?: Pt; light?: Pt; line?: Pt[] };
   /** what the newest marks ask for, read from the drawing (and the words, where given) */
-  async function planFor(words: string): Promise<Plan | null> {
-    const marks = els().filter(fresh); if (!marks.length && !/light|shadow|影|光/i.test(words)) return null;
+  async function planFor(words: string, ids?: string[]): Promise<Plan | null> {
+    // asked through the prompt, only what is selected counts; drawn alone, what was drawn since the last change
+    const picked = ids?.length ? new Set(ids) : null;
+    const marks = picked ? els().filter(e => picked.has(e.id) && isMark(e) && !mine.has(e.id)) : els().filter(fresh);
+    if (!marks.length && !/light|shadow|影|光/i.test(words)) return null;
+    // a figure among the selection is the subject; with no picture selected, the marks must be at a figure
+    const chosen = picked ? images().filter(i => picked.has(i.id) && !P.tex[i.id] && !P.shadow[i.id]) : [];
     const all = marks.length ? unionBox(marks.map(boxOf)) : null;
     // a picture with an arrow to the figure: a material (for an eye, if the arrow ends on one). Either end of the
     // line may be its start; the material is the smaller picture, the figure is one of the scene's if there is one
@@ -320,7 +325,9 @@ export function mountChar(rootEl: any) {
     const leaf = (i: any) => !Object.values(P.chain).some(c => (c as any).from === i.id);
     const pointed = images().filter(i => !P.tex[i.id] && !P.shadow[i.id]).map(i => { const b = boxOf(i); let n = 0; for (const m of marks) { const p = ptsOf(m); if (p.length > 1 && [p[0], p[p.length - 1]].some(q => near(q, b, b.w * 0.04))) n++; } return { i, n: n + (n && leaf(i) ? 0.5 : 0) }; })
       .filter(q => q.n > 0).sort((a, b) => b.n - a.n);
-    const subject = pointed[0]?.i ?? subjectNear(all); if (!subject) return null;
+    const subject = chosen[0] ?? pointed[0]?.i ?? subjectNear(all); if (!subject) return null;
+    // the drawing must be at this figure: something drawn touches it (or it was selected with the drawing)
+    { const sbx = boxOf(subject), pad = Math.min(sbx.w, sbx.h) * (picked ? 0.15 : 0.5); if (!chosen.includes(subject) && !marks.some(m => ptsOf(m).some(q => near(q, sbx, pad)))) return null; }
     const r = await readImage(subject); if (!r) return null;
     const fig = figureBox(subject, r.look);
     // What each stroke is like: a ray (a long, nearly straight line, as light or an arrow is drawn) or a small
@@ -381,6 +388,8 @@ export function mountChar(rootEl: any) {
   const world = document.querySelector('.cx-rome') as HTMLElement | null;
   const layer = () => (document.querySelector('.cx-rome') as HTMLElement | null) ?? world;
   function think(at: Pt, u: number) {
+    // asked through the prompt, the prompt's own working mark (on the whole selection) is the only one shown
+    if (document.querySelector('.cx-pend-dots.on')) return () => {};
     const d = document.createElement('div'); d.className = 'cx-sense-think cx-rome-think cx-char-think'; d.innerHTML = '<i></i><i></i><i></i><i></i>';
     d.style.left = `${at[0]}px`; d.style.top = `${at[1]}px`; d.style.transform = `scale(${Math.max(0.6, u)})`; layer()?.append(d);
     return () => { d.classList.add('out'); setTimeout(() => d.remove(), 300); };
@@ -508,13 +517,14 @@ export function mountChar(rootEl: any) {
     const sb = boxOf(subject), fig = figureBox(subject, r.look), u = sb.w / FRAME.w;
     const marksBox = plan.marks.length ? unionBox(plan.marks.map(boxOf)) : fig;
     // everything sketched for this change (around this figure, since the last change) goes when it is done
-    const round = new Set([...plan.marks, ...els().filter(fresh).filter(m => near(mid(boxOf(m)), fig, fig.w * 1.8))].map(m => m.id));
+    const round = new Set([...plan.marks, ...els().filter(fresh).filter(m => { const b = boxOf(m); return b.x < fig.x + fig.w * 1.6 && b.x + b.w > fig.x - fig.w * 0.6 && b.y < fig.y + fig.h * 1.3 && b.y + b.h > fig.y - fig.h * 0.8 && ptsOf(m).some(q => near(q, fig, fig.w * 0.5)); })].map(m => m.id));
     const roundMarks = () => [...round];
     for (const i of round) used.add(i);
     document.body.classList.add('cx-char-busy');
     // the view goes to where the change will happen first, so the whole of it is seen
     W.cxRome?.lookAt?.(unionBox([fig, ...(plan.tex ? [boxOf(plan.tex)] : []), ...(plan.light ? [{ x: plan.light[0], y: plan.light[1], w: 1, h: 1 }] : []), ...(plan.op === 'look' && plan.to ? [{ x: plan.to[0], y: plan.to[1], w: 1, h: 1 }] : [])]));
-    const stop = think([marksBox.x - 22 * u, marksBox.y], u);
+    // one working mark for the whole of what is being changed (the figure and what was drawn for it), outside its top-right corner
+    const whole = unionBox([sb, marksBox]), stop = think([whole.x + whole.w + 6 * u, whole.y], u);
     const t0 = Date.now();
     // the filmed figure, at the step this act belongs to: the drawn picture
     const film = info.film, tex = plan.tex ? await texKind(plan.tex) : undefined;
@@ -600,9 +610,9 @@ export function mountChar(rootEl: any) {
     const id = surf.addElement({ type: 'text', xywh: `[${fig.x},${fig.y + fig.h + 14 * u},${260 * u},${20 * u}]`, text: t, fontSize: 12 * u, color: '#8e8e93', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' }) as string; mine.add(id);
   }
 
-  async function run(words: string): Promise<boolean> {
+  async function run(words: string, ids?: string[]): Promise<boolean> {
     if (busy) return true;
-    const plan = await planFor(words || ''); if (!plan) return false;
+    const plan = await planFor(words || '', ids); if (!plan) return false;
     // without words the drawing alone must be plain: a material arrow, hair over a figure of this scene, a second lamp
     busy = true; try { return await perform(plan); } finally { busy = false; document.body.classList.remove('cx-char-busy'); }
   }

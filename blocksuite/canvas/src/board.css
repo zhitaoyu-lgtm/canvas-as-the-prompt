@@ -704,6 +704,8 @@ affine-edgeless-text { height: auto !important; }
 .cx-char-dev.eyesonly { opacity: 1; }
 /* one working sign at a time: while the scene works, the board's own sign stays away */
 body.cx-char-busy .cx-sense-think:not(.cx-char-think) { display: none !important; }
+/* while a prompt is being answered, its one mark beside the selection is the only working sign */
+body:has(.cx-pend-dots.on) .cx-sense-think { display: none !important; }
 .cx-char-gen { position: absolute; pointer-events: none; }
 .cx-char-carry { position: absolute; pointer-events: none; transform-origin: 0 0; border-radius: 4px; transition-property: transform, opacity; transition-timing-function: cubic-bezier(.5,0,.3,1); }
 .cx-char-svg { position: absolute; pointer-events: none; transition: opacity .35s ease; }

@@ -119,7 +119,7 @@ async function main() {
   const assistant0 = createAssistant(rootEl);
   // a scripted scene for filming answers its own request ("What's this?" over a pen loop on a picture)
   const rome = mountRome(rootEl); const char = mountChar(rootEl); watchText(rootEl); watchMode(); mountScaleStrokes(rootEl); mountLatency();
-  const assistant: typeof assistant0 = async (req, ids) => ((await char(req)) || (await rome(req)) ? (false as any) : assistant0(req, ids));
+  const assistant: typeof assistant0 = async (req, ids) => ((await char(req, ids)) || (await rome(req)) ? (false as any) : assistant0(req, ids));
   mountAiBar(rootEl, assistant);
   (window as any).cxAsk = (req: string) => assistant(req, (rootEl.gfx.selection.selectedElements as any[]).map(e => e.id));   // dev: ask without the bar
   mountInspector(rootEl);
