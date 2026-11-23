@@ -122,7 +122,7 @@ export function mountRome(rootEl: any) {
   const mid = (b: Box): Pt => [b.x + b.w / 2, b.y + b.h / 2];
   const inside = (p: Pt, b: Box, pad = 0) => p[0] > b.x - pad && p[0] < b.x + b.w + pad && p[1] > b.y - pad && p[1] < b.y + b.h + pad;
   const images = () => els().filter(e => e.flavour === 'affine:image');
-  const hostOf = (b: Box) => images().filter(i => !W.cxChar?.claims?.(i.id)).filter(i => { const q = boxOf(i); return q.w * q.h > b.w * b.h * 1.3 && inside(mid(b), q); }).sort((p, q) => boxOf(p).w * boxOf(p).h - boxOf(q).w * boxOf(q).h)[0];
+  const hostOf = (b: Box) => images().filter(i => !W.cxChar?.claims?.(i.id) && !W.cxAxes?.claims?.(i.id)).filter(i => { const q = boxOf(i); return q.w * q.h > b.w * b.h * 1.3 && inside(mid(b), q); }).sort((p, q) => boxOf(p).w * boxOf(p).h - boxOf(q).w * boxOf(q).h)[0];
   const isMark = (e: any) => e.type === 'brush' || e.type === 'highlighter' || e.type === 'shape' || e.type === 'connector';
   /** the points of a drawn mark, on the board */
   const ptsOf = (e: any): Pt[] => {

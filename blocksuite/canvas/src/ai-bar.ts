@@ -229,7 +229,11 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
   let follow = 0;
   function placeBadge() {
     const els = ids.map(id => gfx.getElementById(id)).filter(Boolean) as any[];
-    if (!els.length) return;
+    if (!els.length) {
+      // asked at a spot: the mark stands at that spot
+      if (spot) { const rr = rootEl.getBoundingClientRect(), [x, y] = gfx.viewport.toViewCoord(spot[0], spot[1]); pendBox.style.width = '0px'; pendBox.style.height = '0px'; badge.style.left = `${rr.left + x + 5}px`; badge.style.top = `${rr.top + y - 4}px`; }
+      return;
+    }
     const b = boundOf(els); if (!b) return;
     pendBox.style.left = `${b.L}px`; pendBox.style.top = `${b.T}px`;
     pendBox.style.width = `${b.R - b.L}px`; pendBox.style.height = `${b.B - b.T}px`;
@@ -258,7 +262,7 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
       // the handler returns false when it put a proposal on the board: leave the selection off so it shows
       if (onSubmit) reselect = (await onSubmit(prompt, ids)) !== false;
       else await new Promise(res => setTimeout(res, 2400));
-    } finally { stopWorking(reselect); busy = false; }
+    } finally { stopWorking(reselect); busy = false; spot = null; }
   }
 
   form.addEventListener('submit', e => { e.preventDefault(); submit(); });
@@ -405,7 +409,7 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
       const b = els.length ? boundOf(els) : null;
       if ((hit && lastSel.includes(hit.id)) || (b && e.clientX >= b.L && e.clientX <= b.R && e.clientY >= b.T && e.clientY <= b.B)) selIds = els.map(m => m.id);
     }
-    if (!hit && !selIds.length) return;
+    if (!hit && !selIds.length) { e.preventDefault(); e.stopPropagation(); spotMenu(e.clientX, e.clientY, mx, my); return; }
     e.preventDefault(); e.stopPropagation();
     holdTb = true;
     const want = hit && !selIds.includes(hit.id) ? [hit.id] : selIds;
@@ -416,11 +420,49 @@ export function mountAiBar(rootEl: any, onSubmit?: (prompt: string, ids: string[
     setTimeout(() => { again(); setTimeout(() => { if (idsNow() !== tbIds) again(); holdTb = false; }, 160); }, 40);
   }, true);
 
+  // Right click on the empty board: a short menu, and "Ask AI…" opens the capsule right there
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+  let menu: El | null = null;
+  const closeMenu = () => { if (menu) { const m = menu; menu = null; m.classList.add('out'); setTimeout(() => m.remove(), 140); } };
+  function spotMenu(cx: number, cy: number, mx: number, my: number) {
+    closeMenu();
+    const m = h('div', 'cx-spot-menu'); menu = m;
+    const item = (label: string, run: () => void, hint = '') => { const b = h('button', 'cx-spot-item'); b.innerHTML = `<span></span><i></i>`; (b.querySelector('span') as El).textContent = label; (b.querySelector('i') as El).textContent = hint; b.addEventListener('pointerdown', ev => ev.stopPropagation()); b.addEventListener('click', ev => { ev.stopPropagation(); closeMenu(); run(); }); m.append(b); };
+    item('Paste', async () => { try { const t = await navigator.clipboard.readText(); if (t.trim()) { const Y = (window as any).cxDev?.Y; if (Y) { const tx = new Y(); tx.insert(0, t.trim()); gfx.surface.addElement({ type: 'text', xywh: `[${mx},${my},${Math.min(420, 8 * t.length + 20)},26]`, text: tx, fontSize: 16, color: '#1d1d1f', fontFamily: 'blocksuite:surface:Inter', textAlign: 'left' }); } } } catch { /* nothing to paste */ } }, isMac ? '⌘V' : 'Ctrl V');
+    item('Add note', () => dispatchEvent(new CustomEvent('cx-add-note', { detail: { x: mx, y: my } })));
+    item('Add frame', () => { try { (gfx.std ?? rootEl.std).store.addBlock('affine:frame', { xywh: `[${mx},${my},640,420]`, title: new ((window as any).cxDev.Text)('Section') } as any, gfx.surface.id); } catch { /* no frame */ } });
+    m.append(h('div', 'cx-spot-sep'));
+    item('Ask AI…', () => openAt(cx, cy, mx, my));
+    layer.append(m);
+    const r = m.getBoundingClientRect();
+    m.style.left = `${Math.min(cx, innerWidth - r.width - 8)}px`; m.style.top = `${Math.min(cy, innerHeight - r.height - 8)}px`;
+    m.animate([{ opacity: 0, transform: 'scale(.96)' }, { opacity: 1, transform: 'none' }], { duration: 120, easing: 'ease-out' });
+  }
+  window.addEventListener('pointerdown', e => { if (menu && !(e.target as El).closest?.('.cx-spot-menu')) closeMenu(); }, true);
+  window.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+  // the capsule at a spot on the board, nothing selected: what is asked for is put there
+  let spot: [number, number] | null = null;
+  function openAt(cx: number, cy: number, mx: number, my: number) {
+    if (open || busy) return;
+    gfx.selection.set({ elements: [] }); ids = []; spot = [mx, my]; (window as any).cxAskAt = spot;
+    input.value = ''; input.placeholder = ''; input.setAttribute('aria-label', 'Ask Claude');
+    setTb(false); open = true; dot.classList.remove('on');
+    const w = Math.min(300, innerWidth - 32);
+    cap.getAnimations().forEach(x => x.cancel());
+    cap.style.width = `${w}px`; cap.style.height = '';
+    cap.classList.add('on', 'from-dot', 'wide'); fit();
+    const H = cap.getBoundingClientRect().height;
+    cap.style.left = `${Math.max(16, Math.min(cx, innerWidth - 16 - w))}px`; cap.style.top = `${Math.max(12, Math.min(cy - H / 2, innerHeight - H - 12))}px`; cap.style.bottom = 'auto';
+    cap.style.transformOrigin = `0px ${H / 2}px`;
+    cap.animate([{ transform: 'scale(.04)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }], { duration: 260, easing: 'cubic-bezier(.2,.9,.25,1.04)' });
+    setTimeout(() => input.focus(), 120);
+  }
+
   // the dot → the capsule, opened just above the selection, as wide as it (within reason)
   async function openFromDot() {
     if (open || busy) return;
     const b = selBound(); if (!b) return;
-    const sel = gfx.selection.selectedElements as any[]; ids = sel.map(m => m.id);
+    const sel = gfx.selection.selectedElements as any[]; ids = sel.map(m => m.id); spot = null; (window as any).cxAskAt = undefined;
     const { label } = describe(sel);
     input.value = ''; input.placeholder = ''; input.setAttribute('aria-label', `What should happen to ${label}?`);
     setTb(false); open = true; dot.classList.remove('on');

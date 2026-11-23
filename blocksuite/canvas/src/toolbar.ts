@@ -329,6 +329,8 @@ export async function mountToolbar(rootEl: any) {
   function done() { placing = null; mode = 'select'; openTray(null); setTool('default'); paint(); }
   // other parts of the app (the filmed scenes) hand the pointer back to selecting through this
   addEventListener('cx-tool-select', () => done());
+  // the board's right-click menu adds a note where it was opened
+  addEventListener('cx-add-note', (e: any) => { const id = makeSticky(e.detail.x + 92, e.detail.y + 92); setTimeout(() => { const el = gfx.getElementById(id); if (el) mountShapeTextEditor(el as any, rootEl); }, 30); });
 
   function dataUrlFile(url: string, name: string) {
     const [head, b64] = url.split(',');
