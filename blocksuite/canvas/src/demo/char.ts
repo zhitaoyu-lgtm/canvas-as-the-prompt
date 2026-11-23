@@ -450,6 +450,8 @@ export function mountChar(rootEl: any) {
       const u2 = unionBox(around.map(boxOf)), cover = (Math.min(u2.x + u2.w, fig.x + fig.w) - Math.max(u2.x, fig.x)) / fig.w;
       // most of a hair line lies close to the head's outline; a lamp's cone stands off from it
       const pts = around.flatMap(ptsOf), close = pts.filter(q => near(q, fig, fig.w * 0.22)).length / Math.max(1, pts.length);
+      // (on a figure of the scene, any free lines over its upper half are hair, however they are drawn)
+      if (claims(subject.id) && cover > 0.25 && u2.y < fig.y + fig.h * 0.35 && pts.filter(q => q[1] < fig.y + fig.h * 0.6).length / Math.max(1, pts.length) > 0.5) return around;
       return cover > 0.55 && close > 0.7 && Math.abs(u2.x + u2.w / 2 - (fig.x + fig.w / 2)) < fig.w * 0.3 && u2.y < fig.y + fig.h * 0.12 ? around : []; })();
     const lightWords = /light|lamp|torch|flashlight|shadow|影|光|灯|手电/i.test(words), lookWords = /look|gaze|stare|watch|toward|看|望|盯|注视/i.test(words), hairWords = /hair|头发|发/i.test(words);
     // things to look at: drawings whose middle is off the body (they may overlap its edge), not part of a lamp or hair
@@ -637,7 +639,12 @@ export function mountChar(rootEl: any) {
     // where the eyes look: a look sets it; every later step keeps it
     const toFrame = (p: Pt): Pt => [(p[0] - frameLeft) / (frameScale || 1), (p[1] - frameTop) / (frameScale || 1)];
     let eyes = (info as any).eyes as [number, number] | undefined;
-    if (film && plan.op === 'look' && plan.to) eyes = eyeShift(toFrame(plan.to));
+    if (film && plan.op === 'look' && plan.to) {
+      // the look the scene was designed with — something below the figure, or down to its left — is the Figma drawing
+      // itself, and every step after it is the Figma picture too; a look anywhere else turns the eyes by computation
+      const t = toFrame(plan.to), designed = t[1] > 300 && t[0] < 300;
+      eyes = designed ? undefined : eyeShift(t);
+    }
     const stageOut = filmNext || (film && plan.op === 'look' ? Math.max(2, film) : 0);
     if (stageOut) {
       // a new look sets the turn (as far as this body allows); every other step draws exactly the turn already set
