@@ -233,15 +233,24 @@ const EYE_LON = [-0.163, -0.892];   // right eye, left eye (radians from the hea
 function eyePose(_stage: number, e: Pt, yaw: number, pitch: number) {
   const i = e[0] > 200 ? 0 : 1, ph = EYE_LON[i], th = Math.asin(Math.max(-0.9, Math.min(0.9, (e[1] - HEAD.cy) / HEAD.Ry)));
   const ph2 = Math.max(-1.3, Math.min(1.3, ph + yaw)), th2 = Math.max(-1.1, Math.min(1.1, th + pitch));
-  const x = e[0] + HEAD.R * (Math.sin(ph2) - Math.sin(ph)), y = e[1] + HEAD.Ry * (Math.sin(th2) - Math.sin(th));
+  // (the same turn puts the eyes in the same place on every step's body)
+  const g = 1;
+  const x = e[0] + HEAD.R * g * (Math.sin(ph2) - Math.sin(ph)), y = e[1] + HEAD.Ry * g * (Math.sin(th2) - Math.sin(th));
   return { x, y, sx: Math.cos(ph2) / Math.cos(ph), sy: Math.cos(th2) / Math.cos(th), rot: (Math.sin(ph2) * Math.sin(th2) - Math.sin(ph) * Math.sin(th)) * 22 };
 }
-async function filmWithEyes(stage: number, yaw: number, pitch: number): Promise<string | HTMLCanvasElement> {
+let drawnTurn: [number, number] = [0, 0];   // the turn the last call actually drew
+async function filmWithEyes(stage: number, yaw: number, pitch: number, keep = false): Promise<string | HTMLCanvasElement> {
   // the eyes stay well inside the body: a turn that would carry one over the edge is taken back as far as needed
   const BODYE: Record<number, { c: Pt; r: [number, number] }> = { 2: { c: [224, 258], r: [128, 116] }, 3: { c: [224, 280], r: [175, 140] }, 4: { c: [224, 285], r: [190, 155] }, 5: { c: [224, 285], r: [190, 155] } };
-  const fits = (k: number) => EYES.every((e, i) => { const p = eyePose(stage, e.c, yaw * k, pitch * k), b = BODYE[stage] ?? BODYE[3], hw = (i === 0 ? 33 : 21) * p.sx + 8, hh = (i === 0 ? 48 : 39.5) * p.sy + 8;
-    const ex = Math.abs(p.x - b.c[0]) + hw, ey = Math.abs(p.y - b.c[1]) + hh; return (ex / b.r[0]) ** 2 + (ey / b.r[1]) ** 2 <= 0.9; });
-  let lo = 0, hi = 1; if (!fits(1)) { for (let i = 0; i < 12; i++) { const m = (lo + hi) / 2; if (fits(m)) lo = m; else hi = m; } yaw *= lo; pitch *= lo; }
+  // how far out the eyes reach (1 = the body's edge); a turn may go as far as the body allows, and never further
+  // out than the eyes already were
+  const reach = (k: number) => Math.max(...EYES.map((e, i) => { const p = eyePose(stage, e.c, yaw * k, pitch * k), b = BODYE[stage] ?? BODYE[3], hw = (i === 0 ? 33 : 21) * p.sx + 5, hh = (i === 0 ? 48 : 39.5) * p.sy + 5;
+    // the bodies are rounded squares more than ellipses
+    return ((Math.abs(p.x - b.c[0]) + hw) / b.r[0]) ** 3 + ((Math.abs(p.y - b.c[1]) + hh) / b.r[1]) ** 3; }));
+  const limit = Math.max(1.05, reach(0) + 0.02), fits = (k: number) => reach(k) <= limit;
+  // (the turn is set once, by the look, on the body it was made on; later steps keep it as it is)
+  if (!keep) { let lo = 0, hi = 1; if (!fits(1)) { for (let i = 0; i < 12; i++) { const m = (lo + hi) / 2; if (fits(m)) lo = m; else hi = m; } yaw *= lo; pitch *= lo; } }
+  drawnTurn = [yaw, pitch];
   if (stage <= 3) {
     const g = EYES.map(e => { const p = eyePose(stage, e.c, yaw, pitch);
       return `<g transform="translate(${p.x.toFixed(2)} ${p.y.toFixed(2)}) rotate(${p.rot.toFixed(2)}) scale(${p.sx.toFixed(3)} ${p.sy.toFixed(3)}) translate(${-e.c[0]} ${-e.c[1]})">${e.raw().replace('x="0" y="0"', `x="${e.at[0]}" y="${e.at[1]}"`)}</g>`; }).join('');
@@ -630,7 +639,13 @@ export function mountChar(rootEl: any) {
     let eyes = (info as any).eyes as [number, number] | undefined;
     if (film && plan.op === 'look' && plan.to) eyes = eyeShift(toFrame(plan.to));
     const stageOut = filmNext || (film && plan.op === 'look' ? Math.max(2, film) : 0);
-    if (stageOut) out = { src: stageOut >= 2 && eyes ? await filmWithEyes(stageOut, eyes[0], eyes[1]) : FILM[stageOut], w: FRAME.w * frameScale, h: FRAME.h * frameScale, film: stageOut };
+    if (stageOut) {
+      // a new look sets the turn (as far as this body allows); every other step draws exactly the turn already set
+      const fresh2 = plan.op === 'look';
+      const src = stageOut >= 2 && eyes ? await filmWithEyes(stageOut, eyes[0], eyes[1], !fresh2) : FILM[stageOut];
+      if (stageOut >= 2 && eyes) eyes = [drawnTurn[0], drawnTurn[1]];
+      out = { src, w: FRAME.w * frameScale, h: FRAME.h * frameScale, film: stageOut };
+    }
     else if (plan.op === 'light') {
       // only the light changes: the figure stays exactly as and where it is, and gets a new shadow. A lamp above it
       // gives a small round shadow at its feet; a lamp to one side throws it long the other way
