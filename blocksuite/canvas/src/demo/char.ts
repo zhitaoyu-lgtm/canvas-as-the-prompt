@@ -24,6 +24,16 @@ import sh7Src from '../assets/demo/char/shadow7.webp';
 import fleeceSrc from '../assets/demo/char/tex-fleece.jpg';
 import glassSrc from '../assets/demo/char/tex-glass.jpg';
 import plushSrc from '../assets/demo/char/tex-plush.jpg';
+import s2BaseRaw from '../assets/demo/char/s2-base.svg?raw';
+import s3BaseRaw from '../assets/demo/char/s3-base.svg?raw';
+import eyeRRaw from '../assets/demo/char/eye-r.svg?raw';
+import eyeLRaw from '../assets/demo/char/eye-l.svg?raw';
+import s4Base from '../assets/demo/char/s4-base.webp';
+import s5Base from '../assets/demo/char/s5-base.webp';
+import s4EyeR from '../assets/demo/char/s4-eye-r.webp';
+import s4EyeL from '../assets/demo/char/s4-eye-l.webp';
+import s5EyeR from '../assets/demo/char/s5-eye-r.webp';
+import s5EyeL from '../assets/demo/char/s5-eye-l.webp';
 
 type Box = { x: number; y: number; w: number; h: number };
 type Pt = [number, number];
@@ -208,6 +218,26 @@ function footShadow(fig: Box) {
   return { cv: c, x: fig.x + fig.w / 2 - w / 2 - pad, y: fig.y + fig.h - h * 0.62 - pad, w: w + pad * 2, h: h + pad * 2 };
 }
 
+/** a filmed step (2–5) with its eyes moved by (dx, dy) frame units: the same body, the same eyes, looking elsewhere.
+ *  The flat steps stay vector; the fleece steps are its photograph with the eyes lifted off and laid back on. */
+async function filmWithEyes(stage: number, dx: number, dy: number): Promise<string | HTMLCanvasElement> {
+  if (stage <= 3) {
+    const at = (raw: string, x: number, y: number) => raw.replace('x="0" y="0"', `x="${x}" y="${y}"`);
+    return svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="448" height="460" viewBox="0 0 448 460">${stage === 2 ? s2BaseRaw : s3BaseRaw}<g transform="translate(${dx.toFixed(2)} ${dy.toFixed(2)})">${at(eyeRRaw, 221, 245)}${at(eyeLRaw, 116, 242)}</g></svg>`);
+  }
+  const [base, r, l] = await Promise.all((stage === 4 ? [s4Base, s4EyeR, s4EyeL] : [s5Base, s5EyeR, s5EyeL]).map(imageOf));
+  const c = canvasOf(896, 920), x = c.getContext('2d')!; x.drawImage(base, 0, 0, 896, 920);
+  x.drawImage(r, (218 + dx) * 2, (242 + dy) * 2); x.drawImage(l, (113 + dx) * 2, (239 + dy) * 2);
+  // the eyes stay within the body
+  x.globalCompositeOperation = 'destination-in'; x.drawImage(base, 0, 0, 896, 920);
+  return c;
+}
+/** where the eyes go to look at a point (frame units): toward it, at most a little way, as eyes in a face can */
+function eyeShift(to: Pt): [number, number] {
+  const cx = 204, cy = 290, d = Math.hypot(to[0] - cx, to[1] - cy) || 1, k = Math.min(1, d / 120);
+  return [((to[0] - cx) / d) * 22 * k, ((to[1] - cy) / d) * 14 * k];
+}
+
 // ── the scene on the board ──────────────────────────────────────────────────────────────────────────────────────
 export function mountChar(rootEl: any) {
   const gfx = rootEl.gfx, std = rootEl.std, store = std.store, surf = gfx.surface;
@@ -226,7 +256,7 @@ export function mountChar(rootEl: any) {
   };
 
   // what the scene has made, kept across reloads; a piece counts only while it is still on the board
-  type Info = { film?: number; lit?: boolean; from?: string; lamp?: string[] };
+  type Info = { film?: number; lit?: boolean; from?: string; lamp?: string[]; eyes?: [number, number] };
   const P: { chain: Record<string, Info>; tex: Record<string, 'fleece' | 'glass' | 'other'>; shadow: Record<string, string> } = (() => { try { return { chain: {}, tex: {}, shadow: {}, ...JSON.parse(localStorage.getItem('cx:char') || '{}') }; } catch { return { chain: {}, tex: {}, shadow: {} }; } })();
   const keep = () => { try { localStorage.setItem('cx:char', JSON.stringify(P)); } catch { /* not kept */ } };
   const chainOf = (id: string) => { const c = P.chain[id]; if (c && !byId(id)) { delete P.chain[id]; keep(); return undefined; } return c; };
@@ -524,7 +554,7 @@ export function mountChar(rootEl: any) {
     // the view goes to where the change will happen first, so the whole of it is seen
     W.cxRome?.lookAt?.(unionBox([fig, ...(plan.tex ? [boxOf(plan.tex)] : []), ...(plan.light ? [{ x: plan.light[0], y: plan.light[1], w: 1, h: 1 }] : []), ...(plan.op === 'look' && plan.to ? [{ x: plan.to[0], y: plan.to[1], w: 1, h: 1 }] : [])]));
     // one working mark for the whole of what is being changed (the figure and what was drawn for it), outside its top-right corner
-    const whole = unionBox([sb, marksBox]), stop = think([whole.x + whole.w + 6 * u, whole.y], u);
+    const region = unionBox([sb, marksBox]), stop = think([region.x + region.w + 6 * u, region.y], u);
     const t0 = Date.now();
     // the filmed figure, at the step this act belongs to: the drawn picture
     const film = info.film, tex = plan.tex ? await texKind(plan.tex) : undefined;
@@ -537,8 +567,15 @@ export function mountChar(rootEl: any) {
     let out: { src: string | HTMLCanvasElement; w: number; h: number; film?: number } | null = null;
     let shadow: { src: string | HTMLCanvasElement; x: number; y: number; w: number; h: number } | null = null;   // against the new picture's box
     // the frame the filmed pictures share, sized from this figure (its body is 260.5 of 448 at step 1)
-    const frameScale = film ? fig.w / BODY[film][2] : 0, frameTop = film ? fig.y - BODY[film][1] * frameScale : sb.y, frameLeft = film ? fig.x - BODY[film][0] * frameScale : sb.x;
-    if (filmNext) out = { src: FILM[filmNext], w: FRAME.w * frameScale, h: FRAME.h * frameScale, film: filmNext };
+    // a picture that is a whole filmed frame keeps exactly its own place and size; one cropped differently is fitted by its body
+    const whole = !!film && Math.abs(sb.w / sb.h - FRAME.w / FRAME.h) < 0.012;
+    const frameScale = film ? (whole ? sb.w / FRAME.w : fig.w / BODY[film][2]) : 0, frameTop = film ? (whole ? sb.y : fig.y - BODY[film][1] * frameScale) : sb.y, frameLeft = film ? (whole ? sb.x : fig.x - BODY[film][0] * frameScale) : sb.x;
+    // where the eyes look: a look sets it; every later step keeps it
+    const toFrame = (p: Pt): Pt => [(p[0] - frameLeft) / (frameScale || 1), (p[1] - frameTop) / (frameScale || 1)];
+    let eyes = (info as any).eyes as [number, number] | undefined;
+    if (film && plan.op === 'look' && plan.to) eyes = eyeShift(toFrame(plan.to));
+    const stageOut = filmNext || (film && plan.op === 'look' ? Math.max(2, film) : 0);
+    if (stageOut) out = { src: stageOut >= 2 && eyes ? await filmWithEyes(stageOut, eyes[0], eyes[1]) : FILM[stageOut], w: FRAME.w * frameScale, h: FRAME.h * frameScale, film: stageOut };
     else if (plan.op === 'light') {
       // only the light changes: the figure stays exactly as and where it is, and gets a new shadow. A lamp above it
       // gives a small round shadow at its feet; a lamp to one side throws it long the other way
@@ -554,7 +591,7 @@ export function mountChar(rootEl: any) {
       else if (plan.op === 'material' && plan.tex) { const t = (await readImage(plan.tex))?.img; if (t) { const c = inMaterial(a, t); out = { src: c, w: c.width * k, h: c.height * k }; (out as any).dy = (out as any).dx = Math.round(a.box.w * 0.04) * k; } }
       else if (plan.op === 'eyes' && plan.tex) { const t = (await readImage(plan.tex))?.img; if (t) { const c = eyesIn(a, t); if (c) out = { src: c, w: sb.w, h: sb.h }; } }
     }
-    const left = Math.max(0, (filmNext || shadow && film ? 2000 + Math.random() * 900 : 1100) - (Date.now() - t0)); await wait(left); stop();
+    const left = Math.max(0, (stageOut || shadow && film ? 2000 + Math.random() * 900 : 1100) - (Date.now() - t0)); await wait(left); stop();
     if (!out) { say(plan.op === 'look' || plan.op === 'eyes' ? 'I could not find the eyes in this picture.' : 'Nothing to change here.', fig, u); return true; }
     // the change happens in place: the figure stays where it is and becomes the next picture
     const dx = (out as any).dx ?? 0, dy = (out as any).dy ?? 0;
@@ -592,14 +629,14 @@ export function mountChar(rootEl: any) {
       store.captureSync?.();
       return true;
     } else {
-      id = await reveal(out.src, place, how.mode === 'generate' ? 1900 : filmNext ? 1300 : 1100, how);
+      id = await reveal(out.src, place, how.mode === 'generate' ? 1900 : stageOut ? 1300 : 1100, how);
       // a shadow it had stays with it
       if (oldShadow.length) { ungroup(oldGroup); try { const g = surf.addElement({ type: 'group', children: Object.fromEntries([...oldShadow, id].map(i => [i, true])), title: new (W.cxDev?.Y)('') }); mine.add(g); } catch { /* apart */ } }
     }
     remove(subject.id);
     // what was drawn to ask for the change has done its work: it fades away (pictures brought in stay)
     void fadeAway(roundMarks());
-    P.chain[id] = { from: subject.id, film: out.film ?? (film && !filmNext && plan.op === 'light' ? film : undefined), lit: plan.op === 'light' || info.lit, ...(plan.op === 'light' ? { lamp: plan.marks.map(m => m.id) } : (info as any).lamp ? { lamp: (info as any).lamp } : {}) } as Info;
+    P.chain[id] = { eyes, from: subject.id, film: out.film ?? (film && !filmNext && plan.op === 'light' ? film : undefined), lit: plan.op === 'light' || info.lit, ...(plan.op === 'light' ? { lamp: plan.marks.map(m => m.id) } : (info as any).lamp ? { lamp: (info as any).lamp } : {}) } as Info;
     delete P.chain[subject.id]; if (plan.tex) P.tex[plan.tex.id] = tex ?? 'other'; keep();
     store.captureSync?.();
     document.body.classList.remove('cx-char-busy');
