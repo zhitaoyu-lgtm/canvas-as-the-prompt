@@ -34,7 +34,8 @@ const FRAME = { w: 448, h: 460 };
 // where the figure sits in each filmed frame (frame units): every step shares the Figma frame, so frames line up
 const BODY = [[94, 140, 260.5, 235.5], [94, 140, 260.5, 235.5], [94, 140, 260.5, 235.5], [37, 73, 374, 313], [17.5, 53, 412, 341.5], [17.5, 53, 412, 341.5]];                           // every filmed step is a picture of this shape
 // the filmed shadows, in the frame's units, against the frame's top-left
-const SHADOW = { right: { src: sh6Src, x: 413, y: 282, w: 726, h: 123.5 }, left: { src: sh7Src, x: -485, y: 282, w: 744.5, h: 123.5 } };
+// (rendered bounds of the Figma shadows against their frames: the shadow starts under the figure, so they touch)
+const SHADOW = { right: { src: sh6Src, x: 85.9, y: 274.5, w: 725.6, h: 123.3 }, left: { src: sh7Src, x: -418.5, y: 274.5, w: 744.3, h: 123.3 } };
 
 // ── looking at pictures ──────────────────────────────────────────────────────────────────────────────────────────
 type Look = { w: number; h: number; cv: HTMLCanvasElement; mask: Uint8Array; box: Box; eyes: { mask: Uint8Array; box: Box; cx: number; cy: number }[]; body: [number, number, number] };
@@ -405,6 +406,18 @@ export function mountChar(rootEl: any) {
     s2.sv.append(g, poly); s2.sv.classList.add('cx-char-beam'); void s2.sv.getBoundingClientRect(); s2.sv.classList.add('on');
     return s2;
   }
+  /** hand-drawn marks fade out, then go */
+  async function fadeAway(ids: string[]) {
+    const items = ids.map(byId).filter(Boolean).map((e: any) => ({ e, key: e.type === 'connector' || e.type === 'shape' ? 'stroke' : 'color', c0: String((e.type === 'connector' || e.type === 'shape' ? e.stroke : e.color) ?? '#1d1d1f') }));
+    const rgb = (c: string) => { const m = /^#?([0-9a-f]{6})/i.exec(c); const n = m ? parseInt(m[1], 16) : 0x1d1d1f; return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    await wait(250);
+    for (let k = 1; k <= 8; k++) {
+      for (const it of items) { const [r2, g2, b2] = rgb(it.c0); try { surf.updateElement(it.e.id, { [it.key]: `rgba(${r2},${g2},${b2},${(1 - k / 8).toFixed(2)})` }); } catch { /* stays as it is */ } }
+      await wait(45);
+    }
+    for (const it of items) { try { surf.deleteElement(it.e.id); } catch { /* gone */ } }
+  }
+
   let busy = false;
   async function perform(plan: Plan): Promise<boolean> {
     const { subject } = plan, r = await readImage(subject); if (!r) return false;
@@ -453,7 +466,7 @@ export function mountChar(rootEl: any) {
       const k = sb.w / r.look.w, e = r.look.eyes.reduce((q, x) => [q[0] + x.cx / r.look.eyes.length, q[1] + x.cy / r.look.eyes.length], [0, 0]);
       const s2 = await drawLine([sb.x + e[0] * k, sb.y + e[1] * k], plan.to, u, 650, true, '#8e8e93'); await wait(200); s2.gone();
     }
-    if (plan.tex && touched) { await carry(URL.createObjectURL((await blobOfImage(plan.tex)) ?? new Blob()), boxOf(plan.tex), touched, 750); for (const m of plan.marks) remove(m.id); }
+    if (plan.tex && touched) { await carry(URL.createObjectURL((await blobOfImage(plan.tex)) ?? new Blob()), boxOf(plan.tex), touched, 750); }
     let lit: ReturnType<typeof beam> | null = null;
     if (plan.op === 'light' && plan.light) { lit = beam(plan.light, fig); await wait(450); }
     // the old shadow and the old lamp go when a new lamp lights the figure
@@ -474,11 +487,12 @@ export function mountChar(rootEl: any) {
       try { const g = surf.addElement({ type: 'group', children: { [shId]: true, [id]: true }, title: new (W.cxDev?.Y)('') }); mine.add(g); } catch { /* two things */ }
     } else {
       id = await reveal(out.src, place, filmNext ? 1300 : 1100, how);
-      if (plan.op === 'hair') for (const m of plan.marks) remove(m.id);   // the sketch has become the hair
       // a shadow it had stays with it
       if (oldShadow.length) { try { surf.removeElement?.(oldGroup.id) ?? surf.deleteElement(oldGroup.id); } catch { /* kept */ } try { const g = surf.addElement({ type: 'group', children: Object.fromEntries([...oldShadow, id].map(i => [i, true])), title: new (W.cxDev?.Y)('') }); mine.add(g); } catch { /* apart */ } }
     }
     remove(subject.id);
+    // what was drawn to ask for the change has done its work: it fades away (pictures brought in stay)
+    void fadeAway(plan.marks.map(m => m.id));
     P.chain[id] = { from: subject.id, film: out.film ?? (film && !filmNext && plan.op === 'light' ? film : undefined), lit: plan.op === 'light' || info.lit, ...(plan.op === 'light' ? { lamp: plan.marks.map(m => m.id) } : (info as any).lamp ? { lamp: (info as any).lamp } : {}) } as Info;
     delete P.chain[subject.id]; if (plan.tex) P.tex[plan.tex.id] = tex ?? 'other'; keep();
     store.captureSync?.();
