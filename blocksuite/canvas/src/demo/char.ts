@@ -23,6 +23,7 @@ import sh6Src from '../assets/demo/char/shadow6.webp';
 import sh7Src from '../assets/demo/char/shadow7.webp';
 import fleeceSrc from '../assets/demo/char/tex-fleece.jpg';
 import glassSrc from '../assets/demo/char/tex-glass.jpg';
+import { addKey, allKeys } from '../ai/keys';
 import plushSrc from '../assets/demo/char/tex-plush.jpg';
 import s2BaseRaw from '../assets/demo/char/s2-base.svg?raw';
 import s3BaseRaw from '../assets/demo/char/s3-base.svg?raw';
@@ -218,24 +219,46 @@ function footShadow(fig: Box) {
   return { cv: c, x: fig.x + fig.w / 2 - w / 2 - pad, y: fig.y + fig.h - h * 0.62 - pad, w: w + pad * 2, h: h + pad * 2 };
 }
 
-/** a filmed step (2–5) with its eyes moved by (dx, dy) frame units: the same body, the same eyes, looking elsewhere.
- *  The flat steps stay vector; the fleece steps are its photograph with the eyes lifted off and laid back on. */
-async function filmWithEyes(stage: number, dx: number, dy: number): Promise<string | HTMLCanvasElement> {
+/** a filmed step (2–5) with its eyes turned by (yaw, pitch) radians: the same body and the same eyes, looking
+ *  elsewhere. The face is taken as a rounded surface, so an eye turned toward the edge moves along it, narrows the
+ *  way a round thing seen from the side does, and tilts with the surface; the flat steps stay vector, the fleece
+ *  steps are the photograph with the eyes lifted off and laid back on. */
+const EYES = [{ raw: () => eyeRRaw, at: [221, 245], c: [254, 293] as Pt, sprite: [218, 242] }, { raw: () => eyeLRaw, at: [116, 242], c: [137, 281.5] as Pt, sprite: [113, 239] }];
+const FACE: Record<number, { c: Pt; r: [number, number] }> = { 2: { c: [224, 262], r: [200, 175] }, 3: { c: [224, 275], r: [175, 150] }, 4: { c: [224, 280], r: [195, 165] }, 5: { c: [224, 280], r: [195, 165] } };
+function eyePose(stage: number, e: Pt, yaw: number, pitch: number) {
+  const f = FACE[stage] ?? FACE[3], u = Math.max(-0.95, Math.min(0.95, (e[0] - f.c[0]) / f.r[0])), v = Math.max(-0.95, Math.min(0.95, (e[1] - f.c[1]) / f.r[1]));
+  // the small round body turns its eyes less far before they would leave it
+  const k = stage === 2 ? 0.7 : 1, ph = Math.asin(u), th = Math.asin(v), ph2 = Math.max(-1.25, Math.min(1.25, ph + yaw * k)), th2 = Math.max(-1.2, Math.min(1.2, th + pitch * k));
+  return {
+    x: f.c[0] + f.r[0] * Math.sin(ph2), y: f.c[1] + f.r[1] * Math.sin(th2),
+    sx: Math.cos(ph2) / Math.cos(ph), sy: Math.cos(th2) / Math.cos(th),
+    rot: (Math.sin(ph2) * Math.sin(th2) - u * v) * 28,   // degrees: an eye high on the side leans with the surface
+  };
+}
+async function filmWithEyes(stage: number, yaw: number, pitch: number): Promise<string | HTMLCanvasElement> {
+  // the eyes stay well inside the body: a turn that would carry one over the edge is taken back as far as needed
+  const BODYE: Record<number, { c: Pt; r: [number, number] }> = { 2: { c: [224, 258], r: [128, 116] }, 3: { c: [224, 280], r: [175, 140] }, 4: { c: [224, 285], r: [190, 155] }, 5: { c: [224, 285], r: [190, 155] } };
+  const fits = (k: number) => EYES.every((e, i) => { const p = eyePose(stage, e.c, yaw * k, pitch * k), b = BODYE[stage] ?? BODYE[3], hw = (i === 0 ? 33 : 21) * p.sx + 8, hh = (i === 0 ? 48 : 39.5) * p.sy + 8;
+    const ex = Math.abs(p.x - b.c[0]) + hw, ey = Math.abs(p.y - b.c[1]) + hh; return (ex / b.r[0]) ** 2 + (ey / b.r[1]) ** 2 <= 1.15; });
+  let lo = 0, hi = 1; if (!fits(1)) { for (let i = 0; i < 12; i++) { const m = (lo + hi) / 2; if (fits(m)) lo = m; else hi = m; } yaw *= lo; pitch *= lo; }
   if (stage <= 3) {
-    const at = (raw: string, x: number, y: number) => raw.replace('x="0" y="0"', `x="${x}" y="${y}"`);
-    return svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="448" height="460" viewBox="0 0 448 460">${stage === 2 ? s2BaseRaw : s3BaseRaw}<g transform="translate(${dx.toFixed(2)} ${dy.toFixed(2)})">${at(eyeRRaw, 221, 245)}${at(eyeLRaw, 116, 242)}</g></svg>`);
+    const g = EYES.map(e => { const p = eyePose(stage, e.c, yaw, pitch);
+      return `<g transform="translate(${p.x.toFixed(2)} ${p.y.toFixed(2)}) rotate(${p.rot.toFixed(2)}) scale(${p.sx.toFixed(3)} ${p.sy.toFixed(3)}) translate(${-e.c[0]} ${-e.c[1]})">${e.raw().replace('x="0" y="0"', `x="${e.at[0]}" y="${e.at[1]}"`)}</g>`; }).join('');
+    return svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="448" height="460" viewBox="0 0 448 460">${stage === 2 ? s2BaseRaw : s3BaseRaw}${g}</svg>`);
   }
   const [base, r, l] = await Promise.all((stage === 4 ? [s4Base, s4EyeR, s4EyeL] : [s5Base, s5EyeR, s5EyeL]).map(imageOf));
   const c = canvasOf(896, 920), x = c.getContext('2d')!; x.drawImage(base, 0, 0, 896, 920);
-  x.drawImage(r, (218 + dx) * 2, (242 + dy) * 2); x.drawImage(l, (113 + dx) * 2, (239 + dy) * 2);
+  [r, l].forEach((im, i) => { const e = EYES[i], p = eyePose(stage, e.c, yaw, pitch);
+    x.save(); x.scale(2, 2); x.translate(p.x, p.y); x.rotate((p.rot * Math.PI) / 180); x.scale(p.sx, p.sy); x.translate(-e.c[0], -e.c[1]);
+    x.drawImage(im, e.sprite[0], e.sprite[1], im.naturalWidth / 2, im.naturalHeight / 2); x.restore(); });
   // the eyes stay within the body
   x.globalCompositeOperation = 'destination-in'; x.drawImage(base, 0, 0, 896, 920);
   return c;
 }
-/** where the eyes go to look at a point (frame units): toward it, at most a little way, as eyes in a face can */
+/** how far the eyes turn to look at a point (frame units): toward it, as far as eyes in a face can */
 function eyeShift(to: Pt): [number, number] {
-  const cx = 204, cy = 290, d = Math.hypot(to[0] - cx, to[1] - cy) || 1, k = Math.min(1, d / 120);
-  return [((to[0] - cx) / d) * 22 * k, ((to[1] - cy) / d) * 14 * k];
+  const cx = 204, cy = 290, dx = to[0] - cx, dy = to[1] - cy, d = Math.hypot(dx, dy) || 1, k = Math.min(1, d / 140);
+  return [(dx / d) * 0.32 * k, (dy / d) * 0.24 * k];
 }
 
 // ── the scene on the board ──────────────────────────────────────────────────────────────────────────────────────
@@ -322,7 +345,23 @@ export function mountChar(rootEl: any) {
   /** the figure's outline on the board */
   const figureBox = (e: any, a: Look): Box => { const b = boxOf(e), k = b.w / a.w; return { x: b.x + a.box.x * k, y: b.y + a.box.y * k, w: a.box.w * k, h: a.box.h * k }; };
 
-  type Plan = { op: Op; subject: any; marks: any[]; tex?: any; to?: Pt; light?: Pt; line?: Pt[] };
+  type Plan = { op: Op; subject: any; marks: any[]; tex?: any; to?: Pt; light?: Pt; line?: Pt[]; learned?: boolean; gesture?: string };
+
+  // ── learning: a gesture once explained in words is understood without them next time ──
+  // Kept as a board key (the same memory every other part of the canvas uses, so the model sees it too) and, for
+  // other boards, in this browser.
+  const GESTURES: Record<string, { form: string; op: Op; means: string }> = {
+    'char:beside': { form: 'a small drawing beside the character', op: 'look', means: 'make its eyes look at that drawing' },
+    'char:lamp': { form: 'a lamp drawn near the character', op: 'light', means: 'light it from there (cast its shadow away from the lamp)' },
+    'char:hair': { form: 'lines drawn round the character\'s head', op: 'hair', means: 'give it that hair' },
+  };
+  const LEARNED = 'cx:char-learned';
+  const learnedHere = (sig: string) => { try { if (allKeys(store).some(k => k.sig === sig && (k.source === 'accepted' || k.source === 'chosen'))) return true; } catch { /* no keys */ } try { return (JSON.parse(localStorage.getItem(LEARNED) || '[]') as string[]).includes(sig); } catch { return false; } };
+  const learn = (sig: string) => {
+    const g = GESTURES[sig]; if (!g || learnedHere(sig)) return;
+    try { addKey(store, { scope: { kind: 'board' }, form: g.form, sig, means: g.means, source: 'chosen' }); } catch { /* the browser memory still has it */ }
+    try { const l = JSON.parse(localStorage.getItem(LEARNED) || '[]'); if (!l.includes(sig)) localStorage.setItem(LEARNED, JSON.stringify([...l, sig])); } catch { /* not kept */ }
+  };
   /** what the newest marks ask for, read from the drawing (and the words, where given) */
   async function planFor(words: string, ids?: string[]): Promise<Plan | null> {
     // asked through the prompt, only what is selected counts; drawn alone, what was drawn since the last change
@@ -403,14 +442,17 @@ export function mountChar(rootEl: any) {
       const pts = around.flatMap(ptsOf), close = pts.filter(q => near(q, fig, fig.w * 0.22)).length / Math.max(1, pts.length);
       return cover > 0.55 && close > 0.7 && Math.abs(u2.x + u2.w / 2 - (fig.x + fig.w / 2)) < fig.w * 0.3 && u2.y < fig.y + fig.h * 0.12 ? around : []; })();
     const lightWords = /light|lamp|torch|flashlight|shadow|影|光|灯|手电/i.test(words), lookWords = /look|gaze|stare|watch|toward|看|望|盯|注视/i.test(words), hairWords = /hair|头发|发/i.test(words);
-    const things = outside.filter(m => !lampFound?.parts.includes(m) && kind.get(m) !== 'ray');
+    // things to look at: drawings whose middle is off the body (they may overlap its edge), not part of a lamp or hair
+    const things = marks.filter(m => !lampFound?.parts.includes(m) && kind.get(m) !== 'ray' && !over.includes(m) && !inFig(mid(boxOf(m)), -Math.min(fig.w, fig.h) * 0.04));
     const target = (list: any[]) => mid(unionBox((list.filter(m => kind.get(m) !== 'ray').length ? list.filter(m => kind.get(m) !== 'ray') : list).map(boxOf)));
-    if (lookWords && (things.length || outside.length)) return { op: 'look', subject, marks, to: target(things.length ? things : outside) };
+    if (lookWords && (things.length || outside.length)) return { op: 'look', subject, marks, to: target(things.length ? things : outside), gesture: 'char:beside' };
     if (hairWords && (over.length || around.length)) return { op: 'hair', subject, marks, line: (over.length ? over : around).flatMap(ptsOf) };
-    if (lampFound && !hairWords) return { op: 'light', subject, marks, light: lampFound.at };
+    if (lampFound && !hairWords) return { op: 'light', subject, marks, light: lampFound.at, gesture: 'char:lamp', learned: !lightWords && learnedHere('char:lamp') };
     if (!lightWords && !lookWords && over.length) return { op: 'hair', subject, marks, line: over.flatMap(ptsOf) };
     if (lightWords) { const c = mid(fig), pts = outside.flatMap(ptsOf); const L: Pt = pts.length ? pts.sort((p, q) => q[1] < p[1] ? 1 : -1)[0] : [c[0] - fig.w, fig.y - fig.h]; return { op: 'light', subject, marks, light: L }; }
     if (lookWords) return outside.length ? { op: 'look', subject, marks, to: target(outside) } : null;
+    // no words: a gesture explained in words before means what it meant then
+    if (!words.trim() && things.length && learnedHere('char:beside')) return { op: 'look', subject, marks, to: target(things), learned: true, gesture: 'char:beside' };
     return null;
   }
 
@@ -423,6 +465,11 @@ export function mountChar(rootEl: any) {
     const d = document.createElement('div'); d.className = 'cx-sense-think cx-rome-think cx-char-think'; d.innerHTML = '<i></i><i></i><i></i><i></i>';
     d.style.left = `${at[0]}px`; d.style.top = `${at[1]}px`; d.style.transform = `scale(${Math.max(0.6, u)})`; layer()?.append(d);
     return () => { d.classList.add('out'); setTimeout(() => d.remove(), 300); };
+  }
+  function note(text: string, at: Pt, u: number) {
+    const d = document.createElement('div'); d.className = 'cx-char-note'; d.textContent = text;
+    Object.assign(d.style, { left: `${at[0]}px`, top: `${at[1]}px`, transform: `scale(${Math.max(0.6, u)})` }); layer()?.append(d);
+    setTimeout(() => { d.classList.add('out'); setTimeout(() => d.remove(), 500); }, 2600);
   }
   const blobFrom = async (src: string | HTMLCanvasElement): Promise<Blob> => {
     if (typeof src !== 'string') return new Promise(ok => src.toBlob(b => ok(b!), 'image/png'));
@@ -592,6 +639,8 @@ export function mountChar(rootEl: any) {
       else if (plan.op === 'eyes' && plan.tex) { const t = (await readImage(plan.tex))?.img; if (t) { const c = eyesIn(a, t); if (c) out = { src: c, w: sb.w, h: sb.h }; } }
     }
     const left = Math.max(0, (stageOut || shadow && film ? 2000 + Math.random() * 900 : 1100) - (Date.now() - t0)); await wait(left); stop();
+    // acting on something learned: say so for a moment, in the board's quiet grey ("as before")
+    if (plan.learned && plan.gesture) note(`As before: ${GESTURES[plan.gesture].means.replace(/ \(.*\)$/, '')}`, [region.x + region.w + 6 * u, region.y], u);
     if (!out) { say(plan.op === 'look' || plan.op === 'eyes' ? 'I could not find the eyes in this picture.' : 'Nothing to change here.', fig, u); return true; }
     // the change happens in place: the figure stays where it is and becomes the next picture
     const dx = (out as any).dx ?? 0, dy = (out as any).dy ?? 0;
@@ -650,6 +699,7 @@ export function mountChar(rootEl: any) {
   async function run(words: string, ids?: string[]): Promise<boolean> {
     if (busy) return true;
     const plan = await planFor(words || '', ids); if (!plan) return false;
+    if (words.trim() && plan.gesture) learn(plan.gesture);   // said once, understood from then on
     // without words the drawing alone must be plain: a material arrow, hair over a figure of this scene, a second lamp
     busy = true; try { return await perform(plan); } finally { busy = false; document.body.classList.remove('cx-char-busy'); }
   }
@@ -666,7 +716,7 @@ export function mountChar(rootEl: any) {
     const plan = await planFor('');
     // a drawing of several strokes (hair, a lamp) gets a longer pause before it is taken as finished
     if (plan && (plan.op === 'hair' || plan.op === 'light') && (pointerDown || Date.now() - lastUp < 2200)) { offered = ''; return; }
-    if (plan && (plan.op === 'material' || plan.op === 'eyes' || plan.op === 'hair' || plan.op === 'light') && (chainOf(plan.subject.id) || plan.op === 'material' || plan.op === 'eyes' || await isFilmStart(plan.subject))) {
+    if (plan && (plan.op === 'material' || plan.op === 'eyes' || plan.op === 'hair' || plan.op === 'light' || plan.learned) && (chainOf(plan.subject.id) || plan.op === 'material' || plan.op === 'eyes' || await isFilmStart(plan.subject))) {
       busy = true; try { await perform(plan); } finally { busy = false; document.body.classList.remove('cx-char-busy'); }
       return;
     }
